@@ -24,9 +24,46 @@ def hellinger(x, y):
 
 
 @numba.njit()
-def kantorovich1d(x, y):
-    pass
+def kantorovich1d(x, y, p=1):
 
+    # Normalize and do a cumulative sum trick
+
+    x_sum = 0.0
+    y_sum = 0.0
+    for i in range(x.shape[0]):
+        x_sum += x[i]
+        y_sum += y[i]
+
+    x_cdf = x / x_sum
+    y_cdf = y / y_sum
+
+    for i in range(1, x_cdf.shape[0]):
+        x_cdf[i] += x_cdf[i - 1]
+        y_cdf[i] += y_cdf[i - 1]
+
+    # Now we just want minkowski distance on the CDFs
+    result = 0.0
+    if p > 2:
+        for i in range(x.shape[0]):
+            result += np.abs(x - y) ** p
+
+        return result ** (1.0 /p)
+
+    elif p == 2:
+        for i in range(x.shape[0]):
+            val = x - y
+            result += val * val
+
+        return np.sqrt(result)
+
+    elif p == 1:
+        for i in range(x.shape[0]):
+            result += np.abs(x - y)
+
+        return result
+
+    else:
+        raise ValueError("Invalid p supplied to Kantorvich distance")
 
 @numba.njit()
 def circular_kantorovich(x, y):
