@@ -77,7 +77,26 @@ def total_variation(x, y):
 
 @numba.njit()
 def jensen_shannon_divergence(x, y):
-    pass
+    result = 0.0
+    l1_norm_x = 0.0
+    l1_norm_y = 0.0
+    dim = x.shape[0]
+    m = np.zeros(dim)
+    l1_norm_m = 0.0
+
+    for i in range(dim):
+        l1_norm_x += x[i]
+        l1_norm_y += y[i]
+        m[i] = 0.5*(x[i]+y[i]) + EPS
+
+    l1_norm_x += EPS * dim
+    l1_norm_y += EPS * dim
+    l1_norm_m = 0.5*(l1_norm_x + l1_norm_y)
+
+    for i in range(dim):
+        result += ((x[i] + EPS) / l1_norm_x * np.log(((x[i] + EPS) / l1_norm_x) / (m[i] / l1_norm_m))
+                   + (y[i] + EPS) / l1_norm_y * np.log(((y[i] + EPS) / l1_norm_y) / (m[i] / l1_norm_m)))
+    return result
 
 
 @numba.njit()
