@@ -43,7 +43,7 @@ install:
 script:
   - mkdir for_test
   - cd for_test
-  - pytest -v --cov=skltemplate --pyargs skltemplate
+  - pytest -v --cov=vectorizers --pyargs vectorizers
 
 after_success:
   - codecov

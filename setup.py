@@ -7,19 +7,19 @@ import os
 from setuptools import find_packages, setup
 
 # get __version__ from _version.py
-ver_file = os.path.join('skltemplate', '_version.py')
+ver_file = os.path.join('vectorizers', '_version.py')
 with open(ver_file) as f:
     exec(f.read())
 
-DISTNAME = 'sklearn-template'
-DESCRIPTION = 'A template for scikit-learn compatible packages.'
+DISTNAME = 'vectorizers'
+DESCRIPTION = 'A suite of vectorizers for various data types.'
 with codecs.open('README.rst', encoding='utf-8-sig') as f:
     LONG_DESCRIPTION = f.read()
-MAINTAINER = 'V. Birodkars, G. Lemaitre'
-MAINTAINER_EMAIL = 'vighneshbirodkar@nyu.edu, g.lemaitre58@gmail.com'
-URL = 'https://github.com/scikit-learn-contrib/project-template'
+MAINTAINER = 'John Healy, Leland McInnes, Colin Weir'
+MAINTAINER_EMAIL = 'leland.mcinnes@gmail.com'
+URL = 'https://github.com/TutteInstitute/vectorizers'
 LICENSE = 'new BSD'
-DOWNLOAD_URL = 'https://github.com/scikit-learn-contrib/project-template'
+DOWNLOAD_URL = 'https://github.com/TutteInstitute/vectorizers'
 VERSION = __version__
 INSTALL_REQUIRES = ['numpy', 'scipy', 'scikit-learn']
 CLASSIFIERS = ['Intended Audience :: Science/Research',

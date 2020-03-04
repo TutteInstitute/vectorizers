@@ -2,8 +2,8 @@
 
 [run]
 branch = True
-source = skltemplate
-include = */skltemplate/*
+source = vectorizers
+include = */vectorizers/*
 omit =
     */setup.py
 
