@@ -31,6 +31,21 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
     pass
 
 
+class KDEVectorizer(BaseEstimator, TransformerMixin):
+
+    pass
+
+
+class ProductDistributionVectorizer(BaseEstimator, TransformerMixin):
+
+    pass
+
+
 class Wasserstein1DHistogramTransformer(BaseEstimator, TransformerMixin):
+
+    pass
+
+
+class SequentialDifferenceTransformer(BaseEstimator, TransformerMixin):
 
     pass
