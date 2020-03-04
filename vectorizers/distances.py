@@ -94,7 +94,7 @@ def jensen_shannon_divergence(x, y):
     l1_norm_m = 0.5*(l1_norm_x + l1_norm_y)
 
     for i in range(dim):
-        result += ((x[i] + EPS) / l1_norm_x * np.log(((x[i] + EPS) / l1_norm_x) / (m[i] / l1_norm_m))
+        result += 0.5*((x[i] + EPS) / l1_norm_x * np.log(((x[i] + EPS) / l1_norm_x) / (m[i] / l1_norm_m))
                    + (y[i] + EPS) / l1_norm_y * np.log(((y[i] + EPS) / l1_norm_y) / (m[i] / l1_norm_m)))
     return result
 
