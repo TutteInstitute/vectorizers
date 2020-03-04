@@ -1,6 +1,8 @@
 import numba
 import numpy as np
 
+EPS = 1e11
+
 @numba.njit()
 def hellinger(x, y):
     result = 0.0
@@ -43,7 +45,22 @@ def jensen_shannon_divergence(x, y):
 
 @numba.njit()
 def symmetric_kl_divergence(x, y):
-    pass
+    result = 0.0
+    l1_norm_x = 0.0
+    l1_norm_y = 0.0
+    dim = x.shape[0]
+
+    for i in range(dim):
+        l1_norm_x += x[i]
+        l1_norm_y += y[i]
+
+    l1_norm_x += EPS * dim
+    l1_norm_y += EPS * dim
+
+    for i in range(dim):
+        result += ((x[i]+EPS) / l1_norm_x * np.log( ((x[i]+EPS) / l1_norm_x) / ((y[i]+EPS) / l1_norm_y) )
+                    + (y[i]+EPS) / l1_norm_y * np.log( ((y[i]+EPS) / l1_norm_y) / ((x[i]+EPS) / l1_norm_x)))
+    return result
 
 
 @numba.njit()
