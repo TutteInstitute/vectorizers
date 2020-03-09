@@ -7,6 +7,12 @@ from ._vectorizers import Wasserstein1DHistogramTransformer
 
 from ._version import __version__
 
-__all__ = ['TokenCooccurrenceVectorizer', 'DistributionVectorizer', 'HistogramVectorizer',
-           'SkipgramVectorizer', 'NgramVectorizer', 'Wasserstein1DHistogramTransformer',
-           '__version__']
+__all__ = [
+    "TokenCooccurrenceVectorizer",
+    "DistributionVectorizer",
+    "HistogramVectorizer",
+    "SkipgramVectorizer",
+    "NgramVectorizer",
+    "Wasserstein1DHistogramTransformer",
+    "__version__",
+]
