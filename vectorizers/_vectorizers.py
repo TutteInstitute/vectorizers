@@ -5,6 +5,7 @@ import numpy as np
 import numba
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
+from sklearn.feature_extraction.text import CountVectorizer
 from collections import defaultdict
 import scipy.sparse
 
@@ -265,6 +266,22 @@ def token_cooccurence_matrix(
     return cooccurrence_matrix.tocsr(), token_dictionary, index_dictionary
 
 
+@numba.njit(nogil=True)
+def ngrams_of(sequence, ngram_size, ngram_behaviour="exact"):
+    result = []
+    for i in range(len(sequence)):
+        if ngram_behaviour == "exact":
+            if i + ngram_size <= len(sequence):
+                result.append(sequence[i : i + ngram_size])
+        elif ngram_behaviour == "subgrams":
+            for j in range(1, ngram_size + 1):
+                if i + j <= len(sequence):
+                    result.append(sequence[i : i + j])
+        else:
+            raise ValueError("Unrecognized ngram_behaviour!")
+    return result
+
+
 class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
     """Given a sequence, or list of sequences of tokens, produce a
     co-occurrence count matrix of tokens. If passed a single sequence of tokens it
@@ -396,8 +413,9 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
         )
 
         n_tokens = len(self.token_dictionary_)
-        index_dictionary = {index:token for token, index in
-                            self.token_dictionary_.items()}
+        index_dictionary = {
+            index: token for token, index in self.token_dictionary_.items()
+        }
 
         row, col, data = skip_grams_matrix_coo_data(
             X,
@@ -423,21 +441,13 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
         self._train_matrix = base_matrix[:, self._column_is_kept]
         return self
 
-
     def fit_transform(self, X, y=None, **fit_params):
         self.fit(self, X, y, **fit_params)
         return self._train_matrix
 
-
     def transform(self, X):
-        (
-            token_sequences,
-            _,
-            _,
-        ) = preprocess_token_sequences(
-            X,
-            self.token_dictionary_,
-            ignored_tokens=self.ignored_tokens,
+        (token_sequences, _, _,) = preprocess_token_sequences(
+            X, self.token_dictionary_, ignored_tokens=self.ignored_tokens,
         )
 
         n_tokens = len(self.token_dictionary_)
@@ -458,7 +468,97 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
 
 
 class NgramVectorizer(BaseEstimator, TransformerMixin):
-    pass
+    def __init__(self):
+        pass
+
+    def fit(self, X, y=None, **fit_params):
+        if self.ngram_dictionary is not None:
+            self.ngram_dictionary_ = self.ngram_dictionary
+        else:
+            self.ngram_dictionary_ = defaultdict
+            self.ngram_dictionary_.default_factory = self.ngram_dictionary_.__len__
+
+        indptr = [0]
+        indices = []
+        data = []
+        for sequence in X:
+            counter = {}
+            for gram in ngrams_of(sequence, self.ngram_size, self.ngram_behaviour):
+                try:
+                    col_index = self.ngram_dictionary_[gram]
+                    if col_index in counter:
+                        counter[col_index] += 1
+                    else:
+                        counter[col_index] = 1
+                except KeyError:
+                    # Out of predefined ngrams; drop
+                    continue
+
+            indptr.append(indptr[-1] + len(counter))
+            indices.extend(counter.keys())
+            data.extend(counter.values())
+
+        # Remove defaultdict behavior
+        self.ngram_dictionary_ = dict(self.ngram_dictionary_)
+
+        if indptr[-1] > np.iinfo(np.int32).max:  # = 2**31 - 1
+            indices_dtype = np.int64
+        else:
+            indices_dtype = np.int32
+        indices = np.asarray(indices, dtype=indices_dtype)
+        indptr = np.asarray(indptr, dtype=indices_dtype)
+        data = np.frombuffer(data, dtype=np.intc)
+
+        self._train_matrix = scipy.sparse.csr_matrix(
+            (data, indices, indptr),
+            shape=(len(indptr) - 1, len(self.ngram_dictionary_)),
+            dtype=self.dtype,
+        )
+        self._train_matrix.sort_indices()
+
+        return self
+
+    def fit_transform(self, X, y=None, **fit_params):
+        self.fit(X, y, **fit_params)
+        return self._train_matrix
+
+    def transform(self, X):
+        indptr = [0]
+        indices = []
+        data = []
+        for sequence in X:
+            counter = {}
+            for gram in ngrams_of(sequence, self.ngram_size, self.ngram_behaviour):
+                try:
+                    col_index = self.ngram_dictionary_[gram]
+                    if col_index in counter:
+                        counter[col_index] += 1
+                    else:
+                        counter[col_index] = 1
+                except KeyError:
+                    # Out of predefined ngrams; drop
+                    continue
+
+            indptr.append(indptr[-1] + len(counter))
+            indices.extend(counter.keys())
+            data.extend(counter.values())
+
+        if indptr[-1] > np.iinfo(np.int32).max:  # = 2**31 - 1
+            indices_dtype = np.int64
+        else:
+            indices_dtype = np.int32
+        indices = np.asarray(indices, dtype=indices_dtype)
+        indptr = np.asarray(indptr, dtype=indices_dtype)
+        data = np.frombuffer(data, dtype=np.intc)
+
+        result = scipy.sparse.csr_matrix(
+            (data, indices, indptr),
+            shape=(len(indptr) - 1, len(self.ngram_dictionary_)),
+            dtype=self.dtype,
+        )
+        result.sort_indices()
+
+        return result
 
 
 class KDEVectorizer(BaseEstimator, TransformerMixin):
