@@ -3,15 +3,32 @@ This is a module to be used as a reference for building other modules
 """
 import numpy as np
 import numba
+
 from sklearn.base import BaseEstimator, TransformerMixin
 import itertools
 import pandas as pd
-from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
-from sklearn.feature_extraction.text import CountVectorizer
-from collections import defaultdict
-import scipy.sparse
+from sklearn.utils.validation import (
+    check_X_y,
+    check_array,
+    check_is_fitted,
+    check_random_state,
+)
+from sklearn.metrics import pairwise_distances
+from sklearn.mixture import GaussianMixture
+from sklearn.preprocessing import normalize
 
-from .utils import flatten
+from collections import defaultdict
+import scipy.linalg
+import scipy.stats
+import scipy.sparse
+from typing import Union, Sequence, AnyStr
+
+from .utils import (
+    flatten,
+    vectorize_diagram,
+    pairwise_gaussian_ground_distance,
+)
+import .distances as distances
 
 
 @numba.njit(nogil=True)
@@ -352,6 +369,8 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             symmetrize=self.symmetrize,
         )
 
+        self.metric_ = distances.sparse_hellinger
+
         return self.cooccurrences_
 
     def fit(self, X, y=None, **fit_params):
@@ -360,7 +379,49 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
 
 class DistributionVectorizer(BaseEstimator, TransformerMixin):
-    pass
+    def __init__(
+        self, n_components=20, random_state=None,
+    ):
+        self.n_components = n_components
+        self.random_state = random_state
+
+    def _validate_params(self):
+        if (
+            not np.issubdtype(type(self.n_components), np.integer)
+            or self.n_components < 2
+        ):
+            raise ValueError(
+                "n_components must be and integer greater than or equal " "to 2."
+            )
+
+    def fit(self, X, y=None, **fit_params):
+        random_state = check_random_state(self.random_state)
+        self._validate_params()
+
+        combined_data = np.vstack(X)
+        combined_data = check_array(combined_data)
+
+        self.mixture_model_ = GaussianMixture(
+            n_components=self.n_components, random_state=random_state
+        )
+        self.mixture_model_.fit(combined_data)
+        self.ground_distance_ = pairwise_gaussian_ground_distance(
+            self.mixture_model_.means_, self.mixture_model_.covariances_,
+        )
+        self.metric_ = distances.hellinger
+
+    def transform(self, X):
+        check_is_fitted(self, ["mixture_model_", "ground_distance_"])
+        result = np.vstack(
+            [vectorize_diagram(diagram, self.mixture_model_) for diagram in X]
+        )
+        return result
+
+    def fit_transform(self, X, y=None, **fit_params):
+        self.fit(X, y, **fit_params)
+        return np.vstack(
+            [vectorize_diagram(diagram, self.mixture_model_) for diagram in X]
+        )
 
 def find_bin_boundaries(flat, n_bins):
     """
@@ -564,6 +625,7 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
             self.skipgram_dictionary_[(first_token, second_token)] = i
 
         self._train_matrix = base_matrix[:, self._column_is_kept]
+        self.metric_ = distances.sparse_hellinger
         return self
 
     def fit_transform(self, X, y=None, **fit_params):
