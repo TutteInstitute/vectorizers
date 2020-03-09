@@ -468,8 +468,12 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
 
 
 class NgramVectorizer(BaseEstimator, TransformerMixin):
-    def __init__(self):
-        pass
+    def __init__(
+        self, ngram_size=2, ngram_behaviour="exact", ngram_dictionary=None,
+    ):
+        self.ngram_size = ngram_size
+        self.ngram_behaviour = ngram_behaviour
+        self.ngram_dictionary = ngram_dictionary
 
     def fit(self, X, y=None, **fit_params):
         if self.ngram_dictionary is not None:
