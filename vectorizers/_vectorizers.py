@@ -5,6 +5,8 @@ import numpy as np
 import numba
 
 from sklearn.base import BaseEstimator, TransformerMixin
+import itertools
+import pandas as pd
 from sklearn.utils.validation import (
     check_X_y,
     check_array,
@@ -21,12 +23,12 @@ import scipy.stats
 import scipy.sparse
 from typing import Union, Sequence, AnyStr
 
-from vectorizers.utils import (
+from .utils import (
     flatten,
     vectorize_diagram,
     pairwise_gaussian_ground_distance,
 )
-import vectorizers.distances as distances
+import .distances as distances
 
 
 @numba.njit(nogil=True)
@@ -349,7 +351,6 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             max_frequency=self.max_frequency,
             ignored_tokens=self.ignored_tokens,
         )
-
         if self.window_function is information_window:
             window_args = (*self.window_args, self.token_frequencies_)
         else:
@@ -422,12 +423,136 @@ class DistributionVectorizer(BaseEstimator, TransformerMixin):
             [vectorize_diagram(diagram, self.mixture_model_) for diagram in X]
         )
 
+def find_bin_boundaries(flat, n_bins):
+    """
+    Only uniform distribution is currently implemented.
+    TODO: Implement Normal
+    :param flat: an iterable.
+    :param n_bins:
+    :return:
+    """
+    flat.sort()
+    flat_csum = np.cumsum(flat)
+    bin_range = flat_csum[-1]/n_bins
+    bin_indices = [0]
+    for i in range(1, len(flat_csum)):
+        if( (flat_csum[i]>=bin_range*len(bin_indices)) & (flat[i] > flat[bin_indices[-1]]) ):
+            bin_indices.append(i)
+    bin_values= np.array(flat,dtype=float)[bin_indices]
+    return bin_values
+
+def expand_boundaries(my_interval_index, absolute_range):
+    """
+    expands the outer bind on a pandas IntervalIndex to encompase the range specified by the 2-tuple absolute_range
+    :param my_interval_index:
+    :param absolute_range: 2tuple (min_value, max_value)
+    :return: a pandas IntervalIndex
+    """
+    interval_list = my_interval_index.to_list()
+    #Check if the left boundary needs expanding
+    if interval_list[0].left>absolute_range[0]:
+        interval_list[0] = pd.Interval(left=absolute_range[0],
+                                       right=interval_list[0].right)
+    #Check if the right boundary needs expanding
+    last = len(interval_list)-1
+    if interval_list[last].right<absolute_range[1]:
+        interval_list[last] = pd.Interval(left=interval_list[last].left,
+                                       right=absolute_range[1])
+    return pd.IntervalIndex(interval_list)
+
+
+def add_outier_bins(my_interval_index, absolute_range):
+    """
+    Appends extra bins to either side our our interval index if appropriate.
+    That only occurs if the absolute_range is wider than the observed range in your training data.
+    :param my_interval_index:
+    :param absolute_range:
+    :return:
+    """
+    interval_list = my_interval_index.to_list()
+    # Check if the left boundary needs expanding
+    if interval_list[0].left > absolute_range[0]:
+        left_outlier = pd.Interval(left=absolute_range[0],
+                                   right=interval_list[0].left)
+        interval_list.insert(0, left_outlier)
+
+    last = len(interval_list) - 1
+    if interval_list[last].right < absolute_range[1]:
+        right_outlier = pd.Interval(left=interval_list[last].right,
+                                    right=absolute_range[1])
+        interval_list.append(right_outlier)
+    return pd.IntervalIndex(interval_list)
+
 
 class HistogramVectorizer(BaseEstimator, TransformerMixin):
     """Convert a time series of binary events into a histogram of
     event occurrences over a time frame. If the data has explicit time stamps
     it can be aggregated over hour of day, day of week, day of month, day of year
     , week of year or month of year."""
+    #TODO: time stamps, generic groupby
+    def __init__(self,
+                 n_bins,
+                 strategy='uniform',
+                 ground_distance='euclidean',
+                 absolute_range=(-np.inf, np.inf),
+                 outlier_bins=False):
+        """
+        :param n_bins: int or array-like, shape (n_features,) (default=5)
+            The number of bins to produce. Raises ValueError if n_bins < 2.
+        :param strategy: {‘uniform’, ‘quantile’, 'gmm'}, (default=’quantile’)
+        :param ground_distance: {'euclidean'}
+            The distance to induce between bins.
+        :param absolute_range: (minimum_value_possible, maximum_value_possible) (default=(-np.inf, np.inf))
+            By default values outside of training data range are included in the extremal bins.
+            You can specify these values if you know something about your values (e.g. (0, np.inf) )
+        :param outlier_bins: binary (default=False) should I add extra bins to catch values outside of your training
+            data where appropriate?
+        """
+        self._n_bins = n_bins
+        self._strategy = strategy
+        self._ground_distance = ground_distance
+        self._absolute_range= absolute_range
+        self._outlier_bins = outlier_bins
+
+    def fit(self, data):
+        """
+        Learns the histogram bins.
+        Still need to check switch.
+        :param data:
+        :return:
+        """
+        flat = flatten(data)
+        flat = list(filter(lambda n: n>self._absolute_range[0] and n<self._absolute_range[1], flat))
+        if (self._strategy=='uniform'):
+            self.bin_intervals_ = pd.interval_range(start=np.min(flat), end=np.max(flat), periods=self._n_bins)
+        if (self._strategy=='quantile'):
+            self.bin_intervals_ = pd.IntervalIndex.from_breaks(find_bin_boundaries(flat, self._n_bins))
+        if (self._strategy=='gmm'):
+            raise NotImplementedError('Sorry Guassian Mixture model distribution not yet implemented')
+        if(self._outlier_bins==True):
+            self.bin_intervals_ = add_outier_bins(self.bin_intervals_, self._absolute_range)
+        else:
+            self.bin_intervals_ = expand_boundaries(self.bin_intervals_, self._absolute_range)
+    #    if (len(self._model) != self._n_bins):
+    #        print("Warning: Could not find sufficient number of bins. Making do.")
+        return self
+
+    def vector_transform(self, vector):
+        """
+        Applies the transform to a single row of the data.
+        """
+        return pd.cut(vector, self.bin_intervals_).value_counts()
+
+    def transform(self, data):
+        """
+        Apply binning to a full data set returning an nparray.
+        """
+        my_matrix = np.ndarray((len(data), len(self.bin_intervals_)))
+        for i, seq in enumerate(data):
+            my_matrix[i, :] = self.vector_transform(seq).values
+        return my_matrix
+
+    # Need a pandas group by time of day, etc... function
 
     pass
 
@@ -641,3 +766,4 @@ class Wasserstein1DHistogramTransformer(BaseEstimator, TransformerMixin):
 
 class SequentialDifferenceTransformer(BaseEstimator, TransformerMixin):
     pass
+
