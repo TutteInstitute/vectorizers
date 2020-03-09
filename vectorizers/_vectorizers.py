@@ -7,11 +7,8 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
 from collections import defaultdict
 import scipy.sparse
-import itertools
 
-
-def flatten(list_of_seq):
-    return tuple(itertools.chain.from_iterable(list_of_seq))
+from vectorizers.utils import flatten
 
 
 @numba.njit(nogil=True)
