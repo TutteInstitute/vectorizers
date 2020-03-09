@@ -192,6 +192,38 @@ def build_skip_grams(
     return new_tokens
 
 
+@numba.njit(nogil=True)
+def skip_grams_matrix_coo_data(
+    list_of_token_sequences,
+    window_function,
+    kernel_function,
+    window_args,
+    kernel_args,
+    n_tokens,
+):
+    result_row = [numba.types.int32(0) for i in range(0)]
+    result_col = [numba.types.int32(0) for i in range(0)]
+    result_data = [numba.types.float32(0) for i in range(0)]
+
+    for row_idx in range(len(list_of_token_sequences)):
+        skip_gram_data = build_skip_grams(
+            list_of_token_sequences[row_idx],
+            window_function,
+            kernel_function,
+            window_args,
+            kernel_args,
+        )
+        for skip_gram in skip_gram_data:
+            result_row.append(row_idx)
+            result_col.append(
+                numba.types.int32(skip_gram[0]) * n_tokens
+                + numba.types.int32(skip_gram[1])
+            )
+            result_data.append(skip_gram[2])
+
+    return np.array(result_row), np.array(result_col), np.array(result_data)
+
+
 @numba.njit(nogil=True, parallel=True)
 def sequence_skip_grams(
     token_sequences, window_function, kernel_function, window_args, kernel_args
@@ -323,7 +355,106 @@ class HistogramVectorizer(BaseEstimator, TransformerMixin):
 
 
 class SkipgramVectorizer(BaseEstimator, TransformerMixin):
-    pass
+    def __init__(
+        self,
+        token_dictionary=None,
+        min_occurrences=None,
+        max_occurrences=None,
+        min_frequency=None,
+        max_frequency=None,
+        ignored_tokens=None,
+        window_function=fixed_window,
+        kernel_function=flat_kernel,
+        window_args=(5,),
+        kernel_args=(),
+    ):
+        self.token_dictionary = token_dictionary
+        self.min_occurrences = min_occurrences
+        self.min_frequency = min_frequency
+        self.max_occurrences = max_occurrences
+        self.max_frequency = max_frequency
+        self.ignored_tokens = ignored_tokens
+
+        self.window_function = window_function
+        self.kernel_function = kernel_function
+        self.window_args = window_args
+        self.kernel_args = kernel_args
+
+    def fit(self, X, y=None, **fit_params):
+        (
+            token_sequences,
+            self.token_dictionary_,
+            self.token_frequencies_,
+        ) = preprocess_token_sequences(
+            X,
+            self.token_dictionary,
+            min_occurrences=self.min_occurrences,
+            max_occurrences=self.max_occurrences,
+            min_frequency=self.min_frequency,
+            max_frequency=self.max_frequency,
+            ignored_tokens=self.ignored_tokens,
+        )
+
+        n_tokens = len(self.token_dictionary_)
+        index_dictionary = {index:token for token, index in
+                            self.token_dictionary_.items()}
+
+        row, col, data = skip_grams_matrix_coo_data(
+            X,
+            self.window_function,
+            self.kernel_function,
+            self.window_args,
+            self.kernel_args,
+            n_tokens,
+        )
+
+        base_matrix = scipy.sparse.coo_matrix((data, (row, col)))
+        column_sums = np.array(base_matrix.sum(axis=0))[0]
+        self._column_is_kept = column_sums > 0
+        self._kept_columns = np.where(self._column_is_kept)[0]
+
+        self.skipgram_dictionary_ = {}
+        for i in range(self._kept_columns.shape[0]):
+            raw_val = self._kept_columns[i]
+            first_token = index_dictionary[raw_val // n_tokens]
+            second_token = index_dictionary[raw_val % n_tokens]
+            self.skipgram_dictionary_[(first_token, second_token)] = i
+
+        self._train_matrix = base_matrix[:, self._column_is_kept]
+        return self
+
+
+    def fit_transform(self, X, y=None, **fit_params):
+        self.fit(self, X, y, **fit_params)
+        return self._train_matrix
+
+
+    def transform(self, X):
+        (
+            token_sequences,
+            _,
+            _,
+        ) = preprocess_token_sequences(
+            X,
+            self.token_dictionary_,
+            ignored_tokens=self.ignored_tokens,
+        )
+
+        n_tokens = len(self.token_dictionary_)
+
+        row, col, data = skip_grams_matrix_coo_data(
+            X,
+            self.window_function,
+            self.kernel_function,
+            self.window_args,
+            self.kernel_args,
+            n_tokens,
+        )
+
+        base_matrix = scipy.sparse.coo_matrix((data, (row, col)))
+        result = base_matrix[:, self._column_is_kept]
+
+        return result
 
 
 class NgramVectorizer(BaseEstimator, TransformerMixin):
