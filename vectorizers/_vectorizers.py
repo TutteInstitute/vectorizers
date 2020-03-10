@@ -302,6 +302,32 @@ def ngrams_of(sequence, ngram_size, ngram_behaviour="exact"):
     return result
 
 
+@numba.njit(nogil=True)
+def min_non_zero_difference(data):
+    sorted_data = np.sort(data)
+    differences = sorted_data[1:] - sorted_data[:-1]
+    return np.min(differences[differences > 0])
+
+
+def jackknife_bandwidths(data, bandwidths, kernel="gaussian"):
+    result = np.zeros(bandwidths.shape[0])
+    for j in range(bandwidths.shape[0]):
+        kde = KernelDensity(bandwidth=bandwidths[j], kernel=kernel)
+        for i in range(len(data)):
+            likelihood = 0.0
+            for k in range(len(data[i])):
+                if k < len(data[i]) - 1:
+                    jackknife_sample = np.hstack([data[i][:k], data[i][k+1:]])
+                else:
+                    jackknife_sample = data[i][:k]
+                kde.fit(jackknife_sample[:, None])
+                likelihood += np.exp(kde.score(np.array([[data[i][k]]])))
+
+            result[j] += likelihood
+
+    return result
+
+
 class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
     """Given a sequence, or list of sequences of tokens, produce a
     co-occurrence count matrix of tokens. If passed a single sequence of tokens it
@@ -784,24 +810,32 @@ class KDEVectorizer(BaseEstimator, TransformerMixin):
         n_components=50,
         kernel="gaussian",
         evaluation_grid_strategy="uniform",
-        outlier_bins=False,
     ):
         self.n_components = n_components
         self.evaluation_grid_strategy = evaluation_grid_strategy
         self.bandwidth = bandwidth
         self.kernel = kernel
-        self.outlier_bins = outlier_bins
 
     def fit(self, X, y=None, **fit_params):
 
+        combined_data = np.array(flatten(X))
+
         if self.bandwidth is None:
             # Estimate the bandwidth by looking at training data
-            # TODO: work out hot to do this
-            self.bandwidth_ = 0.5
+            # We do a jack-knife across each time series and
+            # find the bandwidth choice that works best over all
+            # time series
+            min, max = np.min(combined_data), np.max(combined_data)
+            avg_n_events = np.mean([len(x) for x in X])
+            max_bandwidth = (max - min) / avg_n_events
+            min_bandwidth = min_non_zero_difference(combined_data)
+            bandwidths = 10.0 ** np.linspace(
+                np.log10(min_bandwidth), np.log10(max_bandwidth), 50
+            )
+            jackknifed_total_likelihoods = jackknife_bandwidths(X, bandwidths)
+            self.bandwidth_ = bandwidths[np.argmax(jackknifed_total_likelihoods)]
         else:
             self.bandwidth_ = self.bandwidth
-
-        combined_data = np.array(flatten(X))
 
         if self.evaluation_grid_strategy == "uniform":
             min, max = np.min(combined_data), np.max(combined_data)
