@@ -422,7 +422,7 @@ def skip_grams_matrix_coo_data(
     return np.array(result_row), np.array(result_col), np.array(result_data)
 
 
-@numba.njit(nogil=True, parallel=True)
+# @numba.njit(nogil=True, parallel=True)
 def sequence_skip_grams(
     token_sequences, window_function, kernel_function, window_args, kernel_args
 ):
