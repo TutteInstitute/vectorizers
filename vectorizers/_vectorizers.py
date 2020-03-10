@@ -463,6 +463,7 @@ def sequence_skip_grams(
 
 def token_cooccurence_matrix(
     token_sequences,
+    n_unique_tokens,
     window_function=fixed_window,
     kernel_function=flat_kernel,
     window_args=(5,),
@@ -485,6 +486,9 @@ def token_cooccurence_matrix(
     ----------
     token_sequences: Iterable of Iterables
         The collection of token sequences to generate skip-gram data for.
+
+    n_unique_tokens: int
+        The number of unique tokens in the token_dictionary.
 
     window_function: numba.jitted callable (optional, default=fixed_window)
         A function producing a sequence of windows given a source sequence
@@ -521,6 +525,7 @@ def token_cooccurence_matrix(
             raw_coo_data.T[2],
             (raw_coo_data.T[0].astype(np.int64), raw_coo_data.T[1].astype(np.int64)),
         ),
+        shape=(n_unique_tokens, n_unique_tokens),
         dtype=np.float32,
     )
     if symmetrize:
@@ -743,6 +748,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
         self.cooccurrences_ = token_cooccurence_matrix(
             token_sequences,
+            len(self.token_dictionary_),
             window_function=self.window_function,
             kernel_function=self.kernel_function,
             window_args=window_args,
