@@ -873,8 +873,32 @@ class ProductDistributionVectorizer(BaseEstimator, TransformerMixin):
 
 
 class Wasserstein1DHistogramTransformer(BaseEstimator, TransformerMixin):
-    pass
+
+    def __init__(self):
+        pass
+
+    def fit_transform(self, X, y=None, **fit_params):
+        result = np.cumsum(X, axis=1)
+        self.metric_ = 'l1'
+        return result
+
 
 
 class SequentialDifferenceTransformer(BaseEstimator, TransformerMixin):
-    pass
+
+    def __init__(self, offset=1):
+        self.offset = offset
+
+
+    def fit(self, X, y=None, **fit_params):
+        self.fit_transform(X, y, **fit_params)
+        return self
+
+    def fit_transform(self, X, y=None, **fit_params):
+        result = []
+
+        for sequence in X:
+            seq = np.array(sequence)
+            result.append(seq[self.offset:] - seq[:-self.offset])
+
+        return result
