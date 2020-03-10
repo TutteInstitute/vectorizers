@@ -32,7 +32,7 @@ from .utils import (
 import vectorizers.distances as distances
 
 
-@numba.njit(nogil=True)
+# @numba.njit(nogil=True)
 def construct_token_dictionary_and_frequency(token_sequence, token_dictionary=None):
     """Construct a dictionary mapping tokens to indices and a table of token
     frequencies (where the frequency of token 'x' is given by token_frequencies[
@@ -72,7 +72,7 @@ def construct_token_dictionary_and_frequency(token_sequence, token_dictionary=No
     return token_dictionary, token_frequency, n_tokens
 
 
-@numba.njit(nogil=True)
+# @numba.njit(nogil=True)
 def prune_token_dictionary(
     token_dictionary,
     token_frequencies,
@@ -136,7 +136,7 @@ def prune_token_dictionary(
     return new_vocabulary, new_token_frequency
 
 
-@numba.njit(nogil=True)
+# @numba.njit(nogil=True)
 def preprocess_token_sequences(
     token_sequences,
     flat_sequence,
@@ -202,7 +202,7 @@ def preprocess_token_sequences(
 
     # Get vocabulary and word frequencies
     (
-        token_dictonary,
+        token_dictionary,
         token_frequencies,
         total_tokens,
     ) = construct_token_dictionary_and_frequency(flat_sequence, token_dictionary)
