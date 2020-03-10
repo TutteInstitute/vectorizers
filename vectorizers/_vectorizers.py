@@ -632,7 +632,57 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
     co-occurrence count matrix of tokens. If passed a single sequence of tokens it
     will use windows to determine co-occurrence. If passed a list of sequences of
     tokens it will use windows within each sequence in the list -- with windows not
-    extending beyond the boundaries imposed by the individual sequences in the list."""
+    extending beyond the boundaries imposed by the individual sequences in the list.
+
+    Parameters
+    ----------
+    token_dictionary: dictionary or None (optional, default=None)
+        A fixed ditionary mapping tokens to indices, or None if the dictionary
+        should be learned from the training data.
+
+    min_occurrences: int or None (optional, default=None)
+        The minimal number of occurrences of a token for it to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by min_frequency.
+
+    max_occurrences int or None (optional, default=None)
+        The maximal number of occurrences of a token for it to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by max_frequency.
+
+    min_frequency: float or None (optional, default=None)
+        The minimal frequency of occurrence of a token for it to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by min_occurences.
+
+    max_frequency: float or None (optional, default=None)
+        The maximal frequency of occurrence of a token for it to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by max_occurences.
+
+    ignored_tokens: set or None (optional, default=None)
+        A set of tokens that should be ignored entirely. If None then no tokens will
+        be ignored in this fashion.
+
+    window_function: numba.jitted callable (optional, default=fixed_window)
+        A function producing a sequence of windows given a source sequence
+
+    kernel_function: numba.jitted callable (optional, default=flat_kernel)
+        A function producing weights given a window of tokens
+
+    window_args: tuple (optional, default=(5,)
+        Arguments to pass through to the window function
+
+    kernel_args: tuple (optional, default=())
+        Arguments to pass through to the kernel function
+
+    token_dictionary: dictionary or None (optional, default=None)
+        A dictionary mapping tokens to indices
+
+    symmetrize: bool (optional, default=False)
+        Whether to symmetrize the matrix -- if True this means that the
+        co-occurrence of (a,b) is considered the same as the co-occurrence (b,a).
+    """
 
     def __init__(
         self,
