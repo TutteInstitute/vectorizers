@@ -754,7 +754,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         self._train_matrix = scipy.sparse.csr_matrix(
             (data, indices, indptr),
             shape=(len(indptr) - 1, len(self.ngram_dictionary_)),
-            dtype=self.dtype,
+            dtype=np.float32,
         )
         self._train_matrix.sort_indices()
 
@@ -796,7 +796,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         result = scipy.sparse.csr_matrix(
             (data, indices, indptr),
             shape=(len(indptr) - 1, len(self.ngram_dictionary_)),
-            dtype=self.dtype,
+            dtype=np.float32,
         )
         result.sort_indices()
 
