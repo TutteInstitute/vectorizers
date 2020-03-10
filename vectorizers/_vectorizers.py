@@ -742,7 +742,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             window_args = self.window_args
 
         self.cooccurrences_ = token_cooccurence_matrix(
-            X,
+            token_sequences,
             window_function=self.window_function,
             kernel_function=self.kernel_function,
             window_args=window_args,
