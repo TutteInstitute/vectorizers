@@ -291,6 +291,40 @@ def harmonic_kernel(window):
 def build_skip_grams(
     token_sequence, window_function, kernel_function, window_args, kernel_args
 ):
+    """Given a single token sequence produce an array of weighted skip-grams
+    associated to each token in the original sequence. The resulting array has
+    shape (n_skip_grams, 3) where each skip_gram is a vector giving the
+    head (or skip) token index, the tail token index, and the associated weight of the
+    skip-gram. The weights for skip-gramming are given by the kernel_function
+    that is applied to the window. Options for kernel functions include a fixed
+    kernel (giving a weight of 1 to each item), a triangular kernel (giving a
+    linear decaying weight depending on the distance from the skip token), and a
+    harmonic kernel (giving a weight that decays inversely proportional to the
+    distance from the skip_token).
+
+    Parameters
+    ----------
+    token_sequence: Iterable
+        The sequence of tokens to build skip-grams for.
+
+    window_function: numba.jitted callable
+        A function producing a sequence of windows given a source sequence
+
+    kernel_function: numba.jitted callable
+        A function producing weights given a window of tokens
+
+    window_args: tuple
+        Arguments to pass through to the window function
+
+    kernel_args: tuple
+        Arguments to pass through to the kernel function
+
+    Returns
+    -------
+    skip_grams: array of shape (n_skip_grams, 3)
+        Each skip_gram is a vector giving the head (or skip) token index, the
+        tail token index, and the associated weight of the skip-gram.
+    """
     original_tokens = token_sequence
     n_original_tokens = len(original_tokens)
 
@@ -327,6 +361,41 @@ def skip_grams_matrix_coo_data(
     kernel_args,
     n_unique_tokens,
 ):
+    """Given a list of token sequences construct the relevant data for a sparse
+    matrix representation with a row for each token sequence and a column for each
+    skip-gram.
+
+    Parameters
+    ----------
+    list_of_token_sequences: Iterable of Iterables
+        The token sequences to construct skip-gram based representations of.
+
+    window_function: numba.jitted callable
+        A function producing a sequence of windows given a source sequence
+
+    kernel_function: numba.jitted callable
+        A function producing weights given a window of tokens
+
+    window_args: tuple
+        Arguments to pass through to the window function
+
+    kernel_args: tuple
+        Arguments to pass through to the kernel function
+
+    n_unique_tokens: int
+        The total number of unique tokens across all the sequences
+
+    Returns
+    -------
+    row: array
+        Row data for a COO format sparse matrix representation
+
+    col: array
+        Col data for a COO format sparse matrix representation
+
+    data: array
+        Value data for a COO format sparse matrix representation
+    """
     result_row = [numba.types.int32(0) for i in range(0)]
     result_col = [numba.types.int32(0) for i in range(0)]
     result_data = [numba.types.float32(0) for i in range(0)]
@@ -354,6 +423,32 @@ def skip_grams_matrix_coo_data(
 def sequence_skip_grams(
     token_sequences, window_function, kernel_function, window_args, kernel_args
 ):
+    """Produce skip-gram data for a combined over a list of token sequences. In this
+    case each token sequence represents a sequence with boundaries over which
+    skip-grams may not extend (such as sentence boundaries in an NLP context).
+
+    Parameters
+    ----------
+    token_sequences: Iterable of Iterables
+        The token sequences to produce skip-gram data for
+
+    window_function: numba.jitted callable
+        A function producing a sequence of windows given a source sequence
+
+    kernel_function: numba.jitted callable
+        A function producing weights given a window of tokens
+
+    window_args: tuple
+        Arguments to pass through to the window function
+
+    kernel_args: tuple
+        Arguments to pass through to the kernel function
+
+    Returns
+    -------
+    skip_grams: array of shape (n_skip_grams, 3)
+        The skip grams for the combined set of sequences.
+    """
     skip_grams_per_sequence = [
         build_skip_grams(
             token_sequence, window_function, kernel_function, window_args, kernel_args
@@ -369,9 +464,51 @@ def token_cooccurence_matrix(
     kernel_function=flat_kernel,
     window_args=(5,),
     kernel_args=(),
-    token_dictionary=None,
     symmetrize=False,
 ):
+    """Generate a matrix of (weighted) counts of co-occurrences of tokens within
+    windows in a set of sequences of tokens. Each sequence in the collection of
+    sequences provides an effective boundary over which skip-grams may not pass
+    (such as sentence boundaries in an NLP context). Options for how to generate
+    windows and how to weight the counts with a window via a kernel are available.
+    By default a fixed width window and a flat kernel are used, but other options
+    include a variable width window based on total information within the window,
+    and kernels can also be a triangular kernel (giving a
+    linear decaying weight depending on the distance from the skip token), and a
+    harmonic kernel (giving a weight that decays inversely proportional to the
+    distance from the skip_token).
+
+    Parameters
+    ----------
+    token_sequences: Iterable of Iterables
+        The collection of token sequences to generate skip-gram data for.
+
+    window_function: numba.jitted callable (optional, default=fixed_window)
+        A function producing a sequence of windows given a source sequence
+
+    kernel_function: numba.jitted callable (optional, default=flat_kernel)
+        A function producing weights given a window of tokens
+
+    window_args: tuple (optional, default=(5,)
+        Arguments to pass through to the window function
+
+    kernel_args: tuple (optional, default=())
+        Arguments to pass through to the kernel function
+
+    token_dictionary: dictionary or None (optional, default=None)
+        A dictionary mapping tokens to indices
+
+    symmetrize: bool (optional, default=False)
+        Whether to symmetrize the matrix -- if True this means that the
+        co-occurrence of (a,b) is considered the same as the co-occurrence (b,a).
+
+    Returns
+    -------
+    cooccurrence_matrix: scipyr.sparse.csr_matrix
+        A matrix of shape (n_unique_tokens, n_unique_tokens) where the i,j entry gives
+        the (weighted)  count of the number of times token i cooccurs within a
+        window with token j.
+    """
 
     raw_coo_data = sequence_skip_grams(
         token_sequences, window_function, kernel_function, window_args, kernel_args
@@ -386,13 +523,34 @@ def token_cooccurence_matrix(
     if symmetrize:
         cooccurrence_matrix = cooccurrence_matrix + cooccurrence_matrix.transpose()
 
-    index_dictionary = {index: token for token, index in token_dictionary.items()}
-
-    return cooccurrence_matrix.tocsr(), token_dictionary, index_dictionary
+    return cooccurrence_matrix.tocsr()
 
 
 @numba.njit(nogil=True)
 def ngrams_of(sequence, ngram_size, ngram_behaviour="exact"):
+    """Produce n-grams of a sequence of tokens. The n-gram behaviour can either
+    be "exact", meaning that only n-grams of exactly size n are produced,
+    or "subgrams" meaning that all n-grams of size less than or equal to n are
+    produced.
+
+    Parameters
+    ----------
+    sequence: Iterable
+        The sequence of tokens to produce n-grams of.
+
+    ngram_size: int
+        The size of n-grams to use.
+
+    ngram_behaviour: string (optional, default="exact")
+        The n-gram behaviour. Should be one of:
+            * "exact"
+            * "subgrams"
+
+    Returns
+    -------
+    ngrams: list
+        A list of the n-grams of the sequence.
+    """
     result = []
     for i in range(len(sequence)):
         if ngram_behaviour == "exact":
@@ -422,7 +580,7 @@ def jackknife_bandwidths(data, bandwidths, kernel="gaussian"):
             likelihood = 0.0
             for k in range(len(data[i])):
                 if k < len(data[i]) - 1:
-                    jackknife_sample = np.hstack([data[i][:k], data[i][k+1:]])
+                    jackknife_sample = np.hstack([data[i][:k], data[i][k + 1 :]])
                 else:
                     jackknife_sample = data[i][:k]
                 kde.fit(jackknife_sample[:, None])
@@ -483,16 +641,16 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             max_frequency=self.max_frequency,
             ignored_tokens=self.ignored_tokens,
         )
+        self.index_dictionary_ = {
+            index: token for token, index in self.token_dictionary_.items()
+        }
+
         if self.window_function is information_window:
             window_args = (*self.window_args, self.token_frequencies_)
         else:
             window_args = self.window_args
 
-        (
-            self.cooccurrences_,
-            self.token_dictionary_,
-            self.index_dictionary_,
-        ) = token_cooccurence_matrix(
+        self.cooccurrences_ = token_cooccurence_matrix(
             X,
             window_function=self.window_function,
             kernel_function=self.kernel_function,
@@ -978,22 +1136,18 @@ class ProductDistributionVectorizer(BaseEstimator, TransformerMixin):
 
 
 class Wasserstein1DHistogramTransformer(BaseEstimator, TransformerMixin):
-
     def __init__(self):
         pass
 
     def fit_transform(self, X, y=None, **fit_params):
         result = np.cumsum(X, axis=1)
-        self.metric_ = 'l1'
+        self.metric_ = "l1"
         return result
 
 
-
 class SequentialDifferenceTransformer(BaseEstimator, TransformerMixin):
-
     def __init__(self, offset=1):
         self.offset = offset
-
 
     def fit(self, X, y=None, **fit_params):
         self.fit_transform(X, y, **fit_params)
@@ -1004,6 +1158,6 @@ class SequentialDifferenceTransformer(BaseEstimator, TransformerMixin):
 
         for sequence in X:
             seq = np.array(sequence)
-            result.append(seq[self.offset:] - seq[:-self.offset])
+            result.append(seq[self.offset :] - seq[: -self.offset])
 
         return result
