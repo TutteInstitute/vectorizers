@@ -567,12 +567,48 @@ def ngrams_of(sequence, ngram_size, ngram_behaviour="exact"):
 
 @numba.njit(nogil=True)
 def min_non_zero_difference(data):
+    """Find the minimum non-zero sequential difference in a single dimensional
+    array of values. This is useful for determining the minimal reasonable kernel
+    bandwidth for a 1-dimensional KDE over a dataset.
+
+    Parameters
+    ----------
+    data: array
+        One dimensional array of values
+
+    Returns
+    -------
+    min_difference: float
+        The minimal difference between sequential values.
+    """
     sorted_data = np.sort(data)
     differences = sorted_data[1:] - sorted_data[:-1]
     return np.min(differences[differences > 0])
 
 
 def jackknife_bandwidths(data, bandwidths, kernel="gaussian"):
+    """Perform jack-knife sampling over different bandwidths for KDEs for each
+    time-series in the dataset.
+
+    Parameters
+    ----------
+    data: list of arrays
+        A list of (variable length) arrays of values. The values should represent
+        "times" of "events".
+
+    bandwidths: array
+        The possible bandwidths to try
+
+    kernel: string (optional, default="gaussian")
+        The kernel to use for the KDE. Should be accepted by sklearn's KernelDensity
+        class.
+
+    Returns
+    -------
+    result: array of shape (n_bandwidths,)
+        The total likelihood of unobserved data over all jackknife samplings and all
+        time series in the dataset for each bandwidth.
+    """
     result = np.zeros(bandwidths.shape[0])
     for j in range(bandwidths.shape[0]):
         kde = KernelDensity(bandwidth=bandwidths[j], kernel=kernel)
