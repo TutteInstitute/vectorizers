@@ -139,6 +139,7 @@ def prune_token_dictionary(
 @numba.njit(nogil=True)
 def preprocess_token_sequences(
     token_sequences,
+    flat_sequence,
     token_dictionary=None,
     min_occurrences=None,
     max_occurrences=None,
@@ -158,6 +159,9 @@ def preprocess_token_sequences(
     token_sequences: Iterable of (tuple | list | np.ndarray)
         A list of token sequences. Each sequence should be tuple, list or
         numpy array of tokens.
+
+    flat_sequence: tuple
+        A tuple tokens for processing.
 
     token_dictionary: dictionary or None (optional, default=None)
         A fixed dictionary mapping tokens to indices, constraining the tokens
@@ -195,7 +199,6 @@ def preprocess_token_sequences(
     token_frequencies: array of shape (len(token_dictionary),)
         The frequency of occurrence of the tokens in the token_dictionary.
     """
-    flat_sequence = flatten(token_sequences)
 
     # Get vocabulary and word frequencies
     (
@@ -714,12 +717,14 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
     def fit_transform(self, X, y=None, **fit_params):
 
+        flat_sequences = flatten(X)
         (
             token_sequences,
             self.token_dictionary_,
             self.token_frequencies_,
         ) = preprocess_token_sequences(
             X,
+            flat_sequences,
             self.token_dictionary,
             min_occurrences=self.min_occurrences,
             max_occurrences=self.max_occurrences,
@@ -1007,12 +1012,14 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
         self.kernel_args = kernel_args
 
     def fit(self, X, y=None, **fit_params):
+        flat_sequence = flatten(X)
         (
             token_sequences,
             self.token_dictionary_,
             self.token_frequencies_,
         ) = preprocess_token_sequences(
             X,
+            flat_sequence,
             self.token_dictionary,
             min_occurrences=self.min_occurrences,
             max_occurrences=self.max_occurrences,
@@ -1056,8 +1063,12 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
         return self._train_matrix
 
     def transform(self, X):
+        flat_sequence = flatten(X)
         (token_sequences, _, _,) = preprocess_token_sequences(
-            X, self.token_dictionary_, ignored_tokens=self.ignored_tokens,
+            X,
+            flat_sequence,
+            self.token_dictionary_,
+            ignored_tokens=self.ignored_tokens,
         )
 
         n_unique_tokens = len(self.token_dictionary_)
