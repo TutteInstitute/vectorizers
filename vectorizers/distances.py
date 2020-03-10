@@ -1,7 +1,8 @@
 import numba
 import numpy as np
 
-EPS = 1e11
+EPS = 1e-11
+
 
 @numba.njit()
 def hellinger(x, y):
@@ -44,30 +45,69 @@ def kantorovich1d(x, y, p=1):
     # Now we just want minkowski distance on the CDFs
     result = 0.0
     if p > 2:
-        for i in range(x.shape[0]):
-            result += np.abs(x - y) ** p
+        for i in range(x_cdf.shape[0]):
+            result += np.abs(x_cdf[i] - y_cdf[i]) ** p
 
-        return result ** (1.0 /p)
+        return result ** (1.0 / p)
 
     elif p == 2:
-        for i in range(x.shape[0]):
-            val = x - y
+        for i in range(x_cdf.shape[0]):
+            val = x_cdf[i] - y_cdf[i]
             result += val * val
 
         return np.sqrt(result)
 
     elif p == 1:
-        for i in range(x.shape[0]):
-            result += np.abs(x - y)
+        for i in range(x_cdf.shape[0]):
+            result += np.abs(x_cdf[i] - y_cdf[i])
 
         return result
 
     else:
         raise ValueError("Invalid p supplied to Kantorvich distance")
 
+
 @numba.njit()
-def circular_kantorovich(x, y):
-    pass
+def circular_kantorovich(x, y, p=1):
+
+    x_sum = 0.0
+    y_sum = 0.0
+    for i in range(x.shape[0]):
+        x_sum += x[i]
+        y_sum += y[i]
+
+    x_cdf = x / x_sum
+    y_cdf = y / y_sum
+
+    for i in range(1, x_cdf.shape[0]):
+        x_cdf[i] += x_cdf[i - 1]
+        y_cdf[i] += y_cdf[i - 1]
+
+    mu = np.median((x_cdf - y_cdf) ** p)
+
+    # Now we just want minkowski distance on the CDFs shifted by mu
+    result = 0.0
+    if p > 2:
+        for i in range(x_cdf.shape[0]):
+            result += np.abs(x_cdf[i] - y_cdf[i] - mu) ** p
+
+        return result ** (1.0 / p)
+
+    elif p == 2:
+        for i in range(x_cdf.shape[0]):
+            val = x_cdf[i] - y_cdf[i] - mu
+            result += val * val
+
+        return np.sqrt(result)
+
+    elif p == 1:
+        for i in range(x_cdf.shape[0]):
+            result += np.abs(x_cdf[i] - y_cdf[i] - mu)
+
+        return result
+
+    else:
+        raise ValueError("Invalid p supplied to Kantorvich distance")
 
 
 @numba.njit()
@@ -84,7 +124,7 @@ def total_variation(x, y):
     y_pdf = y / y_sum
 
     for i in range(x.shape[0]):
-        result += 0.5*np.abs(x_pdf[i]-y_pdf[i])
+        result += 0.5 * np.abs(x_pdf[i] - y_pdf[i])
 
     return result
 
@@ -103,12 +143,14 @@ def jensen_shannon_divergence(x, y):
     l1_norm_x += EPS * dim
     l1_norm_y += EPS * dim
 
-    pdf_x = (x +  EPS) / l1_norm_x
-    pdf_y = (y +  EPS) / l1_norm_y
-    m = 0.5*(pdf_x+pdf_y)
+    pdf_x = (x + EPS) / l1_norm_x
+    pdf_y = (y + EPS) / l1_norm_y
+    m = 0.5 * (pdf_x + pdf_y)
 
     for i in range(dim):
-        result += 0.5 * (pdf_x[i] * np.log( pdf_x[i] / m[i] ) + pdf_y[i] * np.log( pdf_y[i] / m[i] ))
+        result += 0.5 * (
+            pdf_x[i] * np.log(pdf_x[i] / m[i]) + pdf_y[i] * np.log(pdf_y[i] / m[i])
+        )
     return result
 
 
@@ -126,11 +168,14 @@ def symmetric_kl_divergence(x, y):
     l1_norm_x += EPS * dim
     l1_norm_y += EPS * dim
 
-    pdf_x = (x +  EPS) / l1_norm_x
-    pdf_y = (y +  EPS) / l1_norm_y
+    pdf_x = (x + EPS) / l1_norm_x
+    pdf_y = (y + EPS) / l1_norm_y
 
     for i in range(dim):
-        result += pdf_x[i] * np.log(pdf_x[i] / pdf_y[i]) + pdf_y[i] * np.log(pdf_y[i] / pdf_x[i])
+        result += pdf_x[i] * np.log(pdf_x[i] / pdf_y[i]) + pdf_y[i] * np.log(
+            pdf_y[i] / pdf_x[i]
+        )
+
     return result
 
 
@@ -323,9 +368,11 @@ def dense_union(ind1, data1, ind2, data2):
 
     return result_data1, result_data2
 
+
 #
 # --- Sparse distance functions
 #
+
 
 @numba.njit()
 def sparse_hellinger(ind1, data1, ind2, data2):
@@ -347,24 +394,28 @@ def sparse_hellinger(ind1, data1, ind2, data2):
     else:
         return np.sqrt(1.0 - (result / sqrt_norm_prod))
 
+
 @numba.njit()
 def sparse_total_variation(ind1, data1, ind2, data2):
     norm1 = np.sum(data1)
     norm2 = np.sum(data2)
-    aux_inds, aux_data = sparse_diff(ind1, data1/norm1, ind2, data2/norm2)
+    aux_inds, aux_data = sparse_diff(ind1, data1 / norm1, ind2, data2 / norm2)
     result = 0.0
     for i in range(aux_data.shape[0]):
         result += 0.5 * np.abs(aux_data[i])
     return result
 
+
 # Because of the EPS values and the need to normalize after adding them (and then average those for jensen_shannon)
 # it seems like we might as well just take the dense union (dense vectors supported on the union of indices)
 # and call the dense distance functions
+
 
 @numba.njit()
 def sparse_jensen_shannon_divergence(ind1, data1, ind2, data2):
     dense_data1, dense_data2 = dense_union(ind1, data1, ind2, data2)
     return jensen_shannon_divergence(dense_data1, dense_data2)
+
 
 @numba.njit()
 def sparse_symmetric_kl_divergence(ind1, data1, ind2, data2):
