@@ -34,6 +34,29 @@ import vectorizers.distances as distances
 
 @numba.njit(nogil=True)
 def construct_token_dictionary_and_frequency(token_sequence, token_dictionary=None):
+    """Construct a dictionary mapping tokens to indices and a table of token
+    frequencies (where the frequency of token 'x' is given by token_frequencies[
+    token_dictionary['x']]).
+
+    Parameters
+    ----------
+    token_sequence: Iterable
+        A single long sequence of tokens
+
+    token_dictionary: dictionary or None (optional, default=None)
+        Optionally a fixed dictionary providing the mapping of tokens to indices
+
+    Returns
+    -------
+    token_dictionary: dictionary
+        The dictionary mapping tokens to indices
+
+    token_frequency: array of shape (len(token_dictionary),)
+        The frequency of occurrence of tokens (with index from the token dictionary)
+
+    n_tokens: int
+        The total number of tokens in the sequence
+    """
     n_tokens = len(token_sequence)
     if token_dictionary is None:
         unique_tokens = sorted(list(set(token_sequence)))
@@ -57,7 +80,40 @@ def prune_token_dictionary(
     min_frequency=0.0,
     max_frequency=1.0,
 ):
+    """Prune the token dictionary based on constraints of tokens to ignore and
+    min and max allowable token frequencies. This will remove any tokens that should
+    be ignored and any tokens that occur less often than the minimum frequency or
+    more often than the maximum frequency.
 
+    Parameters
+    ----------
+    token_dictionary: dictionary
+        The token dictionary mapping tokens to indices for pruning
+
+    token_frequencies: array of shape (len(token_dictionary),)
+        The frequency of occurrence of the tokens in the dictionary
+
+    ignored_tokens: set or None (optional, default=None)
+        A set of tokens that should be ignored, and thus removed from the
+        dictionary. This could be, for example, top words in an NLP context.
+
+    min_frequency: float (optional, default=0.0)
+        The minimum frequency of occurrence allowed for tokens. Tokens that occur
+        less frequently than this will be pruned.
+
+    max_frequency float (optional, default=1.0)
+        The maximum frequency of occurrence allowed for tokens. Tokens that occur
+        more frequently than this will be pruned.
+
+    Returns
+    -------
+    new_token_dictionary: dictionary
+        The pruned dictionary of token to index mapping
+
+    new_token_frequencies: array of shape (len(new_token_dictionary),)
+        The token frequencies remapped to the new token indexing given by
+        new_token_dictionary.
+    """
     if ignored_tokens is not None:
         tokens_to_prune = set(ignored_tokens)
     else:
@@ -90,6 +146,55 @@ def preprocess_token_sequences(
     max_frequency=None,
     ignored_tokens=None,
 ):
+    """Perform a standard set of preprocessing for token sequences. This includes
+    constructing a token dictionary and token frequencies, pruning the dictionary
+    according to frequency and ignored token constraints, and editing the token
+    sequences to only include tokens in the pruned dictionary. Note that either
+    min_occurrences or min_frequency can be provided (respectively
+    max_occurences or max_frequency). If both are provided they must agree.
+
+    Parameters
+    ----------
+    token_sequences: Iterable of (tuple | list | np.ndarray)
+        A list of token sequences. Each sequence should be tuple, list or
+        numpy array of tokens.
+
+    token_dictionary: dictionary or None (optional, default=None)
+        A fixed dictionary mapping tokens to indices, constraining the tokens
+        that are allowed. If None then the allowed tokens and a mapping will
+        be learned from the data and returned.
+
+    min_occurrences: int or None (optional, default=None)
+        A constraint on the minimum number of occurrences for a token to be considered
+        valid. If None then no constraint will be applied.
+
+    max_occurrences: int or None (optional, default=None)
+        A constraint on the maximum number of occurrences for a token to be considered
+        valid. If None then no constraint will be applied.
+
+    min_frequency: float or None (optional, default=None)
+        A constraint on the minimum frequency of occurrence for a token to be
+        considered valid. If None then no constraint will be applied.
+
+    max_frequency: float or None (optional, default=None)
+        A constraint on the minimum frequency of occurrence for a token to be
+        considered valid. If None then no constraint will be applied.
+
+    ignored_tokens: set or None (optional, default=None)
+        A set of tokens that should be ignored. If None then no tokens will
+        be ignored.
+
+    Returns
+    -------
+    result_sequences: list of np.ndarray
+        The sequences, pruned of tokens not meeting constraints.
+
+    token_dictionary: dictionary
+        The token dictionary mapping tokens to indices.
+
+    token_frequencies: array of shape (len(token_dictionary),)
+        The frequency of occurrence of the tokens in the token_dictionary.
+    """
     flat_sequence = flatten(token_sequences)
 
     # Get vocabulary and word frequencies
@@ -220,7 +325,7 @@ def skip_grams_matrix_coo_data(
     kernel_function,
     window_args,
     kernel_args,
-    n_tokens,
+    n_unique_tokens,
 ):
     result_row = [numba.types.int32(0) for i in range(0)]
     result_col = [numba.types.int32(0) for i in range(0)]
@@ -237,7 +342,7 @@ def skip_grams_matrix_coo_data(
         for skip_gram in skip_gram_data:
             result_row.append(row_idx)
             result_col.append(
-                numba.types.int32(skip_gram[0]) * n_tokens
+                numba.types.int32(skip_gram[0]) * n_unique_tokens
                 + numba.types.int32(skip_gram[1])
             )
             result_data.append(skip_gram[2])
@@ -649,7 +754,7 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
             ignored_tokens=self.ignored_tokens,
         )
 
-        n_tokens = len(self.token_dictionary_)
+        n_unique_tokens = len(self.token_dictionary_)
         index_dictionary = {
             index: token for token, index in self.token_dictionary_.items()
         }
@@ -660,7 +765,7 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
             self.kernel_function,
             self.window_args,
             self.kernel_args,
-            n_tokens,
+            n_unique_tokens,
         )
 
         base_matrix = scipy.sparse.coo_matrix((data, (row, col)))
@@ -671,8 +776,8 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
         self.skipgram_dictionary_ = {}
         for i in range(self._kept_columns.shape[0]):
             raw_val = self._kept_columns[i]
-            first_token = index_dictionary[raw_val // n_tokens]
-            second_token = index_dictionary[raw_val % n_tokens]
+            first_token = index_dictionary[raw_val // n_unique_tokens]
+            second_token = index_dictionary[raw_val % n_unique_tokens]
             self.skipgram_dictionary_[(first_token, second_token)] = i
 
         self._train_matrix = base_matrix[:, self._column_is_kept]
@@ -688,7 +793,7 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
             X, self.token_dictionary_, ignored_tokens=self.ignored_tokens,
         )
 
-        n_tokens = len(self.token_dictionary_)
+        n_unique_tokens = len(self.token_dictionary_)
 
         row, col, data = skip_grams_matrix_coo_data(
             X,
@@ -696,7 +801,7 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
             self.kernel_function,
             self.window_args,
             self.kernel_args,
-            n_tokens,
+            n_unique_tokens,
         )
 
         base_matrix = scipy.sparse.coo_matrix((data, (row, col)))
