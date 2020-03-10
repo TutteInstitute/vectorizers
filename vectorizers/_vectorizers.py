@@ -317,7 +317,7 @@ def jackknife_bandwidths(data, bandwidths, kernel="gaussian"):
             likelihood = 0.0
             for k in range(len(data[i])):
                 if k < len(data[i]) - 1:
-                    jackknife_sample = np.hstack([data[i][:k], data[i][k+1:]])
+                    jackknife_sample = np.hstack([data[i][:k], data[i][k + 1 :]])
                 else:
                     jackknife_sample = data[i][:k]
                 kde.fit(jackknife_sample[:, None])
@@ -425,9 +425,7 @@ class DistributionVectorizer(BaseEstimator, TransformerMixin):
         try:
             assert np.isscalar(X[0][0][0])
         except:
-            raise ValueError(
-                "Input must be a collection of collections of points"
-            )
+            raise ValueError("Input must be a collection of collections of points")
 
         try:
             dims = [np.array(x).shape[1] for x in X]
@@ -439,13 +437,10 @@ class DistributionVectorizer(BaseEstimator, TransformerMixin):
         if not hasattr(self, "data_dimension_"):
             self.data_dimension_ = np.mean(dims)
 
-        if (
-            not (np.max(dims) == self.data_dimension_ or np.min(dims) == self.data_dimension_)
+        if not (
+            np.max(dims) == self.data_dimension_ or np.min(dims) == self.data_dimension_
         ):
-            raise ValueError(
-                "Each point collection must be of equal dimension."
-            )
-
+            raise ValueError("Each point collection must be of equal dimension.")
 
     def fit(self, X, y=None, **fit_params):
         random_state = check_random_state(self.random_state)
