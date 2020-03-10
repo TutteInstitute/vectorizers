@@ -3,7 +3,6 @@ import numpy as np
 
 EPS = 1e-11
 
-
 @numba.njit()
 def hellinger(x, y):
     result = 0.0
