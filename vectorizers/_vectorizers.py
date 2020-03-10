@@ -15,6 +15,7 @@ from sklearn.utils.validation import (
 )
 from sklearn.metrics import pairwise_distances
 from sklearn.mixture import GaussianMixture
+from sklearn.neighbors import KernelDensity
 from sklearn.preprocessing import normalize
 
 from collections import defaultdict
@@ -28,7 +29,7 @@ from .utils import (
     vectorize_diagram,
     pairwise_gaussian_ground_distance,
 )
-import .distances as distances
+import vectorizers.distances as distances
 
 
 @numba.njit(nogil=True)
@@ -423,6 +424,7 @@ class DistributionVectorizer(BaseEstimator, TransformerMixin):
             [vectorize_diagram(diagram, self.mixture_model_) for diagram in X]
         )
 
+
 def find_bin_boundaries(flat, n_bins):
     """
     Only uniform distribution is currently implemented.
@@ -433,13 +435,16 @@ def find_bin_boundaries(flat, n_bins):
     """
     flat.sort()
     flat_csum = np.cumsum(flat)
-    bin_range = flat_csum[-1]/n_bins
+    bin_range = flat_csum[-1] / n_bins
     bin_indices = [0]
     for i in range(1, len(flat_csum)):
-        if( (flat_csum[i]>=bin_range*len(bin_indices)) & (flat[i] > flat[bin_indices[-1]]) ):
+        if (flat_csum[i] >= bin_range * len(bin_indices)) & (
+            flat[i] > flat[bin_indices[-1]]
+        ):
             bin_indices.append(i)
-    bin_values= np.array(flat,dtype=float)[bin_indices]
+    bin_values = np.array(flat, dtype=float)[bin_indices]
     return bin_values
+
 
 def expand_boundaries(my_interval_index, absolute_range):
     """
@@ -449,15 +454,17 @@ def expand_boundaries(my_interval_index, absolute_range):
     :return: a pandas IntervalIndex
     """
     interval_list = my_interval_index.to_list()
-    #Check if the left boundary needs expanding
-    if interval_list[0].left>absolute_range[0]:
-        interval_list[0] = pd.Interval(left=absolute_range[0],
-                                       right=interval_list[0].right)
-    #Check if the right boundary needs expanding
-    last = len(interval_list)-1
-    if interval_list[last].right<absolute_range[1]:
-        interval_list[last] = pd.Interval(left=interval_list[last].left,
-                                       right=absolute_range[1])
+    # Check if the left boundary needs expanding
+    if interval_list[0].left > absolute_range[0]:
+        interval_list[0] = pd.Interval(
+            left=absolute_range[0], right=interval_list[0].right
+        )
+    # Check if the right boundary needs expanding
+    last = len(interval_list) - 1
+    if interval_list[last].right < absolute_range[1]:
+        interval_list[last] = pd.Interval(
+            left=interval_list[last].left, right=absolute_range[1]
+        )
     return pd.IntervalIndex(interval_list)
 
 
@@ -472,14 +479,14 @@ def add_outier_bins(my_interval_index, absolute_range):
     interval_list = my_interval_index.to_list()
     # Check if the left boundary needs expanding
     if interval_list[0].left > absolute_range[0]:
-        left_outlier = pd.Interval(left=absolute_range[0],
-                                   right=interval_list[0].left)
+        left_outlier = pd.Interval(left=absolute_range[0], right=interval_list[0].left)
         interval_list.insert(0, left_outlier)
 
     last = len(interval_list) - 1
     if interval_list[last].right < absolute_range[1]:
-        right_outlier = pd.Interval(left=interval_list[last].right,
-                                    right=absolute_range[1])
+        right_outlier = pd.Interval(
+            left=interval_list[last].right, right=absolute_range[1]
+        )
         interval_list.append(right_outlier)
     return pd.IntervalIndex(interval_list)
 
@@ -489,13 +496,16 @@ class HistogramVectorizer(BaseEstimator, TransformerMixin):
     event occurrences over a time frame. If the data has explicit time stamps
     it can be aggregated over hour of day, day of week, day of month, day of year
     , week of year or month of year."""
-    #TODO: time stamps, generic groupby
-    def __init__(self,
-                 n_bins,
-                 strategy='uniform',
-                 ground_distance='euclidean',
-                 absolute_range=(-np.inf, np.inf),
-                 outlier_bins=False):
+
+    # TODO: time stamps, generic groupby
+    def __init__(
+        self,
+        n_bins,
+        strategy="uniform",
+        ground_distance="euclidean",
+        absolute_range=(-np.inf, np.inf),
+        outlier_bins=False,
+    ):
         """
         :param n_bins: int or array-like, shape (n_features,) (default=5)
             The number of bins to produce. Raises ValueError if n_bins < 2.
@@ -511,7 +521,7 @@ class HistogramVectorizer(BaseEstimator, TransformerMixin):
         self._n_bins = n_bins
         self._strategy = strategy
         self._ground_distance = ground_distance
-        self._absolute_range= absolute_range
+        self._absolute_range = absolute_range
         self._outlier_bins = outlier_bins
 
     def fit(self, data):
@@ -522,19 +532,34 @@ class HistogramVectorizer(BaseEstimator, TransformerMixin):
         :return:
         """
         flat = flatten(data)
-        flat = list(filter(lambda n: n>self._absolute_range[0] and n<self._absolute_range[1], flat))
-        if (self._strategy=='uniform'):
-            self.bin_intervals_ = pd.interval_range(start=np.min(flat), end=np.max(flat), periods=self._n_bins)
-        if (self._strategy=='quantile'):
-            self.bin_intervals_ = pd.IntervalIndex.from_breaks(find_bin_boundaries(flat, self._n_bins))
-        if (self._strategy=='gmm'):
-            raise NotImplementedError('Sorry Guassian Mixture model distribution not yet implemented')
-        if(self._outlier_bins==True):
-            self.bin_intervals_ = add_outier_bins(self.bin_intervals_, self._absolute_range)
+        flat = list(
+            filter(
+                lambda n: n > self._absolute_range[0] and n < self._absolute_range[1],
+                flat,
+            )
+        )
+        if self._strategy == "uniform":
+            self.bin_intervals_ = pd.interval_range(
+                start=np.min(flat), end=np.max(flat), periods=self._n_bins
+            )
+        if self._strategy == "quantile":
+            self.bin_intervals_ = pd.IntervalIndex.from_breaks(
+                find_bin_boundaries(flat, self._n_bins)
+            )
+        if self._strategy == "gmm":
+            raise NotImplementedError(
+                "Sorry Guassian Mixture model distribution not yet implemented"
+            )
+        if self._outlier_bins == True:
+            self.bin_intervals_ = add_outier_bins(
+                self.bin_intervals_, self._absolute_range
+            )
         else:
-            self.bin_intervals_ = expand_boundaries(self.bin_intervals_, self._absolute_range)
-    #    if (len(self._model) != self._n_bins):
-    #        print("Warning: Could not find sufficient number of bins. Making do.")
+            self.bin_intervals_ = expand_boundaries(
+                self.bin_intervals_, self._absolute_range
+            )
+        #    if (len(self._model) != self._n_bins):
+        #        print("Warning: Could not find sufficient number of bins. Making do.")
         return self
 
     def vector_transform(self, vector):
@@ -753,7 +778,60 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
 
 
 class KDEVectorizer(BaseEstimator, TransformerMixin):
-    pass
+    def __init__(
+        self,
+        bandwidth=None,
+        n_components=50,
+        kernel="gaussian",
+        evaluation_grid_strategy="uniform",
+        outlier_bins=False,
+    ):
+        self.n_components = n_components
+        self.evaluation_grid_strategy = evaluation_grid_strategy
+        self.bandwidth = bandwidth
+        self.kernel = kernel
+        self.outlier_bins = outlier_bins
+
+    def fit(self, X, y=None, **fit_params):
+
+        if self.bandwidth is None:
+            # Estimate the bandwidth by looking at training data
+            # TODO: work out hot to do this
+            self.bandwidth_ = 0.5
+        else:
+            self.bandwidth_ = self.bandwidth
+
+        combined_data = np.array(flatten(X))
+
+        if self.evaluation_grid_strategy == "uniform":
+            min, max = np.min(combined_data), np.max(combined_data)
+            self.evaluation_grid_ = np.linspace(min, max, self.n_components)
+        elif self.evaluation_grid_strategy == "density":
+            uniform_quantile_grid = np.linspace(0, 1.0, self.n_components)
+            self.evaluation_grid_ = np.quantile(combined_data, uniform_quantile_grid)
+        else:
+            raise ValueError(
+                "Unrecognized evaluation_grid_strategy; should be one "
+                'of: "uniform" or "density"'
+            )
+
+        return self
+
+    def transform(self, X):
+
+        result = np.empty((len(X), self.n_components), dtype=np.float64)
+
+        for i, sample in enumerate(X):
+            kde = KernelDensity(bandwidth=self.bandwidth_, kernel=self.kernel)
+            kde.fit(sample[:, None])
+            log_probability = kde.score_samples(self.evaluation_grid_[:, None])
+            result[i] = np.exp(log_probability)
+
+        return result
+
+    def fit_transform(self, X, y=None, **fit_params):
+        self.fit(X, y, **fit_params)
+        return self.transform(X)
 
 
 class ProductDistributionVectorizer(BaseEstimator, TransformerMixin):
@@ -766,4 +844,3 @@ class Wasserstein1DHistogramTransformer(BaseEstimator, TransformerMixin):
 
 class SequentialDifferenceTransformer(BaseEstimator, TransformerMixin):
     pass
-
