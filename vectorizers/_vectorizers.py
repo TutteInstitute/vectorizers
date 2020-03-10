@@ -720,9 +720,31 @@ class DistributionVectorizer(BaseEstimator, TransformerMixin):
                 "n_components must be and integer greater than or equal " "to 2."
             )
 
+    def _validate_data(self, X):
+        try:
+            assert np.isscalar(X[0][0][0])
+        except:
+            raise ValueError("Input must be a collection of collections of points")
+
+        try:
+            dims = [np.array(x).shape[1] for x in X]
+        except:
+            raise ValueError(
+                "Elements of each point collection must be of the same dimension."
+            )
+
+        if not hasattr(self, "data_dimension_"):
+            self.data_dimension_ = np.mean(dims)
+
+        if not (
+            np.max(dims) == self.data_dimension_ or np.min(dims) == self.data_dimension_
+        ):
+            raise ValueError("Each point collection must be of equal dimension.")
+
     def fit(self, X, y=None, **fit_params):
         random_state = check_random_state(self.random_state)
         self._validate_params()
+        self._validate_data(X)
 
         combined_data = np.vstack(X)
         combined_data = check_array(combined_data)
@@ -738,6 +760,7 @@ class DistributionVectorizer(BaseEstimator, TransformerMixin):
 
     def transform(self, X):
         check_is_fitted(self, ["mixture_model_", "ground_distance_"])
+        self._validate_data(X)
         result = np.vstack(
             [vectorize_diagram(diagram, self.mixture_model_) for diagram in X]
         )
