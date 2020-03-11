@@ -857,9 +857,23 @@ def find_bin_boundaries(flat, n_bins):
 
 def expand_boundaries(my_interval_index, absolute_range):
     """
+    Expands the outer bind on a pandas IntervalIndex to encompase the range specified by the 2-tuple absolute_range.
+
+    Parameters
+    ----------
+    my_interval_index: pandas IntervalIndex object (right closed)
+    absolute_range: 2-tuple.
+        (min_value, max_value)
+
+    Returns
+    -------
+    index: a pandas IntervalIndex
+        A pandas IntervalIndex with the boundaries potentially expanded to encompas the absolute range.
+    """
+    """
     expands the outer bind on a pandas IntervalIndex to encompase the range specified by the 2-tuple absolute_range
     :param my_interval_index:
-    :param absolute_range: 2tuple (min_value, max_value)
+    :param absolute_range: 2tuple 
     :return: a pandas IntervalIndex
     """
     interval_list = my_interval_index.to_list()
@@ -906,89 +920,145 @@ class HistogramVectorizer(BaseEstimator, TransformerMixin):
     it can be aggregated over hour of day, day of week, day of month, day of year
     , week of year or month of year."""
 
+    """
+    :param n_bins: int or array-like, shape (n_features,) (default=5)
+        The number of bins to produce. Raises ValueError if n_bins < 2.
+    :param strategy: {‘uniform’, ‘quantile’, 'gmm'}, (default=’quantile’)
+    :param ground_distance: {'euclidean'}
+        The distance to induce between bins.
+    :param absolute_range: (minimum_value_possible, maximum_value_possible) (default=(-np.inf, np.inf))
+        By default values outside of training data range are included in the extremal bins.
+        You can specify these values if you know something about your values (e.g. (0, np.inf) )
+    :param outlier_bins: binary (default=False) should I add extra bins to catch values outside of your training
+        data where appropriate?
+    """
     # TODO: time stamps, generic groupby
     def __init__(
         self,
-        n_bins,
+        n_components=20,
         strategy="uniform",
         ground_distance="euclidean",
         absolute_range=(-np.inf, np.inf),
-        outlier_bins=False,
+        append_outlier_bins=False,
     ):
-        """
-        :param n_bins: int or array-like, shape (n_features,) (default=5)
-            The number of bins to produce. Raises ValueError if n_bins < 2.
-        :param strategy: {‘uniform’, ‘quantile’, 'gmm'}, (default=’quantile’)
-        :param ground_distance: {'euclidean'}
-            The distance to induce between bins.
-        :param absolute_range: (minimum_value_possible, maximum_value_possible) (default=(-np.inf, np.inf))
-            By default values outside of training data range are included in the extremal bins.
-            You can specify these values if you know something about your values (e.g. (0, np.inf) )
-        :param outlier_bins: binary (default=False) should I add extra bins to catch values outside of your training
-            data where appropriate?
-        """
-        self._n_bins = n_bins
-        self._strategy = strategy
-        self._ground_distance = ground_distance
-        self._absolute_range = absolute_range
-        self._outlier_bins = outlier_bins
 
-    def fit(self, data):
+        self.n_components = n_components
+        self.strategy = strategy
+        self.ground_distance = ground_distance  # Not currently making use of this.
+        self.absolute_range = absolute_range
+        self.append_outlier_bins = append_outlier_bins
+
+    def _validate_params(self):
+        pass
+
+    def fit(self, X, y=None, **fit_params):
         """
         Learns the histogram bins.
         Still need to check switch.
-        :param data:
+        :param X:
         :return:
         """
-        flat = flatten(data)
+        flat = flatten(X)
         flat = list(
             filter(
-                lambda n: n > self._absolute_range[0] and n < self._absolute_range[1],
+                lambda n: n > self.absolute_range[0] and n < self.absolute_range[1],
                 flat,
             )
         )
-        if self._strategy == "uniform":
+        if self.strategy == "uniform":
             self.bin_intervals_ = pd.interval_range(
-                start=np.min(flat), end=np.max(flat), periods=self._n_bins
+                start=np.min(flat), end=np.max(flat), periods=self.n_components
             )
-        if self._strategy == "quantile":
+        if self.strategy == "quantile":
             self.bin_intervals_ = pd.IntervalIndex.from_breaks(
-                find_bin_boundaries(flat, self._n_bins)
+                find_bin_boundaries(flat, self.n_components)
             )
-        if self._strategy == "gmm":
-            raise NotImplementedError(
-                "Sorry Guassian Mixture model distribution not yet implemented"
-            )
-        if self._outlier_bins == True:
+        if self.append_outlier_bins == True:
             self.bin_intervals_ = add_outier_bins(
-                self.bin_intervals_, self._absolute_range
+                self.bin_intervals_, self.absolute_range
             )
         else:
             self.bin_intervals_ = expand_boundaries(
-                self.bin_intervals_, self._absolute_range
+                self.bin_intervals_, self.absolute_range
             )
-        #    if (len(self._model) != self._n_bins):
-        #        print("Warning: Could not find sufficient number of bins. Making do.")
+        self.metric_ = distances.hellinger
         return self
 
-    def vector_transform(self, vector):
+    def _vector_transform(self, vector):
         """
         Applies the transform to a single row of the data.
         """
         return pd.cut(vector, self.bin_intervals_).value_counts()
 
-    def transform(self, data):
+    def transform(self, X):
         """
         Apply binning to a full data set returning an nparray.
         """
-        my_matrix = np.ndarray((len(data), len(self.bin_intervals_)))
-        for i, seq in enumerate(data):
-            my_matrix[i, :] = self.vector_transform(seq).values
-        return my_matrix
+        result = np.ndarray((len(X), len(self.bin_intervals_)))
+        for i, seq in enumerate(X):
+            result[i, :] = self._vector_transform(seq).values
+        return result
 
-    # Need a pandas group by time of day, etc... function
 
-    pass
+def temporal_cyclic_transform(datetime_series, periodicity=None):
+    """
+    TODO: VERY UNFINISHED
+    Replaces all time resolutions above the resolution specified with a fixed value.
+    This creates a cycle within a datetime series.
+    Parameters
+    ----------
+    datetime_series: a pandas series of datetime objects
+    periodicity: string ['year', 'month' , 'week', 'day', 'hour']
+        What time period to create cycles.
+
+    Returns
+    -------
+    cyclic_series: pandas series of datetime objects
+
+    """
+    collapse_times = {}
+    if periodicity in ["year", "month", "day", "hour"]:
+        collapse_times["year"] = 1970
+        if periodicity in ["month", "day", "hour"]:
+            collapse_times["month"] = 1
+            if periodicity in ["day", "hour"]:
+                collapse_times["day"] = 1
+                if periodicity in ["hour"]:
+                    collapse_times["hour"] = 0
+        cyclic_series = datetime_series.apply(lambda x: x.replace(**collapse_times))
+    elif periodicity == "week":
+        raise NotImplementedError("we have not implemented week cycles yet")
+    else:
+        raise ValueError(
+            f"Sorry resolution={periodicity} is not a valid option.  "
+            + f"Please select from ['year', 'month', 'week', 'day', 'hour']"
+        )
+    return cyclic_series
+
+
+class CyclicHistogramVectorizer(BaseEstimator, TransformerMixin):
+    """
+
+    """
+
+    def __init__(
+        self, periodicity="week", resolution="day",
+    ):
+        self.periodicity = periodicity
+        self.resolution = resolution
+
+    def _validate_params(self):
+        pass
+
+    def fit(self, X, y=None, **fit_params):
+        cyclic_data = temporal_cyclic_transform(
+            pd.to_datetime(X), periodicity=self.periodicity
+        )
+        resampled = (
+            pd.Series(index=cyclic_data, data=1).resample(self.resolution).count()
+        )
+        self.temporal_bins_ = resampled.index
+        return self
 
 
 class SkipgramVectorizer(BaseEstimator, TransformerMixin):
