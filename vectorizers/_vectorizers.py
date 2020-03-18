@@ -32,7 +32,6 @@ from .utils import (
 import vectorizers.distances as distances
 
 
-# @numba.njit(nogil=True)
 def construct_token_dictionary_and_frequency(token_sequence, token_dictionary=None):
     """Construct a dictionary mapping tokens to indices and a table of token
     frequencies (where the frequency of token 'x' is given by token_frequencies[
@@ -72,7 +71,6 @@ def construct_token_dictionary_and_frequency(token_sequence, token_dictionary=No
     return token_dictionary, token_frequency, n_tokens
 
 
-# @numba.njit(nogil=True)
 def prune_token_dictionary(
     token_dictionary,
     token_frequencies,
@@ -119,13 +117,13 @@ def prune_token_dictionary(
     else:
         tokens_to_prune = set([])
 
-    reverse_vocabulary = {index: word for word, index in token_dictionary.items()}
+    reverse_token_dictionary = {index: word for word, index in token_dictionary.items()}
 
     infrequent_tokens = np.where(token_frequencies <= min_frequency)[0]
     frequent_tokens = np.where(token_frequencies >= max_frequency)[0]
 
-    tokens_to_prune.update({reverse_vocabulary[i] for i in infrequent_tokens})
-    tokens_to_prune.update({reverse_vocabulary[i] for i in frequent_tokens})
+    tokens_to_prune.update({reverse_token_dictionary[i] for i in infrequent_tokens})
+    tokens_to_prune.update({reverse_token_dictionary[i] for i in frequent_tokens})
 
     vocab_tokens = [token for token in token_dictionary if token not in tokens_to_prune]
     new_vocabulary = dict(zip(vocab_tokens, range(len(vocab_tokens))))
@@ -136,7 +134,6 @@ def prune_token_dictionary(
     return new_vocabulary, new_token_frequency
 
 
-# @numba.njit(nogil=True)
 def preprocess_token_sequences(
     token_sequences,
     flat_sequence,
@@ -422,7 +419,7 @@ def skip_grams_matrix_coo_data(
     return np.array(result_row), np.array(result_col), np.array(result_data)
 
 
-# @numba.njit(nogil=True, parallel=True)
+@numba.njit(nogil=True, parallel=True)
 def sequence_skip_grams(
     token_sequences, window_function, kernel_function, window_args, kernel_args
 ):
@@ -458,7 +455,15 @@ def sequence_skip_grams(
         )
         for token_sequence in token_sequences
     ]
-    return np.vstack(skip_grams_per_sequence)
+    total_n_skip_grams = 0
+    for arr in skip_grams_per_sequence:
+        total_n_skip_grams += arr.shape[0]
+    result = np.empty((total_n_skip_grams, 3), dtype=np.float32)
+    count = 0
+    for arr in skip_grams_per_sequence:
+        result[count:count+arr.shape[0]] = arr
+        count += arr.shape[0]
+    return result
 
 
 def token_cooccurence_matrix(
@@ -1176,7 +1181,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         if self.ngram_dictionary is not None:
             self.ngram_dictionary_ = self.ngram_dictionary
         else:
-            self.ngram_dictionary_ = defaultdict
+            self.ngram_dictionary_ = defaultdict()
             self.ngram_dictionary_.default_factory = self.ngram_dictionary_.__len__
 
         indptr = [0]
@@ -1186,6 +1191,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
             counter = {}
             for gram in ngrams_of(sequence, self.ngram_size, self.ngram_behaviour):
                 try:
+                    gram = tuple(gram)
                     col_index = self.ngram_dictionary_[gram]
                     if col_index in counter:
                         counter[col_index] += 1
@@ -1208,7 +1214,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
             indices_dtype = np.int32
         indices = np.asarray(indices, dtype=indices_dtype)
         indptr = np.asarray(indptr, dtype=indices_dtype)
-        data = np.frombuffer(data, dtype=np.intc)
+        data = np.asarray(data, dtype=np.intc)
 
         self._train_matrix = scipy.sparse.csr_matrix(
             (data, indices, indptr),
