@@ -13,8 +13,6 @@ matrix:
            SKLEARN_VERSION="0.20.3"
     - env: PYTHON_VERSION="3.8" NUMPY_VERSION="*" SCIPY_VERSION="*"
            SKLEARN_VERSION="*"
-    - env: PYTHON_VERSION="3.8" NUMPY_VERSION="*" SCIPY_VERSION="*"
-           SKLEARN_VERSION="nightly"
 
 install:
   # install miniconda
@@ -35,7 +33,7 @@ install:
       else
           conda install --yes numpy==$NUMPY_VERSION scipy==$SCIPY_VERSION scikit-learn==$SKLEARN_VERSION cython nose pytest pytest-cov
       fi
-  - conda install pandas numba
+  - conda install --yes pandas numba
   - pip install codecov
   - pip install .
 
