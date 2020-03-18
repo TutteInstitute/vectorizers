@@ -1176,7 +1176,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         if self.ngram_dictionary is not None:
             self.ngram_dictionary_ = self.ngram_dictionary
         else:
-            self.ngram_dictionary_ = defaultdict
+            self.ngram_dictionary_ = defaultdict()
             self.ngram_dictionary_.default_factory = self.ngram_dictionary_.__len__
 
         indptr = [0]
@@ -1186,6 +1186,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
             counter = {}
             for gram in ngrams_of(sequence, self.ngram_size, self.ngram_behaviour):
                 try:
+                    gram = tuple(gram)
                     col_index = self.ngram_dictionary_[gram]
                     if col_index in counter:
                         counter[col_index] += 1
@@ -1208,7 +1209,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
             indices_dtype = np.int32
         indices = np.asarray(indices, dtype=indices_dtype)
         indptr = np.asarray(indptr, dtype=indices_dtype)
-        data = np.frombuffer(data, dtype=np.intc)
+        data = np.asarray(data, dtype=np.intc)
 
         self._train_matrix = scipy.sparse.csr_matrix(
             (data, indices, indptr),
