@@ -45,7 +45,7 @@ def cast_tokens_to_strings(data):
 
 
 def validate_homogeneous_token_types(data):
-    """Validate that all tokens are of homogeneeous type.
+    """Validate that all tokens are of homogeneous type.
 
     Parameters
     ----------

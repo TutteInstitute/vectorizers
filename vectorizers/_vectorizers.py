@@ -1209,7 +1209,9 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         data = []
         for sequence in X:
             counter = {}
-            for gram in ngrams_of(sequence, self.ngram_size, self.ngram_behaviour):
+            for gram in ngrams_of(
+                tuple(sequence), self.ngram_size, self.ngram_behaviour
+            ):
                 try:
                     gram = tuple(gram)
                     col_index = self.ngram_dictionary_[gram]
