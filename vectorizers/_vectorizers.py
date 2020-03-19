@@ -20,7 +20,7 @@ from sklearn.mixture import GaussianMixture
 from sklearn.neighbors import KernelDensity
 from sklearn.preprocessing import normalize
 
-from collections import defaultdict, Counter
+from collections import defaultdict
 import scipy.linalg
 import scipy.stats
 import scipy.sparse
