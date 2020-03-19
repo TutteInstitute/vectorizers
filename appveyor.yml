@@ -3,14 +3,14 @@ build: false
 environment:
   matrix:
     - PYTHON: "C:\\Miniconda3-x64"
-      PYTHON_VERSION: "3.5.x"
+      PYTHON_VERSION: "3.7.x"
       PYTHON_ARCH: "32"
-      NUMPY_VERSION: "1.13.1"
-      SCIPY_VERSION: "0.19.1"
-      SKLEARN_VERSION: "0.19.1"
+      NUMPY_VERSION: "1.16.6"
+      SCIPY_VERSION: "1.4.1"
+      SKLEARN_VERSION: "0.22.1"
 
     - PYTHON: "C:\\Miniconda3-x64"
-      PYTHON_VERSION: "3.6.x"
+      PYTHON_VERSION: "3.8.x"
       PYTHON_ARCH: "64"
       NUMPY_VERSION: "*"
       SCIPY_VERSION: "*"
@@ -23,6 +23,7 @@ install:
   - "SET PATH=%PYTHON%;%PYTHON%\\Scripts;%PYTHON%\\Library\\bin;%PATH%"
   # install the dependencies
   - "conda install --yes pip numpy==%NUMPY_VERSION% scipy==%SCIPY_VERSION% scikit-learn==%SKLEARN_VERSION% nose pytest pytest-cov"
+  - conda install --yes numba pandas
   - pip install codecov
   - pip install .
 
