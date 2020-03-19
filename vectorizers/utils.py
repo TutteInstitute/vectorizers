@@ -20,6 +20,20 @@ def flatten(list_of_seq):
 
 
 def cast_tokens_to_strings(data):
+    """Given token data (either an iterator of tokens, or an iterator of iterators
+    of tokens) this will convert all the tokens to strings, so that all tokens
+    are of a consistent homogeneous type.
+
+    Parameters
+    ----------
+    data: iterator of tokens or iterator of iterators of tokens
+        The token data to convert to string based tokens
+
+    Returns
+    -------
+    new_data: iterator of tokens or iterator of iterators of tokens
+        The token data in the same format as passed but with all tokens as strings.
+    """
     result = []
     for item in data:
         if type(item) in (list, tuple, np.ndarray):
@@ -31,6 +45,17 @@ def cast_tokens_to_strings(data):
 
 
 def validate_homogeneous_token_types(data):
+    """Validate that all tokens are of homogeneeous type.
+
+    Parameters
+    ----------
+    data: iterator of tokens or iterator of iterators of tokens
+        The token data to convert to string based tokens
+
+    Returns
+    -------
+    valid: True if valid; will raise an exception if tokens are heterogeneous.
+    """
     types = Counter([type(x) for x in flatten(data)])
     if len(types) > 1:
         warn(f"Non-homogeneous token types encountered. Token type counts are: {types}")
