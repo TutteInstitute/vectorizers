@@ -1258,8 +1258,10 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         data = []
         for sequence in X:
             counter = {}
-            for gram in ngrams_of(sequence, self.ngram_size, self.ngram_behaviour):
+            numba_sequence = np.array(sequence)
+            for gram in ngrams_of(numba_sequence, self.ngram_size, self.ngram_behaviour):
                 try:
+                    gram = tuple(gram)
                     col_index = self.ngram_dictionary_[gram]
                     if col_index in counter:
                         counter[col_index] += 1
@@ -1279,7 +1281,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
             indices_dtype = np.int32
         indices = np.asarray(indices, dtype=indices_dtype)
         indptr = np.asarray(indptr, dtype=indices_dtype)
-        data = np.frombuffer(data, dtype=np.intc)
+        data = np.asarray(data, dtype=np.intc)
 
         result = scipy.sparse.csr_matrix(
             (data, indices, indptr),

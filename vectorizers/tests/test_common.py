@@ -124,6 +124,9 @@ def test_ngram_vectorizer_basic():
     vectorizer = NgramVectorizer()
     result = vectorizer.fit_transform(token_data)
     assert scipy.sparse.issparse(result)
+    transform_result = vectorizer.transform(token_data)
+    assert np.all(transform_result.data == result.data)
+    assert np.all(transform_result.tocoo().col == result.tocoo().col)
 
 
 def test_ngram_vectorizer_text():
