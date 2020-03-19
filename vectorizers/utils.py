@@ -6,6 +6,7 @@ from collections.abc import Iterable
 from sklearn.mixture import GaussianMixture
 from sklearn.preprocessing import normalize
 from typing import Union, Sequence, AnyStr
+from collections import Counter
 
 from warnings import warn
 
@@ -17,6 +18,28 @@ def flatten(list_of_seq):
     else:
         return list_of_seq
 
+
+def cast_tokens_to_strings(data):
+    result = []
+    for item in data:
+        if type(item) in (list, tuple, np.ndarray):
+            result.append([str(x) for x in item])
+        else:
+            result.append(str(item))
+
+    return result
+
+
+def validate_homogeneous_token_types(data):
+    types = Counter([type(x) for x in flatten(data)])
+    if len(types) > 1:
+        warn(f"Non-homogeneous token types encountered. Token type counts are: {types}")
+        raise ValueError("Heterogeneous token types are not supported -- please cast "
+                         "your tokens to a single type. You can use "
+                         "\"X = vectorizers.cast_tokens_to_string(X)\" to achieve "
+                         "this.")
+    else:
+        return True
 
 def gmm_component_likelihood(
     component_mean: np.ndarray, component_covar: np.ndarray, diagram: np.ndarray

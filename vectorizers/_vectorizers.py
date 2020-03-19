@@ -1,6 +1,8 @@
 """
 This is a module to be used as a reference for building other modules
 """
+from warnings import warn
+
 import numpy as np
 import numba
 
@@ -28,6 +30,7 @@ from .utils import (
     flatten,
     vectorize_diagram,
     pairwise_gaussian_ground_distance,
+    validate_homogeneous_token_types,
 )
 import vectorizers.distances as distances
 
@@ -461,7 +464,7 @@ def sequence_skip_grams(
     result = np.empty((total_n_skip_grams, 3), dtype=np.float32)
     count = 0
     for arr in skip_grams_per_sequence:
-        result[count:count+arr.shape[0]] = arr
+        result[count : count + arr.shape[0]] = arr
         count += arr.shape[0]
     return result
 
@@ -695,6 +698,9 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
     symmetrize: bool (optional, default=False)
         Whether to symmetrize the matrix -- if True this means that the
         co-occurrence of (a,b) is considered the same as the co-occurrence (b,a).
+
+    validate_data: bool (optional, default=True)
+        Check whether the data is valid (e.g. of homogeneous token type).
     """
 
     def __init__(
@@ -710,6 +716,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         window_args=(5,),
         kernel_args=(),
         symmetrize=False,
+        validate_data=True,
     ):
         self.token_dictionary = token_dictionary
         self.min_occurrences = min_occurrences
@@ -724,8 +731,12 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self.kernel_args = kernel_args
 
         self.symmetrize = symmetrize
+        self.validate_data = validate_data
 
     def fit_transform(self, X, y=None, **fit_params):
+
+        if self.validate_data:
+            validate_homogeneous_token_types(X)
 
         flat_sequences = flatten(X)
         (
@@ -1171,13 +1182,22 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
 
 class NgramVectorizer(BaseEstimator, TransformerMixin):
     def __init__(
-        self, ngram_size=2, ngram_behaviour="exact", ngram_dictionary=None,
+        self,
+        ngram_size=2,
+        ngram_behaviour="exact",
+        ngram_dictionary=None,
+        validate_data=True,
     ):
         self.ngram_size = ngram_size
         self.ngram_behaviour = ngram_behaviour
         self.ngram_dictionary = ngram_dictionary
+        self.validate_data = validate_data
 
     def fit(self, X, y=None, **fit_params):
+
+        if self.validate_data:
+            validate_homogeneous_token_types(X)
+
         if self.ngram_dictionary is not None:
             self.ngram_dictionary_ = self.ngram_dictionary
         else:
