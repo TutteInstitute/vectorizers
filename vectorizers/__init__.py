@@ -8,6 +8,8 @@ from ._vectorizers import ProductDistributionVectorizer
 from ._vectorizers import Wasserstein1DHistogramTransformer
 from ._vectorizers import SequentialDifferenceTransformer
 
+from .utils import cast_tokens_to_strings
+
 from ._version import __version__
 
 __all__ = [
