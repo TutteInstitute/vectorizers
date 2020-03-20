@@ -347,22 +347,21 @@ def build_skip_grams(
         weights = kernel_function(window, *kernel_args)
 
         for j in range(len(window)):
-            new_tokens[new_token_count, 0] = numba.types.float32(head_token)
-            new_tokens[new_token_count, 1] = numba.types.float32(window[j])
+            new_tokens[new_token_count, 0] = np.float32(head_token)
+            new_tokens[new_token_count, 1] = np.float32(window[j])
             new_tokens[new_token_count, 2] = weights[j]
             new_token_count += 1
 
     return new_tokens
 
 
-@numba.njit(nogil=True)
 def skip_grams_matrix_coo_data(
     list_of_token_sequences,
     window_function,
     kernel_function,
     window_args,
     kernel_args,
-    n_unique_tokens,
+    token_dictionary,
 ):
     """Given a list of token sequences construct the relevant data for a sparse
     matrix representation with a row for each token sequence and a column for each
@@ -399,27 +398,31 @@ def skip_grams_matrix_coo_data(
     data: array
         Value data for a COO format sparse matrix representation
     """
-    result_row = [numba.types.int32(0) for i in range(0)]
-    result_col = [numba.types.int32(0) for i in range(0)]
-    result_data = [numba.types.float32(0) for i in range(0)]
+    result_row = []
+    result_col = []
+    result_data = []
+
+    n_unique_tokens = len(token_dictionary)
 
     for row_idx in range(len(list_of_token_sequences)):
+        token_index_sequence = [token_dictionary[token] for token in list_of_token_sequences[row_idx]]
         skip_gram_data = build_skip_grams(
-            list_of_token_sequences[row_idx],
+            token_index_sequence,
             window_function,
             kernel_function,
             window_args,
             kernel_args,
         )
-        for skip_gram in skip_gram_data:
+        for i in range(skip_gram_data.shape[0]):
+            skip_gram = skip_gram_data[i]
             result_row.append(row_idx)
             result_col.append(
-                numba.types.int32(skip_gram[0]) * n_unique_tokens
-                + numba.types.int32(skip_gram[1])
+                np.int32(skip_gram[0]) * n_unique_tokens
+                + np.int32(skip_gram[1])
             )
             result_data.append(skip_gram[2])
 
-    return np.array(result_row), np.array(result_col), np.array(result_data)
+    return np.asarray(result_row), np.asarray(result_col), np.asarray(result_data)
 
 
 @numba.njit(nogil=True, parallel=True)
@@ -1090,6 +1093,7 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
         kernel_function=flat_kernel,
         window_args=(5,),
         kernel_args=(),
+        validate_data=True,
     ):
         self.token_dictionary = token_dictionary
         self.min_occurrences = min_occurrences
@@ -1102,8 +1106,13 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
         self.kernel_function = kernel_function
         self.window_args = window_args
         self.kernel_args = kernel_args
+        self.validate_data = validate_data
 
     def fit(self, X, y=None, **fit_params):
+
+        if self.validate_data:
+            validate_homogeneous_token_types(X)
+
         flat_sequence = flatten(X)
         (
             token_sequences,
@@ -1131,7 +1140,7 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
             self.kernel_function,
             self.window_args,
             self.kernel_args,
-            n_unique_tokens,
+            self.token_dictionary_,
         )
 
         base_matrix = scipy.sparse.coo_matrix((data, (row, col)))
@@ -1146,12 +1155,13 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
             second_token = index_dictionary[raw_val % n_unique_tokens]
             self.skipgram_dictionary_[(first_token, second_token)] = i
 
-        self._train_matrix = base_matrix[:, self._column_is_kept]
+        self._train_matrix = base_matrix.tocsc()[:, self._column_is_kept].tocsr()
         self.metric_ = distances.sparse_hellinger
+
         return self
 
     def fit_transform(self, X, y=None, **fit_params):
-        self.fit(self, X, y, **fit_params)
+        self.fit(X, y, **fit_params)
         return self._train_matrix
 
     def transform(self, X):
@@ -1171,11 +1181,11 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
             self.kernel_function,
             self.window_args,
             self.kernel_args,
-            n_unique_tokens,
+            self.token_dictionary_,
         )
 
         base_matrix = scipy.sparse.coo_matrix((data, (row, col)))
-        result = base_matrix[:, self._column_is_kept]
+        result = base_matrix.tocsc()[:, self._column_is_kept].tocsr()
 
         return result
 
@@ -1259,7 +1269,9 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         for sequence in X:
             counter = {}
             numba_sequence = np.array(sequence)
-            for gram in ngrams_of(numba_sequence, self.ngram_size, self.ngram_behaviour):
+            for gram in ngrams_of(
+                numba_sequence, self.ngram_size, self.ngram_behaviour
+            ):
                 try:
                     gram = tuple(gram)
                     col_index = self.ngram_dictionary_[gram]

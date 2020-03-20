@@ -7,6 +7,7 @@ import numpy as np
 
 from vectorizers import TokenCooccurrenceVectorizer
 from vectorizers import NgramVectorizer
+from vectorizers import SkipgramVectorizer
 from vectorizers import DistributionVectorizer
 
 from vectorizers._vectorizers import (
@@ -135,7 +136,28 @@ def test_ngram_vectorizer_text():
     assert scipy.sparse.issparse(result)
 
 
-def test_ngram_vectorizer_mixed():
-    vectorizer = NgramVectorizer()
+def test_skipgram_vectorizer_mixed():
+    vectorizer = SkipgramVectorizer()
+    with pytest.raises(ValueError):
+        vectorizer.fit_transform(mixed_token_data)
+
+
+def test_skipgram_vectorizer_basic():
+    vectorizer = SkipgramVectorizer()
+    result = vectorizer.fit_transform(token_data)
+    assert scipy.sparse.issparse(result)
+    transform_result = vectorizer.transform(token_data)
+    assert np.all(transform_result.data == result.data)
+    assert np.all(transform_result.tocoo().col == result.tocoo().col)
+
+
+def test_skipgram_vectorizer_text():
+    vectorizer = SkipgramVectorizer()
+    result = vectorizer.fit_transform(text_token_data)
+    assert scipy.sparse.issparse(result)
+
+
+def test_skipgram_vectorizer_mixed():
+    vectorizer = SkipgramVectorizer()
     with pytest.raises(ValueError):
         vectorizer.fit_transform(mixed_token_data)
