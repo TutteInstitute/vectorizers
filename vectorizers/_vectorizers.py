@@ -1391,7 +1391,9 @@ class Wasserstein1DHistogramTransformer(BaseEstimator, TransformerMixin):
         pass
 
     def fit_transform(self, X, y=None, **fit_params):
-        result = np.cumsum(X, axis=1)
+        X = check_array(X)
+        normalized_X = normalize(X, norm="l1")
+        result = np.cumsum(normalized_X, axis=1)
         self.metric_ = "l1"
         return result
 

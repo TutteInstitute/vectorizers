@@ -12,6 +12,11 @@ from vectorizers import DistributionVectorizer
 from vectorizers import HistogramVectorizer
 from vectorizers import KDEVectorizer
 
+from vectorizers import SequentialDifferenceTransformer
+from vectorizers import Wasserstein1DHistogramTransformer
+
+from vectorizers.distances import kantorovich1d
+
 from vectorizers._vectorizers import (
     harmonic_kernel,
     triangle_kernel,
@@ -244,3 +249,25 @@ def test_kde_vectorizer_basic():
     assert result.shape == (len(value_sequence_data), 20)
     transform_result = vectorizer.transform(value_sequence_data)
     assert np.all(result == transform_result)
+
+
+def test_seq_diff_transformer():
+    transformer = SequentialDifferenceTransformer()
+    result = transformer.fit_transform(value_sequence_data)
+    for i in range(len(value_sequence_data)):
+        assert np.allclose(
+            result[i], value_sequence_data[i][1:] - value_sequence_data[i][:-1]
+        )
+
+
+def test_wass1d_transfomer():
+    vectorizer = HistogramVectorizer()
+    histogram_data = vectorizer.fit_transform(value_sequence_data)
+    transformer = Wasserstein1DHistogramTransformer()
+    result = transformer.fit_transform(histogram_data)
+    for i in range(result.shape[0]):
+        for j in range(i + 1, result.shape[0]):
+            assert np.isclose(
+                kantorovich1d(histogram_data[i], histogram_data[j]),
+                np.sum(np.abs(result[i] - result[j])),
+            )
