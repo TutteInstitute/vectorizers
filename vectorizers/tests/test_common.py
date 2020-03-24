@@ -9,6 +9,13 @@ from vectorizers import TokenCooccurrenceVectorizer
 from vectorizers import NgramVectorizer
 from vectorizers import SkipgramVectorizer
 from vectorizers import DistributionVectorizer
+from vectorizers import HistogramVectorizer
+from vectorizers import KDEVectorizer
+
+from vectorizers import SequentialDifferenceTransformer
+from vectorizers import Wasserstein1DHistogramTransformer
+
+from vectorizers.distances import kantorovich1d
 
 from vectorizers._vectorizers import (
     harmonic_kernel,
@@ -57,6 +64,34 @@ mixed_token_data = [
     [1, "bar", "bar", 1, "bar", 1, "pok", 3.1415, "pok", "bar", 3.1415],
     ["pok", 3.1415, "bar", 1, "pok", 1, 3.1415, 3.1415, 1, "pok", "bar"],
     ["bar", 1, "pok", 1, 3.1415, 3.1415, 1, 3.1415, 1, "pok", "bar", 3.1415],
+]
+
+point_data = [
+    np.random.multivariate_normal(
+        mean=[0.0, 0.0], cov=[[0.5, 0.0], [0.0, 0.5]], size=50
+    ),
+    np.random.multivariate_normal(
+        mean=[0.5, 0.0], cov=[[0.5, 0.0], [0.0, 0.5]], size=60
+    ),
+    np.random.multivariate_normal(
+        mean=[-0.5, 0.0], cov=[[0.5, 0.0], [0.0, 0.5]], size=80
+    ),
+    np.random.multivariate_normal(
+        mean=[0.0, 0.5], cov=[[0.5, 0.0], [0.0, 0.5]], size=40
+    ),
+    np.random.multivariate_normal(
+        mean=[0.0, -0.5], cov=[[0.5, 0.0], [0.0, 0.5]], size=20
+    ),
+]
+
+value_sequence_data = [
+    np.random.poisson(3.0, size=100),
+    np.random.poisson(12.0, size=30),
+    np.random.poisson(4.0, size=40),
+    np.random.poisson(5.0, size=90),
+    np.random.poisson(4.5, size=120),
+    np.random.poisson(9.0, size=60),
+    np.random.poisson(2.0, size=80),
 ]
 
 
@@ -136,7 +171,7 @@ def test_ngram_vectorizer_text():
     assert scipy.sparse.issparse(result)
 
 
-def test_skipgram_vectorizer_mixed():
+def test_ngram_vectorizer_mixed():
     vectorizer = SkipgramVectorizer()
     with pytest.raises(ValueError):
         vectorizer.fit_transform(mixed_token_data)
@@ -161,3 +196,78 @@ def test_skipgram_vectorizer_mixed():
     vectorizer = SkipgramVectorizer()
     with pytest.raises(ValueError):
         vectorizer.fit_transform(mixed_token_data)
+
+
+def test_distribution_vectorizer_basic():
+    vectorizer = DistributionVectorizer(n_components=3)
+    result = vectorizer.fit_transform(point_data)
+    assert result.shape == (len(point_data), 3)
+    transform_result = vectorizer.transform(point_data)
+    assert np.all(result == transform_result)
+
+
+def test_distribution_vectorizer_bad_params():
+    vectorizer = DistributionVectorizer(n_components=-1)
+    with pytest.raises(ValueError):
+        vectorizer.fit(point_data)
+    vectorizer = DistributionVectorizer(n_components="foo")
+    with pytest.raises(ValueError):
+        vectorizer.fit(point_data)
+    vectorizer = DistributionVectorizer()
+    with pytest.raises(ValueError):
+        vectorizer.fit(point_data[0])
+    vectorizer = DistributionVectorizer()
+    with pytest.raises(ValueError):
+        vectorizer.fit(
+            [np.random.uniform(size=(10, np.random.poisson(10))) for i in range(5)]
+        )
+    vectorizer = DistributionVectorizer()
+    with pytest.raises(ValueError):
+        vectorizer.fit([[[1, 2, 3], [1, 2], [1, 2, 3, 4]], [[1, 2], [1,], [1, 2, 3]]])
+
+
+def test_histogram_vectorizer_basic():
+    vectorizer = HistogramVectorizer(n_components=20)
+    result = vectorizer.fit_transform(value_sequence_data)
+    assert result.shape == (len(value_sequence_data), 20)
+    transform_result = vectorizer.transform(value_sequence_data)
+    assert np.all(result == transform_result)
+
+
+def test_histogram_vectorizer_outlier_bins():
+    vectorizer = HistogramVectorizer(n_components=20, append_outlier_bins=True)
+    result = vectorizer.fit_transform(value_sequence_data)
+    assert result.shape == (len(value_sequence_data), 20 + 2)
+    transform_result = vectorizer.transform([[-1.0, -1.0, -1.0, 150.0]])
+    assert transform_result[0][0] == 3.0
+    assert transform_result[0][-1] == 1.0
+
+
+def test_kde_vectorizer_basic():
+    vectorizer = KDEVectorizer(n_components=20)
+    result = vectorizer.fit_transform(value_sequence_data)
+    assert result.shape == (len(value_sequence_data), 20)
+    transform_result = vectorizer.transform(value_sequence_data)
+    assert np.all(result == transform_result)
+
+
+def test_seq_diff_transformer():
+    transformer = SequentialDifferenceTransformer()
+    result = transformer.fit_transform(value_sequence_data)
+    for i in range(len(value_sequence_data)):
+        assert np.allclose(
+            result[i], value_sequence_data[i][1:] - value_sequence_data[i][:-1]
+        )
+
+
+def test_wass1d_transfomer():
+    vectorizer = HistogramVectorizer()
+    histogram_data = vectorizer.fit_transform(value_sequence_data)
+    transformer = Wasserstein1DHistogramTransformer()
+    result = transformer.fit_transform(histogram_data)
+    for i in range(result.shape[0]):
+        for j in range(i + 1, result.shape[0]):
+            assert np.isclose(
+                kantorovich1d(histogram_data[i], histogram_data[j]),
+                np.sum(np.abs(result[i] - result[j])),
+            )

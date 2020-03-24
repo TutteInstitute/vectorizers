@@ -937,19 +937,32 @@ class HistogramVectorizer(BaseEstimator, TransformerMixin):
     """Convert a time series of binary events into a histogram of
     event occurrences over a time frame. If the data has explicit time stamps
     it can be aggregated over hour of day, day of week, day of month, day of year
-    , week of year or month of year."""
+    , week of year or month of year.
 
-    """
-    :param n_bins: int or array-like, shape (n_features,) (default=5)
+    Parameters
+    ----------
+    n_components: int or array-like, shape (n_features,) (default=5)
         The number of bins to produce. Raises ValueError if n_bins < 2.
-    :param strategy: {‘uniform’, ‘quantile’, 'gmm'}, (default=’quantile’)
-    :param ground_distance: {'euclidean'}
+
+    strategy: {‘uniform’, ‘quantile’, 'gmm'}, (default=’quantile’)
+        The method to use for bin selection in the histogram. In general the
+        quantile option, which will select variable width bins based on the
+        distribution of the training data, is suggested, but uniformly spaced
+        identically sized bins, or soft gns learned from a Gaussian mixture model
+        are also available.
+
+    ground_distance: {'euclidean'}
         The distance to induce between bins.
-    :param absolute_range: (minimum_value_possible, maximum_value_possible) (default=(-np.inf, np.inf))
+
+    absolute_range: (minimum_value_possible, maximum_value_possible) (default=(-np.inf, np.inf))
         By default values outside of training data range are included in the extremal bins.
         You can specify these values if you know something about your values (e.g. (0, np.inf) )
-    :param outlier_bins: binary (default=False) should I add extra bins to catch values outside of your training
-        data where appropriate?
+
+    append_outlier_bins: bool (default=False)
+        Whether to add extra bins to catch values outside of your training
+        data where appropriate? These bins will increase the total number of
+        components (to ``n_components + 2`` and will be the first bin (for
+        outlying small data) and the last bin (for outlying large data).
     """
     # TODO: time stamps, generic groupby
     def __init__(
@@ -960,7 +973,6 @@ class HistogramVectorizer(BaseEstimator, TransformerMixin):
         absolute_range=(-np.inf, np.inf),
         append_outlier_bins=False,
     ):
-
         self.n_components = n_components
         self.strategy = strategy
         self.ground_distance = ground_distance  # Not currently making use of this.
@@ -1379,7 +1391,9 @@ class Wasserstein1DHistogramTransformer(BaseEstimator, TransformerMixin):
         pass
 
     def fit_transform(self, X, y=None, **fit_params):
-        result = np.cumsum(X, axis=1)
+        X = check_array(X)
+        normalized_X = normalize(X, norm="l1")
+        result = np.cumsum(normalized_X, axis=1)
         self.metric_ = "l1"
         return result
 
