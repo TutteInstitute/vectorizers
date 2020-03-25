@@ -120,7 +120,10 @@ def test_ngrams_of():
     for ngram_size in (1, 2, 4):
         tokens = np.random.randint(10, size=np.random.poisson(5 + ngram_size))
         ngrams = ngrams_of(tokens, ngram_size)
-        assert len(ngrams) == len(tokens) - (ngram_size - 1)
+        if len(tokens) > 0:
+            assert len(ngrams) == len(tokens) - (ngram_size - 1)
+        else:
+            assert len(ngrams) == 0
         assert np.all(
             [ngrams[i][0] == tokens[i] for i in range(len(tokens) - (ngram_size - 1))]
         )
