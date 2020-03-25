@@ -527,6 +527,8 @@ def token_cooccurence_matrix(
         the (weighted)  count of the number of times token i cooccurs within a
         window with token j.
     """
+    if n_unique_tokens == 0:
+        raise ValueError("Token dictionary is empty; try using less extreme contraints")
 
     raw_coo_data = sequence_skip_grams(
         token_sequences, window_function, kernel_function, window_args, kernel_args
@@ -871,6 +873,11 @@ def find_bin_boundaries(flat, n_bins):
         ):
             bin_indices.append(i)
     bin_values = np.array(flat, dtype=float)[bin_indices]
+
+    if bin_values.shape[0] < n_bins:
+        warn(f"Could not generate n_bins={n_bins} bins as there are not enough "
+             f"distinct values. Please check your data.")
+
     return bin_values
 
 
