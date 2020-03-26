@@ -1220,7 +1220,7 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
 class NgramVectorizer(BaseEstimator, TransformerMixin):
     def __init__(
         self,
-        ngram_size=2,
+        ngram_size=1,
         ngram_behaviour="exact",
         ngram_dictionary=None,
         token_dictionary=None,
