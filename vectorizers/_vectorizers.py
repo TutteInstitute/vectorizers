@@ -1280,9 +1280,12 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
                 numba_sequence, self.ngram_size, self.ngram_behaviour
             ):
                 try:
-                    token_gram = tuple(
-                        self.inverse_token_dictionary_[index] for index in index_gram
-                    )
+                    if len(index_gram) == 1:
+                        token_gram = self.inverse_token_dictionary_[index_gram[0]]
+                    else:
+                        token_gram = tuple(
+                            self.inverse_token_dictionary_[index] for index in index_gram
+                        )
                     col_index = self.ngram_dictionary_[token_gram]
                     if col_index in counter:
                         counter[col_index] += 1
@@ -1340,9 +1343,13 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
                 numba_sequence, self.ngram_size, self.ngram_behaviour
             ):
                 try:
-                    token_gram = tuple(
-                        self.inverse_token_dictionary_[index] for index in index_gram
-                    )
+                    if len(index_gram) == 1:
+                        token_gram = self.inverse_token_dictionary_[index_gram[0]]
+                    else:
+                        token_gram = tuple(
+                            self.inverse_token_dictionary_[index] for index in
+                            index_gram
+                        )
                     col_index = self.ngram_dictionary_[token_gram]
                     if col_index in counter:
                         counter[col_index] += 1
