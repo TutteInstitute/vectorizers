@@ -21,7 +21,9 @@ from vectorizers._vectorizers import (
     harmonic_kernel,
     triangle_kernel,
     flat_kernel,
+    information_window,
     ngrams_of,
+    find_bin_boundaries,
 )
 
 
@@ -118,7 +120,10 @@ def test_ngrams_of():
     for ngram_size in (1, 2, 4):
         tokens = np.random.randint(10, size=np.random.poisson(5 + ngram_size))
         ngrams = ngrams_of(tokens, ngram_size)
-        assert len(ngrams) == len(tokens) - (ngram_size - 1)
+        if len(tokens) > 0:
+            assert len(ngrams) == len(tokens) - (ngram_size - 1)
+        else:
+            assert len(ngrams) == 0
         assert np.all(
             [ngrams[i][0] == tokens[i] for i in range(len(tokens) - (ngram_size - 1))]
         )
@@ -128,6 +133,20 @@ def test_ngrams_of():
                 for i in range(len(tokens) - (ngram_size - 1))
             ]
         )
+
+
+def test_find_bin_boundaries_min():
+    data = np.random.poisson(5, size=1000)
+    bins = find_bin_boundaries(data, 10)
+    # Poisson so smallest bin should be at 0
+    assert bins[0] == 0.0
+
+
+def test_find_boundaries_all_dupes():
+    data = np.ones(100)
+    with pytest.warns(UserWarning):
+        bins = find_bin_boundaries(data, 10)
+        assert len(bins) == 1
 
 
 def test_token_cooccurrence_vectorizer_basic():
@@ -148,6 +167,52 @@ def test_token_cooccurrence_vectorizer_text():
     result = vectorizer.fit_transform(text_token_data)
     assert result[1, 2] == 8
     assert result[0, 1] == 6
+
+
+def test_token_cooccurrence_vectorizer_fixed_tokens():
+    vectorizer = TokenCooccurrenceVectorizer(token_dictionary={1: 0, 2: 1, 3: 2})
+    result = vectorizer.fit_transform(token_data)
+    assert scipy.sparse.issparse(result)
+    vectorizer = TokenCooccurrenceVectorizer(window_args=(1,))
+    result = vectorizer.fit_transform(token_data)
+    assert result[0, 2] == 8
+    assert result[1, 0] == 6
+
+
+def test_token_cooccurrence_vectorizerexcessive_prune():
+    vectorizer = TokenCooccurrenceVectorizer(min_frequency=1.0)
+    with pytest.raises(ValueError):
+        result = vectorizer.fit_transform(token_data)
+
+
+def test_token_cooccurrence_vectorizer_min_occur():
+    vectorizer = TokenCooccurrenceVectorizer(min_occurrences=3)
+    result = vectorizer.fit_transform(token_data)
+    assert scipy.sparse.issparse(result)
+    vectorizer = TokenCooccurrenceVectorizer(window_args=(1,))
+    result = vectorizer.fit_transform(token_data)
+    assert result[0, 2] == 8
+    assert result[1, 0] == 6
+
+
+def test_token_cooccurrence_vectorizer_max_freq():
+    vectorizer = TokenCooccurrenceVectorizer(max_frequency=0.2)
+    result = vectorizer.fit_transform(token_data)
+    assert scipy.sparse.issparse(result)
+    vectorizer = TokenCooccurrenceVectorizer(window_args=(1,))
+    result = vectorizer.fit_transform(token_data)
+    assert result[0, 2] == 8
+    assert result[1, 0] == 6
+
+
+def test_token_cooccurrence_vectorizer_info_window():
+    vectorizer = TokenCooccurrenceVectorizer(window_function=information_window)
+    result = vectorizer.fit_transform(token_data)
+    assert scipy.sparse.issparse(result)
+    vectorizer = TokenCooccurrenceVectorizer(window_args=(1,))
+    result = vectorizer.fit_transform(token_data)
+    assert result[0, 2] == 8
+    assert result[1, 0] == 6
 
 
 def test_token_cooccurrence_vectorizer_mixed():
