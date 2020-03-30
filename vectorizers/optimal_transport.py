@@ -491,18 +491,20 @@ def getArcID(arc, graph):
 # Heuristic initial pivots
 # locals: curr, total, supply_nodes, demand_nodes, u
 # modifies:
-def initialPivots(delta, supply, sum_supply, state, graph, node_arc_data,
-                  spanning_tree):
+def initialPivots(sum_supply, graph, node_arc_data, spanning_tree):
 
     cost = node_arc_data.cost
     pi = node_arc_data.pi
     source = node_arc_data.source
     target = node_arc_data.target
+    supply = node_arc_data.supply
 
     n1 = graph.n
     n2 = graph.m
     node_num = graph.n_nodes
     n_arcs = graph.n_arcs
+
+    state = spanning_tree.state
 
     curr = 0
     total = 0
@@ -601,6 +603,7 @@ def initialPivots(delta, supply, sum_supply, state, graph, node_arc_data,
 
     # Perform heuristic initial pivots
     # for (int i = 0; i != int(arc_vector.size()); ++i) {
+    in_arc = arc_vector[0]
     for i in range(len(arc_vector)):
         in_arc = arc_vector[i]
         # l'erreur est probablement ici... ???
@@ -610,63 +613,52 @@ def initialPivots(delta, supply, sum_supply, state, graph, node_arc_data,
         ):
             continue
 
-        join = findJoinNode(source, target, spanning_tree.succ_num,
-                            spanning_tree.parent,
-                     in_arc)
-        change, (u_in, v_in, u_out, delta) = findLeavingArc(join, in_arc, node_arc_data, spanning_tree)
+        join = findJoinNode(
+            source, target, spanning_tree.succ_num, spanning_tree.parent, in_arc
+        )
+        change, (u_in, v_in, u_out, delta) = findLeavingArc(
+            join, in_arc, node_arc_data, spanning_tree
+        )
         if delta >= MAX:
-            return False
+            return False, in_arc
 
         changeFlow(change, join, delta, u_out, node_arc_data, spanning_tree, in_arc)
         if change:
             updateTreeStructure(spanning_tree, v_in, u_in, u_out, join, in_arc, source)
             updatePotential(u_in, v_in, pi, cost, spanning_tree)
 
-    return True
+    return True, in_arc
 
 
 def start(
-    _pi,
-    _flow,
-    _cost,
-    _state,
-    _sum_supply,
-    _node_num,
-    _source,
-    _target,
-    _search_arc_num,
-    _all_arc_num,
+    node_arc_data,
+    spanning_tree,
+    graph,
+    sum_supply,
+    search_arc_num,
+    all_arc_num,
     _stype,
-    _block_size,
-    _next_arc,
-    _in_arc,
-    _succ_num,
-    _parent,
-    delta,
     max_iter,
 ):
-    pivot_data = pivot(*this)
+    # pivot_data = pivot(*this)
+    pivot_block = PivotBlock(
+        max(np.int32(np.sqrt(search_arc_num)), 10), 0, search_arc_num
+    )
     prevCost = -1.0
     retVal = OPTIMAL
 
     # Perform heuristic initial pivots
-    if not initialPivots():
+    bounded, in_arc = initialPivots(sum_supply, graph, node_arc_data, spanning_tree)
+    if not bounded:
         return UNBOUNDED
 
     iter_number = 0
     # pivot.setDantzig(true);
     # Execute the Network Simplex algorithm
-    while findEnteringArc(
-        _next_arc,
-        _search_arc_num,
-        _block_size,
-        _state,
-        _cost,
-        _pi,
-        _source,
-        _target,
-        _in_arc,
-    ):
+    not_converged, in_arc = findEnteringArc(
+        pivot_block, spanning_tree.state, node_arc_data, in_arc
+    )
+    while not_converged:
         iter_number += 1
         if max_iter > 0 and iter_number >= max_iter and max_iter > 0:
             warn(
@@ -700,16 +692,32 @@ def start(
         #                 }
         # #endif
 
-        join = findJoinNode(_source, _target, _succ_num, _parent, _in_arc)
-        change = findLeavingArc()
+        join = findJoinNode(
+            node_arc_data.source,
+            node_arc_data.target,
+            spanning_tree.succ_num,
+            spanning_tree.parent,
+            in_arc,
+        )
+        change, (u_in, v_in, u_out, delta) = findLeavingArc(
+            join, in_arc, node_arc_data, spanning_tree
+        )
         if delta >= MAX:
             return UNBOUNDED
 
-        changeFlow(change)
+        changeFlow(change, join, delta, u_out, node_arc_data, spanning_tree, in_arc)
 
         if change:
-            updateTreeStructure()
-            updatePotential()
+            updateTreeStructure(
+                spanning_tree, v_in, u_in, u_out, join, in_arc, node_arc_data.source
+            )
+            updatePotential(
+                u_in, v_in, node_arc_data.pi, node_arc_data.cost, spanning_tree
+            )
+
+        not_converged, in_arc = findEnteringArc(
+            pivot_block, spanning_tree.state, node_arc_data, in_arc
+        )
 
     # #if DEBUG_LVL>0
     #                 else{
@@ -747,34 +755,38 @@ def start(
     #             }
     #             std::cout << "Sum of the flow " << sumFlow << "\n"<< niter <<" iterations, current cost=" << totalCost() << "\n";
     # #endif
+
+    flow = node_arc_data.flow
+    pi = node_arc_data.pi
+
     # Check feasibility
     if retVal == OPTIMAL:
-        for e in range(_search_arc_num, _all_arc_num):
-            if _flow[e] != 0:
-                if abs(_flow[e]) > EPSILON:
+        for e in range(pivot_block.search_arc_num, all_arc_num):
+            if flow[e] != 0:
+                if abs(flow[e]) > EPSILON:
                     return INFEASIBLE
                 else:
-                    _flow[e] = 0
+                    flow[e] = 0
 
     # Shift potentials to meet the requirements of the GEQ/LEQ type
     # optimality conditions
-    if _sum_supply == 0:
+    if sum_supply == 0:
         if _stype == "GEQ":
             max_pot = -INFINITY
-            for i in range(_node_num):
-                if _pi[i] > max_pot:
-                    max_pot = _pi[i]
+            for i in range(graph.n_nodes):
+                if pi[i] > max_pot:
+                    max_pot = pi[i]
             if max_pot > 0:
-                for i in range(_node_num):
-                    _pi[i] -= max_pot
+                for i in range(graph.n_nodes):
+                    pi[i] -= max_pot
 
         else:
             min_pot = INFINITY
-            for i in range(_node_num):
-                if _pi[i] < min_pot:
-                    min_pot = _pi[i]
+            for i in range(graph.n_nodes):
+                if pi[i] < min_pot:
+                    min_pot = pi[i]
             if min_pot < 0:
-                for i in range(_node_num):
-                    _pi[i] -= min_pot
+                for i in range(graph.n_nodes):
+                    pi[i] -= min_pot
 
     return retVal
