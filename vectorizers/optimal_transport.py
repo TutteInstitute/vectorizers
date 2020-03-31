@@ -630,6 +630,271 @@ def initialPivots(sum_supply, graph, node_arc_data, spanning_tree):
     return True, in_arc
 
 
+def allocate(n, m, _arc_mixing=True):
+
+    # Size bipartite graph
+    n_nodes = n + m
+    n_arcs = n * m
+
+    # Resize vectors
+    all_node_num = n_nodes + 1
+    max_arc_num = n_arcs + 2 * n_nodes
+    root = n_nodes
+
+    source = np.zeros(max_arc_num, dtype=np.uint32)
+    target = np.zeros(max_arc_num, dtype=np.uint32)
+    cost = np.zeros(max_arc_num, dtype=np.float64)
+    supply = np.zeros(all_node_num, dtype=np.float64)
+    flow = np.zeros(max_arc_num, dtype=np.float64)
+    pi = np.zeros(all_node_num, dtype=np.float64)
+
+    parent = np.zeros(all_node_num, dtype=np.int32)
+    pred = np.zeros(all_node_num, dtype=np.int32)
+    forward = np.zeros(all_node_num, dtype=np.bool)
+    thread = np.zeros(all_node_num, dtype=np.int32)
+    rev_thread = np.zeros(all_node_num, dtype=np.int32)
+    succ_num = np.zeros(all_node_num, dtype=np.int32)
+    last_succ = np.zeros(all_node_num, dtype=np.int32)
+    state = np.zeros (max_arc_num, dtype=np.int8)
+
+    #_arc_mixing=false;
+    if _arc_mixing:
+        # Store the arcs in a mixed order
+        k = max(np.int32(np.sqrt(n_arcs)), 10)
+        mixingCoeff = k
+        subsequence_length = n_arcs / mixingCoeff + 1
+        num_big_subsequences = n_arcs % mixingCoeff
+        num_total_big_subsequence_numbers = subsequence_length * \
+                                            num_big_subsequences
+
+        i = 0
+        j = 0
+        # Arc a; _graph.first(a);
+        # for (; a != INVALID; _graph.next(a)) {
+        for a in range(n_arcs - 1, -1, -1):
+            # _source[i] = _node_id(_graph.source(a));
+            # _target[i] = _node_id(_graph.target(a));
+            source[i] = n_nodes - (a // m) - 1
+            target[i] = n_nodes - ((a % m) + n) - 1
+            ## #_arc_id[a] = i;
+            # if ((i += k) >= _arc_num) i = ++j;
+            i += k
+            if i >= n_arcs:
+                j += 1
+                i = j
+
+    else:
+        # dummy values
+        subsequence_length = 0
+        mixingCoeff = 0
+        num_big_subsequences = 0
+        num_total_big_subsequence_numbers = 0
+        # Store the arcs in the original order
+        i = 0
+        # Arc a; _graph.first(a);
+        # for (; a != INVALID; _graph.next(a), ++i) {
+        for a in range(n_arcs - 1, -1, -1):
+            # _source[i] = _node_id(_graph.source(a));
+            # _target[i] = _node_id(_graph.target(a));
+            source[i] = n_nodes - (a // m) - 1
+            target[i] = n_nodes - ((a % m) + n) - 1
+            ## #_arc_id[a] = i;
+
+    # Reset parameters
+    for i in range(n_nodes): # (int i = 0; i != _node_num; ++i) {
+        supply[i] = 0
+
+    for i in range(n_arcs): # (int i = 0; i != _arc_num; ++i) {
+        cost[i] = 1
+
+    _stype = "GEQ"
+
+    node_arc_data = NodeArcData(cost, supply, flow, pi, source, target)
+    spanning_tree = SpanningTree(parent, pred, thread, rev_thread, succ_num,
+                                 last_succ, forward, state, root)
+    graph = DiGraph(n_nodes, n_arcs, n, m, num_total_big_subsequence_numbers,
+                    subsequence_length, num_big_subsequences, mixingCoeff)
+
+    return node_arc_data, spanning_tree, graph
+
+
+# creates:
+def init(_node_num, _arc_num, node_arc_data, spanning_tree):
+
+    # unpack arrays
+    _cost = node_arc_data.cost
+    _supply = node_arc_data.supply
+    _flow = node_arc_data.flow
+    _pi = node_arc_data.pi
+    _source = node_arc_data.source
+    _target = node_arc_data.target
+
+    _parent = spanning_tree.parent
+    _pred = spanning_tree.pred
+    _thread = spanning_tree.thread
+    _rev_thread = spanning_tree.rev_thread
+    _succ_num = spanning_tree.succ_num
+    _last_succ = spanning_tree.last_succ
+    _forward = spanning_tree.forward
+    _state = spanning_tree.state
+
+    if _node_num == 0:
+        return False, (0, 0, 0)
+
+    # Check the sum of supply values
+    _sum_supply = 0
+    for i in range(_node_num):  # (int i = 0; i != _node_num; ++i) {
+        _sum_supply += _supply[i]
+
+    if np.fabs(_sum_supply) > _EPSILON:
+        return False, (0, 0, 0)
+
+    _sum_supply = 0  # !!!
+
+    # Fix using doubles
+    # Initialize artifical cost
+    # Cost ART_COST;
+    # if (std::numeric_limits<Cost>::is_exact) {
+    #     ART_COST = std::numeric_limits<Cost>::max() / 2 + 1;
+    # } else {
+    ART_COST = 0.0
+    for i in range(_arc_num):  # (int i = 0; i != _arc_num; ++i) {
+        if _cost[i] > ART_COST:
+            ART_COST = _cost[i]
+    ART_COST = (ART_COST + 1) * _node_num
+    # }
+
+    # Initialize arc maps
+    for i in range(_arc_num):  # (int i = 0; i != _arc_num; ++i) {
+        # _flow[i] = 0; # by default, the sparse matrix is empty
+        _state[i] = STATE_LOWER
+
+    # Set data for the artificial root node
+    _root = _node_num
+    _parent[_root] = -1
+    _pred[_root] = -1
+    _thread[_root] = 0
+    _rev_thread[0] = _root
+    _succ_num[_root] = _node_num + 1
+    _last_succ[_root] = _root - 1
+    _supply[_root] = -_sum_supply
+    _pi[_root] = 0
+
+    # Add artificial arcs and initialize the spanning tree data structure
+    if _sum_supply == 0:  # This was forced true by !!!
+        # EQ supply constraints
+        _search_arc_num = _arc_num
+        _all_arc_num = _arc_num + _node_num
+        e = _arc_num
+        for u in range(_node_num):  # (int u = 0, e = _arc_num; u != _node_num;
+            # ++u,
+            # ++e) {
+            _parent[u] = _root
+            _pred[u] = e
+            _thread[u] = u + 1
+            _rev_thread[u + 1] = u
+            _succ_num[u] = 1
+            _last_succ[u] = u
+            _state[e] = STATE_TREE
+            if _supply[u] >= 0:
+                _forward[u] = True
+                _pi[u] = 0
+                _source[e] = u
+                _target[e] = _root
+                _flow[e] = _supply[u]
+                _cost[e] = 0
+            else:
+                _forward[u] = False
+                _pi[u] = ART_COST
+                _source[e] = _root
+                _target[e] = u
+                _flow[e] = -_supply[u]
+                _cost[e] = ART_COST
+            e += 1
+
+    elif _sum_supply > 0:
+        # LEQ supply constraints
+        _search_arc_num = _arc_num + _node_num
+        f = _arc_num + _node_num
+        e = _arc_num
+        for u in range(_node_num):  # (int u = 0, e = _arc_num; u != _node_num;
+            # ++u, ++e) {
+            _parent[u] = _root
+            _thread[u] = u + 1
+            _rev_thread[u + 1] = u
+            _succ_num[u] = 1
+            _last_succ[u] = u
+            if _supply[u] >= 0:
+                _forward[u] = True
+                _pi[u] = 0
+                _pred[u] = e
+                _source[e] = u
+                _target[e] = _root
+                _flow[e] = _supply[u]
+                _cost[e] = 0
+                _state[e] = STATE_TREE
+            else:
+                _forward[u] = False
+                _pi[u] = ART_COST
+                _pred[u] = f
+                _source[f] = _root
+                _target[f] = u
+                _flow[f] = -_supply[u]
+                _cost[f] = ART_COST
+                _state[f] = STATE_TREE
+                _source[e] = u
+                _target[e] = _root
+                # _flow[e] = 0;  //by default, the sparse matrix is empty
+                _cost[e] = 0
+                _state[e] = STATE_LOWER
+                f += 1
+
+            e += 1
+
+        _all_arc_num = f
+
+    else:
+        # GEQ supply constraints
+        _search_arc_num = _arc_num + _node_num
+        f = _arc_num + _node_num
+        e = _arc_num
+        for u in range(_node_num):  # (int u = 0, e = _arc_num; u != _node_num;
+            # ++u, ++e) {
+            _parent[u] = _root
+            _thread[u] = u + 1
+            _rev_thread[u + 1] = u
+            _succ_num[u] = 1
+            _last_succ[u] = u
+            if _supply[u] <= 0:
+                _forward[u] = False
+                _pi[u] = 0
+                _pred[u] = e
+                _source[e] = _root
+                _target[e] = u
+                _flow[e] = -_supply[u]
+                _cost[e] = 0
+                _state[e] = STATE_TREE
+            else:
+                _forward[u] = True
+                _pi[u] = -ART_COST
+                _pred[u] = f
+                _source[f] = u
+                _target[f] = _root
+                _flow[f] = _supply[u]
+                _state[f] = STATE_TREE
+                _cost[f] = ART_COST
+                _source[e] = _root
+                _target[e] = u
+                # _flow[e] = 0; //by default, the sparse matrix is empty
+                _cost[e] = 0
+                _state[e] = STATE_LOWER
+                f += 1
+
+        _all_arc_num = f
+
+    return True, (_sum_supply, _search_arc_num, _all_arc_num)
+
+
 def start(
     node_arc_data,
     spanning_tree,
@@ -642,7 +907,8 @@ def start(
 ):
     # pivot_data = pivot(*this)
     pivot_block = PivotBlock(
-        max(np.int32(np.sqrt(search_arc_num)), 10), 0, search_arc_num
+        max(np.int32(np.sqrt(search_arc_num)), 10), np.zeros(1, dtype=np.int32),
+        search_arc_num
     )
     prevCost = -1.0
     retVal = OPTIMAL
