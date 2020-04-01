@@ -5,7 +5,7 @@ from collections import namedtuple
 
 
 EPSILON = 2.2204460492503131e-15
-_EPSILON = 1e-8
+NET_SUPPLY_ERROR_TOLERANCE = 1e-8
 
 ## Defaults to double for everythig in POT
 INFINITY = np.finfo(np.float64).max
@@ -54,7 +54,7 @@ DiGraph = namedtuple(
         "n_arcs",  # int
         "n",  # int
         "m",  # int
-        "arc_mixing",  # bool
+        "use_arc_mixing",  # bool
         "num_total_big_subsequence_numbers",  # int
         "subsequence_length",  # int
         "num_big_subsequences",  # int
@@ -73,11 +73,10 @@ NodeArcData = namedtuple(
     ],
 )
 
-# TODO: Arc mixing is TRUE -- need to check this all the way through.
-
 # locals: c, min, e, cnt, a
 # modifies _in_arc, _next_arc,
-def findEnteringArc(
+@numba.njit()
+def find_entering_arc(
     pivot_block, state_vector, node_arc_data, in_arc,
 ):
     min = 0
@@ -118,7 +117,7 @@ def findEnteringArc(
             # cnt = _block_size;
 
     for e in range(pivot_block.next_arc[0]):  # (e = 0; e != _next_arc; ++e) {
-        c = state_vector[e] * (cost[e] + pi[source[e]] - pi[target[e]]);
+        c = state_vector[e] * (cost[e] + pi[source[e]] - pi[target[e]])
         if c < min:
             min = c
             in_arc = e
@@ -168,7 +167,8 @@ def findEnteringArc(
 # Operates with graph (_source, _target) and MST (_succ_num, _parent, in_arc) data
 # locals: u, v
 # modifies: join
-def findJoinNode(source, target, succ_num, parent, in_arc):
+@numba.njit()
+def find_join_node(source, target, succ_num, parent, in_arc):
     u = source[in_arc]
     v = target[in_arc]
     while u != v:
@@ -186,7 +186,8 @@ def findJoinNode(source, target, succ_num, parent, in_arc):
 # leaving arc is not the same as the entering arc
 # locals: first, second, result, d, e
 # modifies: u_in, v_in, u_out, delta
-def findLeavingArc(
+@numba.njit()
+def find_leaving_arc(
     join, in_arc, node_arc_data, spanning_tree,
 ):
     source = node_arc_data.source
@@ -260,7 +261,8 @@ def findLeavingArc(
 # Change _flow and _state vectors
 # locals: val, u
 # modifies: _state, _flow
-def changeFlow(
+@numba.njit()
+def update_flow(
     change, join, delta, u_out, node_arc_data, spanning_tree, in_arc,
 ):
     source = node_arc_data.source
@@ -312,7 +314,8 @@ def changeFlow(
 # more locals: up_limit_in, up_limit_out, _dirty_revs
 # modifies: v_out, _thread, _rev_thread, _parent, _last_succ,
 # modifies: _pred, _forward, _succ_num
-def updateTreeStructure(
+@numba.njit()
+def update_spanning_tree(
     spanning_tree, v_in, u_in, u_out, join, in_arc, source,
 ):
 
@@ -457,7 +460,8 @@ def updateTreeStructure(
 # Update potentials
 # locals: sigma, end
 # modifies: _pi
-def updatePotential(u_in, v_in, pi, cost, spanning_tree):
+@numba.njit()
+def update_potential(u_in, v_in, pi, cost, spanning_tree):
 
     thread = spanning_tree.thread
     pred = spanning_tree.pred
@@ -480,9 +484,10 @@ def updatePotential(u_in, v_in, pi, cost, spanning_tree):
 
 # If we have mixed arcs (for better random access)
 # we need a more complicated function to get the ID of a given arc
-def getArcID(arc, graph):
+@numba.njit()
+def arc_id(arc, graph):
     k = graph.n_arcs - arc - 1
-    if graph.arc_mixing:
+    if graph.use_arc_mixing:
         smallv = (k > graph.num_total_big_subsequence_numbers) & 1
         k -= graph.num_total_big_subsequence_numbers * smallv
         subsequence_length2 = graph.subsequence_length - smallv
@@ -499,7 +504,8 @@ def getArcID(arc, graph):
 # Heuristic initial pivots
 # locals: curr, total, supply_nodes, demand_nodes, u
 # modifies:
-def initialPivots(sum_supply, graph, node_arc_data, spanning_tree):
+@numba.njit()
+def construct_initial_pivots(sum_supply, graph, node_arc_data, spanning_tree):
 
     cost = node_arc_data.cost
     pi = node_arc_data.pi
@@ -533,14 +539,14 @@ def initialPivots(sum_supply, graph, node_arc_data, spanning_tree):
         total -= sum_supply
 
     if total <= 0:
-        return True
+        return True, -1
 
     arc_vector = []
     if sum_supply >= 0:
         if len(supply_nodes) == 1 and len(demand_nodes) == 1:
             # Perform a reverse graph search from the sink to the source
             # typename GR::template NodeMap<bool> reached(_graph, false);
-            reached = np.zeros(node_num, dtype=np.bool)
+            reached = np.zeros(node_num, dtype=np.bool_)
             s = supply_nodes[0]
             t = demand_nodes[0]
             stack = []
@@ -561,7 +567,7 @@ def initialPivots(sum_supply, graph, node_arc_data, spanning_tree):
                     if reached[u]:
                         continue
 
-                    j = getArcID(a, graph)
+                    j = arc_id(a, graph)
                     if INF >= total:
                         arc_vector.append(j)
                         reached[u] = True
@@ -579,13 +585,13 @@ def initialPivots(sum_supply, graph, node_arc_data, spanning_tree):
                 # for (; a != INVALID; _graph.nextIn(a)) {
                 first_arc = n_arcs + v - node_num if v >= n1 else -1
                 for a in range(first_arc, -1, -n2):
-                    c = cost[getArcID(a, graph)]
+                    c = cost[arc_id(a, graph)]
                     if c < min_cost:
                         min_cost = c
                         min_arc = a
 
                 if min_arc != INVALID:
-                    arc_vector.append(getArcID(min_arc, graph))
+                    arc_vector.append(arc_id(min_arc, graph))
 
     else:
         # Find the min. cost outgoing arc for each supply node
@@ -599,7 +605,7 @@ def initialPivots(sum_supply, graph, node_arc_data, spanning_tree):
             # for (; a != INVALID; _graph.nextOut(a)) {
             a = (u + 1) * n2 - 1 if u <= n1 else -1
             while a % n2 != 0 and a >= 0:
-                c = cost[getArcID(a, graph)]
+                c = cost[arc_id(a, graph)]
                 if c < min_cost:
                     min_cost = c
                     min_arc = a
@@ -607,7 +613,7 @@ def initialPivots(sum_supply, graph, node_arc_data, spanning_tree):
                 a -= 1
 
             if min_arc != INVALID:
-                arc_vector.append(getArcID(min_arc, graph))
+                arc_vector.append(arc_id(min_arc, graph))
 
     # Perform heuristic initial pivots
     # for (int i = 0; i != int(arc_vector.size()); ++i) {
@@ -621,24 +627,25 @@ def initialPivots(sum_supply, graph, node_arc_data, spanning_tree):
         ):
             continue
 
-        join = findJoinNode(
+        join = find_join_node(
             source, target, spanning_tree.succ_num, spanning_tree.parent, in_arc
         )
-        change, (u_in, v_in, u_out, delta) = findLeavingArc(
+        change, (u_in, v_in, u_out, delta) = find_leaving_arc(
             join, in_arc, node_arc_data, spanning_tree
         )
         if delta >= MAX:
             return False, in_arc
 
-        changeFlow(change, join, delta, u_out, node_arc_data, spanning_tree, in_arc)
+        update_flow(change, join, delta, u_out, node_arc_data, spanning_tree, in_arc)
         if change:
-            updateTreeStructure(spanning_tree, v_in, u_in, u_out, join, in_arc, source)
-            updatePotential(u_in, v_in, pi, cost, spanning_tree)
+            update_spanning_tree(spanning_tree, v_in, u_in, u_out, join, in_arc, source)
+            update_potential(u_in, v_in, pi, cost, spanning_tree)
 
     return True, in_arc
 
 
-def allocate(n, m, _arc_mixing=True):
+@numba.njit()
+def allocate_graph_structures(n, m, use_arc_mixing=True):
 
     # Size bipartite graph
     n_nodes = n + m
@@ -658,7 +665,7 @@ def allocate(n, m, _arc_mixing=True):
 
     parent = np.zeros(all_node_num, dtype=np.int32)
     pred = np.zeros(all_node_num, dtype=np.int32)
-    forward = np.zeros(all_node_num, dtype=np.bool)
+    forward = np.zeros(all_node_num, dtype=np.bool_)
     thread = np.zeros(all_node_num, dtype=np.int32)
     rev_thread = np.zeros(all_node_num, dtype=np.int32)
     succ_num = np.zeros(all_node_num, dtype=np.int32)
@@ -666,7 +673,7 @@ def allocate(n, m, _arc_mixing=True):
     state = np.zeros(max_arc_num, dtype=np.int8)
 
     # _arc_mixing=false;
-    if _arc_mixing:
+    if use_arc_mixing:
         # Store the arcs in a mixed order
         k = max(np.int32(np.sqrt(n_arcs)), 10)
         mixingCoeff = k
@@ -714,7 +721,8 @@ def allocate(n, m, _arc_mixing=True):
     for i in range(n_arcs):  # (int i = 0; i != _arc_num; ++i) {
         cost[i] = 1
 
-    _stype = "GEQ"
+    # Default supply type is "GEQ"
+    supply_type = "GEQ"
 
     node_arc_data = NodeArcData(cost, supply, flow, pi, source, target)
     spanning_tree = SpanningTree(
@@ -725,7 +733,7 @@ def allocate(n, m, _arc_mixing=True):
         n_arcs,
         n,
         m,
-        _arc_mixing,
+        use_arc_mixing,
         num_total_big_subsequence_numbers,
         subsequence_length,
         num_big_subsequences,
@@ -736,40 +744,41 @@ def allocate(n, m, _arc_mixing=True):
 
 
 # creates:
-def init(graph, node_arc_data, spanning_tree):
+@numba.njit()
+def initialize_graph_structures(graph, node_arc_data, spanning_tree):
 
-    _node_num = graph.n_nodes
-    _arc_num = graph.n_arcs
+    n_nodes = graph.n_nodes
+    n_arcs = graph.n_arcs
 
     # unpack arrays
-    _cost = node_arc_data.cost
-    _supply = node_arc_data.supply
-    _flow = node_arc_data.flow
-    _pi = node_arc_data.pi
-    _source = node_arc_data.source
-    _target = node_arc_data.target
+    cost = node_arc_data.cost
+    supply = node_arc_data.supply
+    flow = node_arc_data.flow
+    pi = node_arc_data.pi
+    source = node_arc_data.source
+    target = node_arc_data.target
 
-    _parent = spanning_tree.parent
-    _pred = spanning_tree.pred
-    _thread = spanning_tree.thread
-    _rev_thread = spanning_tree.rev_thread
-    _succ_num = spanning_tree.succ_num
-    _last_succ = spanning_tree.last_succ
-    _forward = spanning_tree.forward
-    _state = spanning_tree.state
+    parent = spanning_tree.parent
+    pred = spanning_tree.pred
+    thread = spanning_tree.thread
+    rev_thread = spanning_tree.rev_thread
+    succ_num = spanning_tree.succ_num
+    last_succ = spanning_tree.last_succ
+    forward = spanning_tree.forward
+    state = spanning_tree.state
 
-    if _node_num == 0:
+    if n_nodes == 0:
         return False, (0, 0, 0)
 
     # Check the sum of supply values
-    _sum_supply = 0
-    for i in range(_node_num):  # (int i = 0; i != _node_num; ++i) {
-        _sum_supply += _supply[i]
+    net_supply = 0
+    for i in range(n_nodes):  # (int i = 0; i != _node_num; ++i) {
+        net_supply += supply[i]
 
-    if np.fabs(_sum_supply) > _EPSILON:
+    if np.fabs(net_supply) > NET_SUPPLY_ERROR_TOLERANCE:
         return False, (0, 0, 0)
 
-    _sum_supply = 0  # !!!
+    net_supply = 0  # !!!
 
     # Fix using doubles
     # Initialize artifical cost
@@ -778,172 +787,176 @@ def init(graph, node_arc_data, spanning_tree):
     #     ART_COST = std::numeric_limits<Cost>::max() / 2 + 1;
     # } else {
     ART_COST = 0.0
-    for i in range(_arc_num):  # (int i = 0; i != _arc_num; ++i) {
-        if _cost[i] > ART_COST:
-            ART_COST = _cost[i]
-    ART_COST = (ART_COST + 1) * _node_num
+    for i in range(n_arcs):  # (int i = 0; i != _arc_num; ++i) {
+        if cost[i] > ART_COST:
+            ART_COST = cost[i]
+    ART_COST = (ART_COST + 1) * n_nodes
     # }
 
     # Initialize arc maps
-    for i in range(_arc_num):  # (int i = 0; i != _arc_num; ++i) {
+    for i in range(n_arcs):  # (int i = 0; i != _arc_num; ++i) {
         # _flow[i] = 0; # by default, the sparse matrix is empty
-        _state[i] = STATE_LOWER
+        state[i] = STATE_LOWER
 
     # Set data for the artificial root node
-    _root = _node_num
-    _parent[_root] = -1
-    _pred[_root] = -1
-    _thread[_root] = 0
-    _rev_thread[0] = _root
-    _succ_num[_root] = _node_num + 1
-    _last_succ[_root] = _root - 1
-    _supply[_root] = -_sum_supply
-    _pi[_root] = 0
+    root = n_nodes
+    parent[root] = -1
+    pred[root] = -1
+    thread[root] = 0
+    rev_thread[0] = root
+    succ_num[root] = n_nodes + 1
+    last_succ[root] = root - 1
+    supply[root] = -net_supply
+    pi[root] = 0
 
     # Add artificial arcs and initialize the spanning tree data structure
-    if _sum_supply == 0:  # This was forced true by !!!
+    if net_supply == 0:  # This was forced true by !!!
         # EQ supply constraints
-        _search_arc_num = _arc_num
-        _all_arc_num = _arc_num + _node_num
-        e = _arc_num
-        for u in range(_node_num):  # (int u = 0, e = _arc_num; u != _node_num;
+        search_arc_num = n_arcs
+        all_arc_num = n_arcs + n_nodes
+        e = n_arcs
+        for u in range(n_nodes):  # (int u = 0, e = _arc_num; u != _node_num;
             # ++u,
             # ++e) {
-            _parent[u] = _root
-            _pred[u] = e
-            _thread[u] = u + 1
-            _rev_thread[u + 1] = u
-            _succ_num[u] = 1
-            _last_succ[u] = u
-            _state[e] = STATE_TREE
-            if _supply[u] >= 0:
-                _forward[u] = True
-                _pi[u] = 0
-                _source[e] = u
-                _target[e] = _root
-                _flow[e] = _supply[u]
-                _cost[e] = 0
+            parent[u] = root
+            pred[u] = e
+            thread[u] = u + 1
+            rev_thread[u + 1] = u
+            succ_num[u] = 1
+            last_succ[u] = u
+            state[e] = STATE_TREE
+            if supply[u] >= 0:
+                forward[u] = True
+                pi[u] = 0
+                source[e] = u
+                target[e] = root
+                flow[e] = supply[u]
+                cost[e] = 0
             else:
-                _forward[u] = False
-                _pi[u] = ART_COST
-                _source[e] = _root
-                _target[e] = u
-                _flow[e] = -_supply[u]
-                _cost[e] = ART_COST
+                forward[u] = False
+                pi[u] = ART_COST
+                source[e] = root
+                target[e] = u
+                flow[e] = -supply[u]
+                cost[e] = ART_COST
             e += 1
 
-    elif _sum_supply > 0:
+    elif net_supply > 0:
         # LEQ supply constraints
-        _search_arc_num = _arc_num + _node_num
-        f = _arc_num + _node_num
-        e = _arc_num
-        for u in range(_node_num):  # (int u = 0, e = _arc_num; u != _node_num;
+        search_arc_num = n_arcs + n_nodes
+        f = n_arcs + n_nodes
+        e = n_arcs
+        for u in range(n_nodes):  # (int u = 0, e = _arc_num; u != _node_num;
             # ++u, ++e) {
-            _parent[u] = _root
-            _thread[u] = u + 1
-            _rev_thread[u + 1] = u
-            _succ_num[u] = 1
-            _last_succ[u] = u
-            if _supply[u] >= 0:
-                _forward[u] = True
-                _pi[u] = 0
-                _pred[u] = e
-                _source[e] = u
-                _target[e] = _root
-                _flow[e] = _supply[u]
-                _cost[e] = 0
-                _state[e] = STATE_TREE
+            parent[u] = root
+            thread[u] = u + 1
+            rev_thread[u + 1] = u
+            succ_num[u] = 1
+            last_succ[u] = u
+            if supply[u] >= 0:
+                forward[u] = True
+                pi[u] = 0
+                pred[u] = e
+                source[e] = u
+                target[e] = root
+                flow[e] = supply[u]
+                cost[e] = 0
+                state[e] = STATE_TREE
             else:
-                _forward[u] = False
-                _pi[u] = ART_COST
-                _pred[u] = f
-                _source[f] = _root
-                _target[f] = u
-                _flow[f] = -_supply[u]
-                _cost[f] = ART_COST
-                _state[f] = STATE_TREE
-                _source[e] = u
-                _target[e] = _root
+                forward[u] = False
+                pi[u] = ART_COST
+                pred[u] = f
+                source[f] = root
+                target[f] = u
+                flow[f] = -supply[u]
+                cost[f] = ART_COST
+                state[f] = STATE_TREE
+                source[e] = u
+                target[e] = root
                 # _flow[e] = 0;  //by default, the sparse matrix is empty
-                _cost[e] = 0
-                _state[e] = STATE_LOWER
+                cost[e] = 0
+                state[e] = STATE_LOWER
                 f += 1
 
             e += 1
 
-        _all_arc_num = f
+        all_arc_num = f
 
     else:
         # GEQ supply constraints
-        _search_arc_num = _arc_num + _node_num
-        f = _arc_num + _node_num
-        e = _arc_num
-        for u in range(_node_num):  # (int u = 0, e = _arc_num; u != _node_num;
+        search_arc_num = n_arcs + n_nodes
+        f = n_arcs + n_nodes
+        e = n_arcs
+        for u in range(n_nodes):  # (int u = 0, e = _arc_num; u != _node_num;
             # ++u, ++e) {
-            _parent[u] = _root
-            _thread[u] = u + 1
-            _rev_thread[u + 1] = u
-            _succ_num[u] = 1
-            _last_succ[u] = u
-            if _supply[u] <= 0:
-                _forward[u] = False
-                _pi[u] = 0
-                _pred[u] = e
-                _source[e] = _root
-                _target[e] = u
-                _flow[e] = -_supply[u]
-                _cost[e] = 0
-                _state[e] = STATE_TREE
+            parent[u] = root
+            thread[u] = u + 1
+            rev_thread[u + 1] = u
+            succ_num[u] = 1
+            last_succ[u] = u
+            if supply[u] <= 0:
+                forward[u] = False
+                pi[u] = 0
+                pred[u] = e
+                source[e] = root
+                target[e] = u
+                flow[e] = -supply[u]
+                cost[e] = 0
+                state[e] = STATE_TREE
             else:
-                _forward[u] = True
-                _pi[u] = -ART_COST
-                _pred[u] = f
-                _source[f] = u
-                _target[f] = _root
-                _flow[f] = _supply[u]
-                _state[f] = STATE_TREE
-                _cost[f] = ART_COST
-                _source[e] = _root
-                _target[e] = u
+                forward[u] = True
+                pi[u] = -ART_COST
+                pred[u] = f
+                source[f] = u
+                target[f] = root
+                flow[f] = supply[u]
+                state[f] = STATE_TREE
+                cost[f] = ART_COST
+                source[e] = root
+                target[e] = u
                 # _flow[e] = 0; //by default, the sparse matrix is empty
-                _cost[e] = 0
-                _state[e] = STATE_LOWER
+                cost[e] = 0
+                state[e] = STATE_LOWER
                 f += 1
 
-        _all_arc_num = f
+        all_arc_num = f
 
-    return True, (_sum_supply, _search_arc_num, _all_arc_num)
+    return True, (net_supply, search_arc_num, all_arc_num)
 
 
-def supplyMap(map1, map2, graph, supply):
+@numba.njit()
+def initialize_supply(left_node_supply, right_node_supply, graph, supply):
     # Node n; _graph.first(n);
     # for (; n != INVALIDNODE; _graph.next(n)) {
     for n in range(graph.n_nodes - 1, -1, -1):
         if n < graph.n:
-            supply[graph.n_nodes - n - 1] = map1[n]
+            supply[graph.n_nodes - n - 1] = left_node_supply[n]
         else:
-            supply[graph.n_nodes - n - 1] = map2[n - graph.n]
+            supply[graph.n_nodes - n - 1] = right_node_supply[n - graph.n]
 
 
-def setCost(arc, cost_val, cost, graph):
-    cost[getArcID(arc, graph)] = cost_val
+@numba.njit()
+def set_cost(arc, cost_val, cost, graph):
+    cost[arc_id(arc, graph)] = cost_val
 
 
-def totalCost(flow, cost):
+@numba.njit()
+def total_cost(flow, cost):
     c = 0.0
     for i in range(flow.shape[0]):  # (int i=0; i<_flow.size(); i++)
         c += flow[i] * cost[i]
     return c
 
 
-def start(
+@numba.njit()
+def network_simplex_core(
     node_arc_data,
     spanning_tree,
     graph,
     sum_supply,
     search_arc_num,
     all_arc_num,
-    _stype,
+    supply_type,
     max_iter,
 ):
     # pivot_data = pivot(*this)
@@ -953,29 +966,31 @@ def start(
         search_arc_num,
     )
     prevCost = -1.0
-    retVal = OPTIMAL
+    solution_status = OPTIMAL
 
     # Perform heuristic initial pivots
-    bounded, in_arc = initialPivots(sum_supply, graph, node_arc_data, spanning_tree)
+    bounded, in_arc = construct_initial_pivots(
+        sum_supply, graph, node_arc_data, spanning_tree
+    )
     if not bounded:
         return UNBOUNDED
 
     iter_number = 0
     # pivot.setDantzig(true);
     # Execute the Network Simplex algorithm
-    not_converged, in_arc = findEnteringArc(
+    not_converged, in_arc = find_entering_arc(
         pivot_block, spanning_tree.state, node_arc_data, in_arc
     )
     while not_converged:
         iter_number += 1
         if max_iter > 0 and iter_number >= max_iter and max_iter > 0:
-            warn(
-                f"RESULT MIGHT BE INACCURATE\nMax number of "
-                f"iteration reached, currently {iter_number}. Sometimes iterations"
+            print(
+                "WARNING: RESULT MIGHT BE INACCURATE\nMax number of "
+                "iteration reached. Sometimes iterations"
                 " go on in "
                 "cycle even though the solution has been reached, to check if it's the case here have a look at the minimal reduced cost. If it is very close to machine precision, you might actually have the correct solution, if not try setting the maximum number of iterations a bit higher\n"
             )
-            retVal = MAX_ITER_REACHED
+            solution_status = MAX_ITER_REACHED
             break
 
         # # if DEBUG_LVL>0
@@ -985,7 +1000,7 @@ def start(
         #     return graph.n_nodes - n - 1
         #
         # if iter_number % 100 == 0 or iter_number % 100 == 1:
-        #     curCost = totalCost(node_arc_data.flow, node_arc_data.cost)
+        #     curCost = total_cost(node_arc_data.flow, node_arc_data.cost)
         #     sumFlow = 0
         #     if np.fabs(node_arc_data.pi[node_arc_data.source[in_arc]]) >= np.fabs(
         #         node_arc_data.pi[node_arc_data.target[in_arc]]
@@ -1022,26 +1037,26 @@ def start(
         #     print(f"Number of non-zero flows: {np.sum(node_arc_data.flow != 0.0)}")
         # # endif
 
-        join = findJoinNode(
+        join = find_join_node(
             node_arc_data.source,
             node_arc_data.target,
             spanning_tree.succ_num,
             spanning_tree.parent,
             in_arc,
         )
-        change, (u_in, v_in, u_out, delta) = findLeavingArc(
+        change, (u_in, v_in, u_out, delta) = find_leaving_arc(
             join, in_arc, node_arc_data, spanning_tree
         )
         if delta >= MAX:
             return UNBOUNDED
 
-        changeFlow(change, join, delta, u_out, node_arc_data, spanning_tree, in_arc)
+        update_flow(change, join, delta, u_out, node_arc_data, spanning_tree, in_arc)
 
         if change:
-            updateTreeStructure(
+            update_spanning_tree(
                 spanning_tree, v_in, u_in, u_out, join, in_arc, node_arc_data.source
             )
-            updatePotential(
+            update_potential(
                 u_in, v_in, node_arc_data.pi, node_arc_data.cost, spanning_tree
             )
 
@@ -1057,7 +1072,7 @@ def start(
         # # endif
 
         # #if DEBUG_LVL>0
-        #                 double curCost=totalCost();
+        #                 double curCost=total_cost();
         #                 double sumFlow=0;
         #                 double a;
         #                 a= (fabs(_pi[_source[in_arc]])>=fabs(_pi[_target[in_arc]])) ? fabs(_pi[_source[in_arc]]) : fabs(_pi[_target[in_arc]]);
@@ -1081,10 +1096,10 @@ def start(
         #                     std::cout << "Non zero value at (" << _node_num+1-_source[i] << ", " << _node_num+1-_target[i] << ")\n";
         #                 }
         #             }
-        #             std::cout << "Sum of the flow " << sumFlow << "\n"<< niter <<" iterations, current cost=" << totalCost() << "\n";
+        #             std::cout << "Sum of the flow " << sumFlow << "\n"<< niter <<" iterations, current cost=" << total_cost() << "\n";
         # #endif
 
-        not_converged, in_arc = findEnteringArc(
+        not_converged, in_arc = find_entering_arc(
             pivot_block, spanning_tree.state, node_arc_data, in_arc
         )
 
@@ -1092,7 +1107,7 @@ def start(
     pi = node_arc_data.pi
 
     # Check feasibility
-    if retVal == OPTIMAL:
+    if solution_status == OPTIMAL:
         for e in range(pivot_block.search_arc_num, all_arc_num):
             if flow[e] != 0:
                 if abs(flow[e]) > EPSILON:
@@ -1103,7 +1118,7 @@ def start(
     # Shift potentials to meet the requirements of the GEQ/LEQ type
     # optimality conditions
     if sum_supply == 0:
-        if _stype == "GEQ":
+        if supply_type == "GEQ":
             max_pot = -INFINITY
             for i in range(graph.n_nodes):
                 if pi[i] > max_pot:
@@ -1121,4 +1136,21 @@ def start(
                 for i in range(graph.n_nodes):
                     pi[i] -= min_pot
 
-    return retVal
+    return solution_status
+
+
+@numba.njit()
+def kantorovich_distance(x, y, cost, max_iter=1000000):
+    node_arc_data, spanning_tree, graph = allocate_graph_structures(
+        x.shape[0], y.shape[0]
+    )
+    initialize_supply(x, -y, graph, node_arc_data.supply)
+    for i in range(cost.shape[0]):
+        for j in range(cost.shape[1]):
+            set_cost(i * cost.shape[1] + j, cost[i, j], node_arc_data.cost, graph)
+    status, (sum_supply, search_arc_num, all_arc_num) = initialize_graph_structures(
+        graph, node_arc_data, spanning_tree
+    )
+    network_simplex_core(node_arc_data, spanning_tree, graph, sum_supply,
+                         search_arc_num, all_arc_num, "GEQ", max_iter)
+    return total_cost(node_arc_data.flow, node_arc_data.cost)
