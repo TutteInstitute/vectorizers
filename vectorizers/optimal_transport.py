@@ -21,7 +21,7 @@ INFEASIBLE = -3
 # Arc States
 STATE_UPPER = -1
 STATE_TREE = 0
-STATE_LOWER = -1
+STATE_LOWER = 1
 
 INVALID = -1
 
@@ -54,6 +54,7 @@ DiGraph = namedtuple(
         "n_arcs",  # int
         "n",  # int
         "m",  # int
+        "arc_mixing",  # bool
         "num_total_big_subsequence_numbers",  # int
         "subsequence_length",  # int
         "num_big_subsequences",  # int
@@ -117,7 +118,6 @@ def findEnteringArc(
             # cnt = _block_size;
 
     for e in range(pivot_block.next_arc[0]):  # (e = 0; e != _next_arc; ++e) {
-        c = state_vector[e] * (cost[e] + pi[source[e]] - pi[target[e]])
         if c < min:
             min = c
             in_arc = e
@@ -316,7 +316,7 @@ def updateTreeStructure(
     parent = spanning_tree.parent
     thread = spanning_tree.thread
     rev_thread = spanning_tree.rev_thread
-    succ_num = spanning_tree.succ_um
+    succ_num = spanning_tree.succ_num
     last_succ = spanning_tree.last_succ
     forward = spanning_tree.forward
     pred = spanning_tree.pred
@@ -479,13 +479,18 @@ def updatePotential(u_in, v_in, pi, cost, spanning_tree):
 # we need a more complicated function to get the ID of a given arc
 def getArcID(arc, graph):
     k = graph.n_arcs - arc - 1
-    smallv = (k > graph.num_total_big_subsequence_numbers) & 1
-    k -= graph.num_total_big_subsequence_numbers * smallv
-    subsequence_length2 = graph.subsequence_length - smallv
-    subsequence_num = (k / subsequence_length2) + graph.num_big_subsequences * smallv
-    subsequence_offset = (k % subsequence_length2) * graph.mixing_coeff
+    if graph.arc_mixing:
+        smallv = (k > graph.num_total_big_subsequence_numbers) & 1
+        k -= graph.num_total_big_subsequence_numbers * smallv
+        subsequence_length2 = graph.subsequence_length - smallv
+        subsequence_num = (
+            k // subsequence_length2
+        ) + graph.num_big_subsequences * smallv
+        subsequence_offset = (k % subsequence_length2) * graph.mixing_coeff
 
-    return subsequence_offset + subsequence_num
+        return subsequence_offset + subsequence_num
+    else:
+        return k
 
 
 # Heuristic initial pivots
@@ -603,7 +608,7 @@ def initialPivots(sum_supply, graph, node_arc_data, spanning_tree):
 
     # Perform heuristic initial pivots
     # for (int i = 0; i != int(arc_vector.size()); ++i) {
-    in_arc = arc_vector[0]
+    in_arc = -1
     for i in range(len(arc_vector)):
         in_arc = arc_vector[i]
         # l'erreur est probablement ici... ???
@@ -655,17 +660,16 @@ def allocate(n, m, _arc_mixing=True):
     rev_thread = np.zeros(all_node_num, dtype=np.int32)
     succ_num = np.zeros(all_node_num, dtype=np.int32)
     last_succ = np.zeros(all_node_num, dtype=np.int32)
-    state = np.zeros (max_arc_num, dtype=np.int8)
+    state = np.zeros(max_arc_num, dtype=np.int8)
 
-    #_arc_mixing=false;
+    # _arc_mixing=false;
     if _arc_mixing:
         # Store the arcs in a mixed order
         k = max(np.int32(np.sqrt(n_arcs)), 10)
         mixingCoeff = k
-        subsequence_length = n_arcs / mixingCoeff + 1
+        subsequence_length = (n_arcs // mixingCoeff) + 1
         num_big_subsequences = n_arcs % mixingCoeff
-        num_total_big_subsequence_numbers = subsequence_length * \
-                                            num_big_subsequences
+        num_total_big_subsequence_numbers = subsequence_length * num_big_subsequences
 
         i = 0
         j = 0
@@ -701,25 +705,38 @@ def allocate(n, m, _arc_mixing=True):
             ## #_arc_id[a] = i;
 
     # Reset parameters
-    for i in range(n_nodes): # (int i = 0; i != _node_num; ++i) {
+    for i in range(n_nodes):  # (int i = 0; i != _node_num; ++i) {
         supply[i] = 0
 
-    for i in range(n_arcs): # (int i = 0; i != _arc_num; ++i) {
+    for i in range(n_arcs):  # (int i = 0; i != _arc_num; ++i) {
         cost[i] = 1
 
     _stype = "GEQ"
 
     node_arc_data = NodeArcData(cost, supply, flow, pi, source, target)
-    spanning_tree = SpanningTree(parent, pred, thread, rev_thread, succ_num,
-                                 last_succ, forward, state, root)
-    graph = DiGraph(n_nodes, n_arcs, n, m, num_total_big_subsequence_numbers,
-                    subsequence_length, num_big_subsequences, mixingCoeff)
+    spanning_tree = SpanningTree(
+        parent, pred, thread, rev_thread, succ_num, last_succ, forward, state, root
+    )
+    graph = DiGraph(
+        n_nodes,
+        n_arcs,
+        n,
+        m,
+        _arc_mixing,
+        num_total_big_subsequence_numbers,
+        subsequence_length,
+        num_big_subsequences,
+        mixingCoeff,
+    )
 
     return node_arc_data, spanning_tree, graph
 
 
 # creates:
-def init(_node_num, _arc_num, node_arc_data, spanning_tree):
+def init(graph, node_arc_data, spanning_tree):
+
+    _node_num = graph.n_nodes
+    _arc_num = graph.n_arcs
 
     # unpack arrays
     _cost = node_arc_data.cost
@@ -895,6 +912,27 @@ def init(_node_num, _arc_num, node_arc_data, spanning_tree):
     return True, (_sum_supply, _search_arc_num, _all_arc_num)
 
 
+def supplyMap(map1, map2, graph, supply):
+    # Node n; _graph.first(n);
+    # for (; n != INVALIDNODE; _graph.next(n)) {
+    for n in range(graph.n_nodes - 1, -1, -1):
+        if n < graph.n:
+            supply[graph.n_nodes - n - 1] = map1[n]
+        else:
+            supply[graph.n_nodes - n - 1] = map2[n - graph.n]
+
+
+def setCost(arc, cost_val, cost, graph):
+    cost[getArcID(arc, graph)] = cost_val
+
+
+def totalCost(flow, cost):
+    c = 0.0
+    for i in range(flow.shape[0]):  # (int i=0; i<_flow.size(); i++)
+        c += flow[i] * cost[i]
+    return c
+
+
 def start(
     node_arc_data,
     spanning_tree,
@@ -907,8 +945,9 @@ def start(
 ):
     # pivot_data = pivot(*this)
     pivot_block = PivotBlock(
-        max(np.int32(np.sqrt(search_arc_num)), 10), np.zeros(1, dtype=np.int32),
-        search_arc_num
+        max(np.int32(np.sqrt(search_arc_num)), 10),
+        np.zeros(1, dtype=np.int32),
+        search_arc_num,
     )
     prevCost = -1.0
     retVal = OPTIMAL
@@ -928,7 +967,7 @@ def start(
         iter_number += 1
         if max_iter > 0 and iter_number >= max_iter and max_iter > 0:
             warn(
-                f"RESULT MIGHT BE INACURATE\nMax number of "
+                f"RESULT MIGHT BE INACCURATE\nMax number of "
                 f"iteration reached, currently {iter_number}. Sometimes iterations"
                 " go on in "
                 "cycle even though the solution has been reached, to check if it's the case here have a look at the minimal reduced cost. If it is very close to machine precision, you might actually have the correct solution, if not try setting the maximum number of iterations a bit higher\n"
@@ -936,27 +975,49 @@ def start(
             retVal = MAX_ITER_REACHED
             break
 
-        # #if DEBUG_LVL>0
-        #                 if(iter_number>MAX_DEBUG_ITER)
-        #                     break;
-        #                 if(iter_number%1000==0||iter_number%1000==1){
-        #                     double curCost=totalCost();
-        #                     double sumFlow=0;
-        #                     double a;
-        #                     a= (fabs(_pi[_source[in_arc]])>=fabs(_pi[_target[in_arc]])) ? fabs(_pi[_source[in_arc]]) : fabs(_pi[_target[in_arc]]);
-        #                     a=a>=fabs(_cost[in_arc])?a:fabs(_cost[in_arc]);
-        #                     for (int i=0; i<_flow.size(); i++) {
-        #                         sumFlow+=_state[i]*_flow[i];
-        #                     }
-        #                     std::cout << "Sum of the flow " << std::setprecision(20) << sumFlow << "\n" << iter_number << " iterations, current cost=" << curCost << "\nReduced cost=" << _state[in_arc] * (_cost[in_arc] + _pi[_source[in_arc]] -_pi[_target[in_arc]]) << "\nPrecision = "<< -EPSILON*(a) << "\n";
-        #                     std::cout << "Arc in = (" << _node_id(_source[in_arc]) << ", " << _node_id(_target[in_arc]) <<")\n";
-        #                     std::cout << "Supplies = (" << _supply[_source[in_arc]] << ", " << _supply[_target[in_arc]] << ")\n";
-        #                     std::cout << _cost[in_arc] << "\n";
-        #                     std::cout << _pi[_source[in_arc]] << "\n";
-        #                     std::cout << _pi[_target[in_arc]] << "\n";
-        #                     std::cout << a << "\n";
-        #                 }
-        # #endif
+        # # if DEBUG_LVL>0
+        # # if iter_number>MAX_DEBUG_ITER:
+        # #     break
+        # def _node_id(n):
+        #     return graph.n_nodes - n - 1
+        #
+        # if iter_number % 100 == 0 or iter_number % 100 == 1:
+        #     curCost = totalCost(node_arc_data.flow, node_arc_data.cost)
+        #     sumFlow = 0
+        #     if np.fabs(node_arc_data.pi[node_arc_data.source[in_arc]]) >= np.fabs(
+        #         node_arc_data.pi[node_arc_data.target[in_arc]]
+        #     ):
+        #         a = np.fabs(node_arc_data.pi[node_arc_data.source[in_arc]])
+        #     else:
+        #         a = np.fabs(node_arc_data.pi[node_arc_data.target[in_arc]])
+        #
+        #     if a < np.fabs(node_arc_data.cost[in_arc]):
+        #         a = np.fabs(node_arc_data.cost[in_arc])
+        #
+        #     for i in range(node_arc_data.flow.shape[0]):  # (int i=0; i<_flow.size();
+        #         # i++) {
+        #         sumFlow += spanning_tree.state[i] * node_arc_data.flow[i]
+        #
+        #     print(
+        #         f"Sum of the flow {sumFlow}\n{iter_number} "
+        #         f"iterations, current cost={curCost}\nReduced "
+        #         f"cost="
+        #         f"{spanning_tree.state[in_arc] * (node_arc_data.cost[in_arc] + node_arc_data.pi[node_arc_data.source[in_arc]] -node_arc_data.pi[node_arc_data.target[in_arc]])}\nPrecision = {-EPSILON*(a)}\n"
+        #     )
+        #     print(
+        #         f"Arc in = ({_node_id(node_arc_data.source[in_arc])}, "
+        #         f"{_node_id(node_arc_data.target[in_arc])})\n"
+        #     )
+        #     print(
+        #         f"Supplies = ({node_arc_data.supply[node_arc_data.source[in_arc]]}, "
+        #         f"{node_arc_data.supply[node_arc_data.target[in_arc]]} )\n"
+        #     )
+        #     print(node_arc_data.cost[in_arc])
+        #     print(node_arc_data.pi[node_arc_data.source[in_arc]])
+        #     print(node_arc_data.pi[node_arc_data.target[in_arc]])
+        #     print(a)
+        #     print(f"Number of non-zero flows: {np.sum(node_arc_data.flow != 0.0)}")
+        # # endif
 
         join = findJoinNode(
             node_arc_data.source,
@@ -981,46 +1042,54 @@ def start(
                 u_in, v_in, node_arc_data.pi, node_arc_data.cost, spanning_tree
             )
 
+        # # if DEBUG_LVL>0
+        # else:
+        #     print("No change")
+        # # endif
+        # # if DEBUG_LVL>1
+        # # print(
+        # #     f"Arc in = ({node_arc_data.source[in_arc]}, "
+        # #     f"{node_arc_data.target[in_arc]})"
+        # # )
+        # # endif
+
+        # #if DEBUG_LVL>0
+        #                 double curCost=totalCost();
+        #                 double sumFlow=0;
+        #                 double a;
+        #                 a= (fabs(_pi[_source[in_arc]])>=fabs(_pi[_target[in_arc]])) ? fabs(_pi[_source[in_arc]]) : fabs(_pi[_target[in_arc]]);
+        #                 a=a>=fabs(_cost[in_arc])?a:fabs(_cost[in_arc]);
+        #                 for (int i=0; i<_flow.size(); i++) {
+        #                     sumFlow+=_state[i]*_flow[i];
+        #                 }
+        #
+        #                 std::cout << "Sum of the flow " << std::setprecision(20) << sumFlow << "\n" << niter << " iterations, current cost=" << curCost << "\nReduced cost=" << _state[in_arc] * (_cost[in_arc] + _pi[_source[in_arc]] -_pi[_target[in_arc]]) << "\nPrecision = "<< -EPSILON*(a) << "\n";
+        #
+        #                 std::cout << "Arc in = (" << _node_id(_source[in_arc]) << ", " << _node_id(_target[in_arc]) <<")\n";
+        #                 std::cout << "Supplies = (" << _supply[_source[in_arc]] << ", " << _supply[_target[in_arc]] << ")\n";
+
+        # endif
+
+        # #if DEBUG_LVL>1
+        #             sumFlow=0;
+        #             for (int i=0; i<_flow.size(); i++) {
+        #                 sumFlow+=_state[i]*_flow[i];
+        #                 if (_state[i]==STATE_TREE) {
+        #                     std::cout << "Non zero value at (" << _node_num+1-_source[i] << ", " << _node_num+1-_target[i] << ")\n";
+        #                 }
+        #             }
+        #             std::cout << "Sum of the flow " << sumFlow << "\n"<< niter <<" iterations, current cost=" << totalCost() << "\n";
+        # #endif
+
         not_converged, in_arc = findEnteringArc(
             pivot_block, spanning_tree.state, node_arc_data, in_arc
         )
 
-    # #if DEBUG_LVL>0
-    #                 else{
-    #                     std::cout << "No change\n";
-    #                 }
-    # #endif
-    # #if DEBUG_LVL>1
-    #                 std::cout << "Arc in = (" << _source[in_arc] << ", " << _target[in_arc] << ")\n";
-    # #endif
 
-    # #if DEBUG_LVL>0
-    #                 double curCost=totalCost();
-    #                 double sumFlow=0;
-    #                 double a;
-    #                 a= (fabs(_pi[_source[in_arc]])>=fabs(_pi[_target[in_arc]])) ? fabs(_pi[_source[in_arc]]) : fabs(_pi[_target[in_arc]]);
-    #                 a=a>=fabs(_cost[in_arc])?a:fabs(_cost[in_arc]);
-    #                 for (int i=0; i<_flow.size(); i++) {
-    #                     sumFlow+=_state[i]*_flow[i];
-    #                 }
-    #
-    #                 std::cout << "Sum of the flow " << std::setprecision(20) << sumFlow << "\n" << niter << " iterations, current cost=" << curCost << "\nReduced cost=" << _state[in_arc] * (_cost[in_arc] + _pi[_source[in_arc]] -_pi[_target[in_arc]]) << "\nPrecision = "<< -EPSILON*(a) << "\n";
-    #
-    #                 std::cout << "Arc in = (" << _node_id(_source[in_arc]) << ", " << _node_id(_target[in_arc]) <<")\n";
-    #                 std::cout << "Supplies = (" << _supply[_source[in_arc]] << ", " << _supply[_target[in_arc]] << ")\n";
-
-    # endif
-
-    # #if DEBUG_LVL>1
-    #             sumFlow=0;
-    #             for (int i=0; i<_flow.size(); i++) {
-    #                 sumFlow+=_state[i]*_flow[i];
-    #                 if (_state[i]==STATE_TREE) {
-    #                     std::cout << "Non zero value at (" << _node_num+1-_source[i] << ", " << _node_num+1-_target[i] << ")\n";
-    #                 }
-    #             }
-    #             std::cout << "Sum of the flow " << sumFlow << "\n"<< niter <<" iterations, current cost=" << totalCost() << "\n";
-    # #endif
+    not_converged, in_arc = findEnteringArc(
+        pivot_block, spanning_tree.state, node_arc_data, in_arc
+    )
+    print(f"{not_converged=}, {in_arc=}")
 
     flow = node_arc_data.flow
     pi = node_arc_data.pi
