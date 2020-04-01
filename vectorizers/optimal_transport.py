@@ -118,6 +118,7 @@ def findEnteringArc(
             # cnt = _block_size;
 
     for e in range(pivot_block.next_arc[0]):  # (e = 0; e != _next_arc; ++e) {
+        c = state_vector[e] * (cost[e] + pi[source[e]] - pi[target[e]]);
         if c < min:
             min = c
             in_arc = e
@@ -141,6 +142,8 @@ def findEnteringArc(
             # a=a>fabs(_cost[_in_arc])?a:fabs(_cost[_in_arc]);
             # if (min <  -EPSILON*a) goto search_end;
             # cnt = _block_size;
+
+    # assert(pivot_block.next_arc[0] == 0 or e == pivot_block.next_arc[0] - 1)
 
     if np.fabs(pi[source[in_arc]]) > np.fabs(pi[target[in_arc]]):
         a = np.fabs(pi[source[in_arc]])
@@ -1084,12 +1087,6 @@ def start(
         not_converged, in_arc = findEnteringArc(
             pivot_block, spanning_tree.state, node_arc_data, in_arc
         )
-
-
-    not_converged, in_arc = findEnteringArc(
-        pivot_block, spanning_tree.state, node_arc_data, in_arc
-    )
-    print(f"{not_converged=}, {in_arc=}")
 
     flow = node_arc_data.flow
     pi = node_arc_data.pi
