@@ -198,7 +198,6 @@ def find_leaving_arc(
     pred = spanning_tree.pred
     parent = spanning_tree.parent
 
-    # TODO: leave this unchanged by passing it in?
     u_out = -1  # May not be set, but we need to return something?
 
     # Initialize first and second nodes according to the direction
@@ -483,7 +482,7 @@ def update_potential(u_in, v_in, pi, cost, spanning_tree):
 
 # If we have mixed arcs (for better random access)
 # we need a more complicated function to get the ID of a given arc
-@numba.njit()
+@numba.njit(inline='always')
 def arc_id(arc, graph):
     k = graph.n_arcs - arc - 1
     if graph.use_arc_mixing:
@@ -940,6 +939,13 @@ def set_cost(arc, cost_val, cost, graph):
 
 
 @numba.njit()
+def initialize_cost(cost_matrix, graph, cost):
+    for i in range(cost_matrix.shape[0]):
+        for j in range(cost_matrix.shape[1]):
+            set_cost(i * cost_matrix.shape[1] + j, cost_matrix[i, j], cost, graph)
+
+
+@numba.njit()
 def total_cost(flow, cost):
     c = 0.0
     for i in range(flow.shape[0]):  # (int i=0; i<_flow.size(); i++)
@@ -947,7 +953,7 @@ def total_cost(flow, cost):
     return c
 
 
-@numba.njit()
+@numba.njit(parallel=True)
 def network_simplex_core(
     node_arc_data,
     spanning_tree,
@@ -1109,7 +1115,7 @@ def network_simplex_core(
     if solution_status == OPTIMAL:
         for e in range(pivot_block.search_arc_num, all_arc_num):
             if flow[e] != 0:
-                if abs(flow[e]) > EPSILON:
+                if np.abs(flow[e]) > EPSILON:
                     return INFEASIBLE
                 else:
                     flow[e] = 0
@@ -1139,14 +1145,12 @@ def network_simplex_core(
 
 
 @numba.njit()
-def kantorovich_distance(x, y, cost, max_iter=1000000):
+def kantorovich_distance(x, y, cost, max_iter=100000):
     node_arc_data, spanning_tree, graph = allocate_graph_structures(
         x.shape[0], y.shape[0]
     )
     initialize_supply(x, -y, graph, node_arc_data.supply)
-    for i in range(cost.shape[0]):
-        for j in range(cost.shape[1]):
-            set_cost(i * cost.shape[1] + j, cost[i, j], node_arc_data.cost, graph)
+    initialize_cost(cost, graph, node_arc_data.cost)
     status, (sum_supply, search_arc_num, all_arc_num) = initialize_graph_structures(
         graph, node_arc_data, spanning_tree
     )
