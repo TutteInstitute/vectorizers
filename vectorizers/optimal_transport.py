@@ -1,6 +1,5 @@
 import numpy as np
 import numba
-from warnings import warn
 from collections import namedtuple
 
 
