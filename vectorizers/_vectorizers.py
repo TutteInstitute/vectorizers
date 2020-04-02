@@ -79,9 +79,10 @@ def construct_token_dictionary_and_frequency(token_sequence, token_dictionary=No
 def select_tokens_by_regex(tokens, regex):
     if not isinstance(regex, re.Pattern):
         regex = re.compile(regex)
+
     result = set([])
     for token in tokens:
-        if regex.match(token) is not None:
+        if regex.fullmatch(token) is not None:
             result.add(token)
 
     return result
@@ -153,7 +154,7 @@ def prune_token_dictionary(
         [token_frequencies[token_dictionary[token]] for token in new_vocabulary]
     )
 
-    return new_vocabulary, new_token_frequency
+    return new_vocabulary, new_token_frequency, tokens_to_prune
 
 
 def preprocess_token_sequences(
@@ -245,7 +246,7 @@ def preprocess_token_sequences(
         else:
             max_frequency = min(1.0, max_occurrences / total_tokens)
 
-    token_dictionary, token_frequencies = prune_token_dictionary(
+    token_dictionary, token_frequencies, excluded_tokens = prune_token_dictionary(
         token_dictionary,
         token_frequencies,
         ignored_tokens=ignored_tokens,
@@ -269,6 +270,7 @@ def preprocess_token_sequences(
         token_dictionary,
         inverse_token_dictionary,
         token_frequencies,
+        excluded_tokens,
     )
 
 
@@ -781,6 +783,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             self.token_dictionary_,
             self.inverse_token_dictionary_,
             self.token_frequencies_,
+            self.excluded_tokens_,
         ) = preprocess_token_sequences(
             X,
             flat_sequences,
@@ -1174,6 +1177,7 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
             self.token_dictionary_,
             self.inverse_token_dictionary_,
             self.token_frequencies_,
+            self.excluded_tokens_,
         ) = preprocess_token_sequences(
             X,
             flat_sequence,
@@ -1220,7 +1224,7 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
 
     def transform(self, X):
         flat_sequence = flatten(X)
-        (token_sequences, _, _, _) = preprocess_token_sequences(
+        (token_sequences, _, _, _, _) = preprocess_token_sequences(
             X,
             flat_sequence,
             self.token_dictionary_,
@@ -1283,6 +1287,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
             self.token_dictionary_,
             self.inverse_token_dictionary_,
             self.token_frequencies_,
+            self.excluded_tokens_,
         ) = preprocess_token_sequences(
             X,
             flat_sequence,
@@ -1357,7 +1362,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
 
     def transform(self, X):
         flat_sequence = flatten(X)
-        (token_sequences, _, _, _) = preprocess_token_sequences(
+        (token_sequences, _, _, _, _) = preprocess_token_sequences(
             X,
             flat_sequence,
             self.token_dictionary_,
