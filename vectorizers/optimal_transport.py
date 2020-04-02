@@ -788,6 +788,8 @@ def initialize_graph_structures(graph, node_arc_data, spanning_tree):
     for i in range(n_arcs):  # (int i = 0; i != _arc_num; ++i) {
         if cost[i] > ART_COST:
             ART_COST = cost[i]
+        if flow[i] != 0:
+            flow[i] = 0
     ART_COST = (ART_COST + 1) * n_nodes
     # }
 
@@ -1157,3 +1159,22 @@ def kantorovich_distance(x, y, cost, max_iter=100000):
     network_simplex_core(node_arc_data, spanning_tree, graph, sum_supply,
                          search_arc_num, all_arc_num, "GEQ", max_iter)
     return total_cost(node_arc_data.flow, node_arc_data.cost)
+
+
+def create_fixed_cost_kantorovich_distance(cost_matrix):
+    node_arc_data, spanning_tree, graph = allocate_graph_structures(
+        cost_matrix.shape[0], cost_matrix.shape[1]
+    )
+    initialize_cost(cost_matrix, graph, node_arc_data.cost)
+    @numba.njit()
+    def distance(x, y, node_arc_data=node_arc_data, spanning_tree=spanning_tree,
+                 graph=graph):
+        initialize_supply(x, -y, graph, node_arc_data.supply)
+        status, (sum_supply, search_arc_num, all_arc_num) = initialize_graph_structures(
+            graph, node_arc_data, spanning_tree
+        )
+        network_simplex_core(node_arc_data, spanning_tree, graph, sum_supply,
+                             search_arc_num, all_arc_num, "GEQ", 100000)
+        return total_cost(node_arc_data.flow, node_arc_data.cost)
+
+    return distance
