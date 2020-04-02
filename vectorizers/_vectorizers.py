@@ -26,6 +26,8 @@ import scipy.stats
 import scipy.sparse
 from typing import Union, Sequence, AnyStr
 
+import re
+
 from .utils import (
     flatten,
     vectorize_diagram,
@@ -74,10 +76,22 @@ def construct_token_dictionary_and_frequency(token_sequence, token_dictionary=No
     return token_dictionary, token_frequency, n_tokens
 
 
+def select_tokens_by_regex(tokens, regex):
+    if not isinstance(regex, re.Pattern):
+        regex = re.compile(regex)
+    result = set([])
+    for token in tokens:
+        if regex.match(token) is not None:
+            result.add(token)
+
+    return result
+
+
 def prune_token_dictionary(
     token_dictionary,
     token_frequencies,
     ignored_tokens=None,
+    excluded_token_regex=None,
     min_frequency=0.0,
     max_frequency=1.0,
 ):
@@ -128,6 +142,11 @@ def prune_token_dictionary(
     tokens_to_prune.update({reverse_token_dictionary[i] for i in infrequent_tokens})
     tokens_to_prune.update({reverse_token_dictionary[i] for i in frequent_tokens})
 
+    if excluded_token_regex is not None:
+        tokens_to_prune.update(
+            select_tokens_by_regex(token_dictionary.keys(), excluded_token_regex)
+        )
+
     vocab_tokens = [token for token in token_dictionary if token not in tokens_to_prune]
     new_vocabulary = dict(zip(vocab_tokens, range(len(vocab_tokens))))
     new_token_frequency = np.array(
@@ -146,6 +165,7 @@ def preprocess_token_sequences(
     min_frequency=None,
     max_frequency=None,
     ignored_tokens=None,
+    excluded_token_regex=None,
 ):
     """Perform a standard set of preprocessing for token sequences. This includes
     constructing a token dictionary and token frequencies, pruning the dictionary
@@ -229,6 +249,7 @@ def preprocess_token_sequences(
         token_dictionary,
         token_frequencies,
         ignored_tokens=ignored_tokens,
+        excluded_token_regex=excluded_token_regex,
         min_frequency=min_frequency,
         max_frequency=max_frequency,
     )
@@ -725,6 +746,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         min_frequency=None,
         max_frequency=None,
         ignored_tokens=None,
+        excluded_token_regex=None,
         window_function=fixed_window,
         kernel_function=flat_kernel,
         window_args=(5,),
@@ -738,6 +760,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self.max_occurrences = max_occurrences
         self.max_frequency = max_frequency
         self.ignored_tokens = ignored_tokens
+        self.excluded_token_regex = excluded_token_regex
 
         self.window_function = window_function
         self.kernel_function = kernel_function
@@ -767,6 +790,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             min_frequency=self.min_frequency,
             max_frequency=self.max_frequency,
             ignored_tokens=self.ignored_tokens,
+            excluded_token_regex=self.excluded_token_regex,
         )
 
         if self.window_function is information_window:
@@ -1118,6 +1142,7 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
         min_frequency=None,
         max_frequency=None,
         ignored_tokens=None,
+        excluded_token_regex=None,
         window_function=fixed_window,
         kernel_function=flat_kernel,
         window_args=(5,),
@@ -1130,6 +1155,7 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
         self.max_occurrences = max_occurrences
         self.max_frequency = max_frequency
         self.ignored_tokens = ignored_tokens
+        self.excluded_token_regex = excluded_token_regex
 
         self.window_function = window_function
         self.kernel_function = kernel_function
@@ -1157,6 +1183,7 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
             min_frequency=self.min_frequency,
             max_frequency=self.max_frequency,
             ignored_tokens=self.ignored_tokens,
+            excluded_token_regex=self.excluded_token_regex,
         )
 
         n_unique_tokens = len(self.token_dictionary_)
@@ -1198,6 +1225,7 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
             flat_sequence,
             self.token_dictionary_,
             ignored_tokens=self.ignored_tokens,
+            excluded_token_regex=self.excluded_token_regex,
         )
 
         n_unique_tokens = len(self.token_dictionary_)
@@ -1229,6 +1257,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         min_frequency=None,
         max_frequency=None,
         ignored_tokens=None,
+        excluded_token_regex=None,
         validate_data=True,
     ):
         self.ngram_size = ngram_size
@@ -1240,6 +1269,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         self.max_occurrences = max_occurrences
         self.max_frequency = max_frequency
         self.ignored_tokens = ignored_tokens
+        self.excluded_token_regex = excluded_token_regex
         self.validate_data = validate_data
 
     def fit(self, X, y=None, **fit_params):
@@ -1262,6 +1292,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
             min_frequency=self.min_frequency,
             max_frequency=self.max_frequency,
             ignored_tokens=self.ignored_tokens,
+            excluded_token_regex=self.excluded_token_regex,
         )
 
         if self.ngram_dictionary is not None:
@@ -1284,7 +1315,8 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
                         token_gram = self.inverse_token_dictionary_[index_gram[0]]
                     else:
                         token_gram = tuple(
-                            self.inverse_token_dictionary_[index] for index in index_gram
+                            self.inverse_token_dictionary_[index]
+                            for index in index_gram
                         )
                     col_index = self.ngram_dictionary_[token_gram]
                     if col_index in counter:
@@ -1330,6 +1362,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
             flat_sequence,
             self.token_dictionary_,
             ignored_tokens=self.ignored_tokens,
+            excluded_token_regex=self.excluded_token_regex,
         )
 
         indptr = [0]
@@ -1347,8 +1380,8 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
                         token_gram = self.inverse_token_dictionary_[index_gram[0]]
                     else:
                         token_gram = tuple(
-                            self.inverse_token_dictionary_[index] for index in
-                            index_gram
+                            self.inverse_token_dictionary_[index]
+                            for index in index_gram
                         )
                     col_index = self.ngram_dictionary_[token_gram]
                     if col_index in counter:
