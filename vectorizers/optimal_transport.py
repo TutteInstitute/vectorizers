@@ -1,3 +1,31 @@
+#############################################################################
+# This code draws from the Python Optimal Transport version of the
+# network simplex algorithm, which in turn was adapted from the LEMON
+# library. The copyrights/comment blocks for those are preserved below.
+# The Python/Numba implementation was addapted by Leland McInnes (2020).
+
+ # * This file has been adapted by Nicolas Bonneel (2013),
+ # * from network_simplex.h from LEMON, a generic C++ optimization library,
+ # * to implement a lightweight network simplex for mass transport, more
+ # * memory efficient that the original file. A previous version of this file
+ # * is used as part of the Displacement Interpolation project,
+ # * Web: http://www.cs.ubc.ca/labs/imager/tr/2011/DisplacementInterpolation/
+ # *
+ # *
+ # **** Original file Copyright Notice :
+ # *
+ # * Copyright (C) 2003-2010
+ # * Egervary Jeno Kombinatorikus Optimalizalasi Kutatocsoport
+ # * (Egervary Research Group on Combinatorial Optimization, EGRES).
+ # *
+ # * Permission to use, modify and distribute this software is granted
+ # * provided that this copyright notice appears in all copies. For
+ # * precise terms see the accompanying LICENSE file.
+ # *
+ # * This software is provided "AS IS" with no warranty of any kind,
+ # * express or implied, and with no claim as to its suitability for any
+ # * purpose.
+
 import numpy as np
 import numba
 from collections import namedtuple
