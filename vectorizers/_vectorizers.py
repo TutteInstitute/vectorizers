@@ -258,12 +258,21 @@ def preprocess_token_sequences(
         index: token for token, index in token_dictionary.items()
     }
 
-    result_sequences = [
+    """
+     result_sequences = [
         np.array(
             [token_dictionary[token] for token in sequence if token in token_dictionary]
         )
         for sequence in token_sequences
     ]
+    """
+    result_sequences = []
+    for sequence in token_sequences:
+        result_sequence = np.array(
+            [token_dictionary[token] for token in sequence if token in token_dictionary]
+        )
+        if len(result_sequence) > 0:
+            result_sequences.append(result_sequence)
 
     return (
         result_sequences,
@@ -436,6 +445,8 @@ def skip_grams_matrix_coo_data(
     n_unique_tokens = len(token_dictionary)
 
     for row_idx in range(len(list_of_token_sequences)):
+        if len(list_of_token_sequences[row_idx]) == 0:
+            continue
         token_index_sequence = [
             token_dictionary[token] for token in list_of_token_sequences[row_idx]
         ]

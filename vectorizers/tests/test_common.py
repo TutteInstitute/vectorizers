@@ -38,6 +38,7 @@ token_data = [
 
 text_token_data = [
     ["foo", "pok", "foo", "wer", "bar"],
+    [],
     ["bar", "foo", "bar", "pok", "wer", "foo", "bar", "foo", "pok", "bar", "wer"],
     ["wer", "foo", "foo", "pok", "bar", "wer", "bar"],
     ["foo", "bar", "bar", "foo", "bar", "foo", "pok", "wer", "pok", "bar", "wer"],
