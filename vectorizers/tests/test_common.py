@@ -256,6 +256,8 @@ def test_skipgram_vectorizer_text():
     vectorizer = SkipgramVectorizer()
     result = vectorizer.fit_transform(text_token_data)
     assert scipy.sparse.issparse(result)
+    #Ensure that the empty document has an all zero row
+    assert len((result[1, :]).data) == 0
 
 
 def test_skipgram_vectorizer_mixed():
