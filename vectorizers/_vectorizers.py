@@ -260,11 +260,20 @@ def preprocess_token_sequences(
 
     result_sequences = [
         np.array(
-            [token_dictionary[token] for token in sequence if token in token_dictionary]
+            [token_dictionary[token] for token in sequence if token in token_dictionary],
+            dtype=np.int64
         )
         for sequence in token_sequences
     ]
-
+    """
+    result_sequences = []
+    for sequence in token_sequences:
+        result_sequence = np.array(
+            [token_dictionary[token] for token in sequence if token in token_dictionary]
+        )
+        if len(result_sequence) > 0:
+            result_sequences.append(result_sequence)
+    """
     return (
         result_sequences,
         token_dictionary,
@@ -436,9 +445,10 @@ def skip_grams_matrix_coo_data(
     n_unique_tokens = len(token_dictionary)
 
     for row_idx in range(len(list_of_token_sequences)):
-        token_index_sequence = [
-            token_dictionary[token] for token in list_of_token_sequences[row_idx]
-        ]
+        token_index_sequence = np.array(
+            [token_dictionary[token] for token in list_of_token_sequences[row_idx]],
+            dtype=np.int64,
+        )
         skip_gram_data = build_skip_grams(
             token_index_sequence,
             window_function,
@@ -1214,6 +1224,7 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
             self.skipgram_dictionary_[(first_token, second_token)] = i
 
         self._train_matrix = base_matrix.tocsc()[:, self._column_is_kept].tocsr()
+        self._train_matrix.eliminate_zeros()
         self.metric_ = distances.sparse_hellinger
 
         return self
