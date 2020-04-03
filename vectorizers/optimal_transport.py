@@ -708,7 +708,7 @@ def initialize_graph_structures(graph, node_arc_data, spanning_tree):
     state = spanning_tree.state
 
     if n_nodes == 0:
-        return False, (0, 0)
+        return False
 
     # Check the sum of supply values
     net_supply = 0
@@ -716,7 +716,7 @@ def initialize_graph_structures(graph, node_arc_data, spanning_tree):
         net_supply += supply[i]
 
     if np.fabs(net_supply) > NET_SUPPLY_ERROR_TOLERANCE:
-        return False, (0, 0)
+        return False
 
     # Fix using doubles
     # Initialize artifical cost
@@ -744,8 +744,6 @@ def initialize_graph_structures(graph, node_arc_data, spanning_tree):
 
     # Add artificial arcs and initialize the spanning tree data structure
     # EQ supply constraints
-    search_arc_num = n_arcs
-    all_arc_num = n_arcs + n_nodes
     e = n_arcs
     for u in range(n_nodes):
         parent[u] = root
@@ -771,7 +769,7 @@ def initialize_graph_structures(graph, node_arc_data, spanning_tree):
             cost[e] = artificial_cost
         e += 1
 
-    return True, (search_arc_num, all_arc_num)
+    return True
 
 
 @numba.njit(inline="always")
@@ -808,15 +806,13 @@ def network_simplex_core(
     node_arc_data,
     spanning_tree,
     graph,
-    search_arc_num,
-    all_arc_num,
     max_iter,
 ):
-    # pivot_data = pivot(*this)
+
     pivot_block = PivotBlock(
-        max(np.int32(np.sqrt(search_arc_num)), 10),
+        max(np.int32(np.sqrt(graph.n_arcs)), 10),
         np.zeros(1, dtype=np.int32),
-        search_arc_num,
+        graph.n_arcs,
     )
     solution_status = ProblemStatus.OPTIMAL
 
@@ -871,7 +867,7 @@ def network_simplex_core(
 
     # Check feasibility
     if solution_status == ProblemStatus.OPTIMAL:
-        for e in range(pivot_block.search_arc_num, all_arc_num):
+        for e in range(graph.n_arcs, graph.n_arcs + graph.n_nodes):
             if flow[e] != 0:
                 if np.abs(flow[e]) > EPSILON:
                     return ProblemStatus.INFEASIBLE
@@ -898,7 +894,7 @@ def kantorovich_distance(x, y, cost, max_iter=100000):
     )
     initialize_supply(x, -y, graph, node_arc_data.supply)
     initialize_cost(cost, graph, node_arc_data.cost)
-    init_status, (search_arc_num, all_arc_num) = \
+    init_status = \
         initialize_graph_structures(
         graph, node_arc_data, spanning_tree
     )
@@ -909,8 +905,6 @@ def kantorovich_distance(x, y, cost, max_iter=100000):
         node_arc_data,
         spanning_tree,
         graph,
-        search_arc_num,
-        all_arc_num,
         max_iter,
     )
     if solve_status == ProblemStatus.MAX_ITER_REACHED:
@@ -935,7 +929,7 @@ def create_fixed_cost_kantorovich_distance(cost_matrix):
         x, y, node_arc_data=node_arc_data, spanning_tree=spanning_tree, graph=graph
     ):
         initialize_supply(x, -y, graph, node_arc_data.supply)
-        init_status, (search_arc_num, all_arc_num) = \
+        init_status = \
             initialize_graph_structures(
             graph, node_arc_data, spanning_tree
         )
@@ -946,8 +940,6 @@ def create_fixed_cost_kantorovich_distance(cost_matrix):
             node_arc_data,
             spanning_tree,
             graph,
-            search_arc_num,
-            all_arc_num,
             100000,
         )
         if solve_status == ProblemStatus.MAX_ITER_REACHED:
