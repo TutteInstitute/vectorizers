@@ -121,7 +121,6 @@ def find_entering_arc(
 
     for e in range(pivot_block.next_arc[0], pivot_block.search_arc_num):
         c = state_vector[e] * (cost[e] + pi[source[e]] - pi[target[e]])
-        # print(e, c, min, state_vector[e], pi[source[e]], pi[target[e]])
         if c < min:
             min = c
             in_arc = e
@@ -522,7 +521,6 @@ def construct_initial_pivots(sum_supply, graph, node_arc_data, spanning_tree):
 
     state = spanning_tree.state
 
-    curr = 0
     total = 0
     supply_nodes = []
     demand_nodes = []
@@ -648,7 +646,7 @@ def allocate_graph_structures(n, m, use_arc_mixing=True):
 
     source = np.zeros(max_arc_num, dtype=np.uint32)
     target = np.zeros(max_arc_num, dtype=np.uint32)
-    cost = np.zeros(max_arc_num, dtype=np.float64)
+    cost = np.ones(max_arc_num, dtype=np.float64)
     supply = np.zeros(all_node_num, dtype=np.float64)
     flow = np.zeros(max_arc_num, dtype=np.float64)
     pi = np.zeros(all_node_num, dtype=np.float64)
@@ -662,7 +660,6 @@ def allocate_graph_structures(n, m, use_arc_mixing=True):
     last_succ = np.zeros(all_node_num, dtype=np.int32)
     state = np.zeros(max_arc_num, dtype=np.int8)
 
-    # _arc_mixing=false;
     if use_arc_mixing:
         # Store the arcs in a mixed order
         k = max(np.int32(np.sqrt(n_arcs)), 10)
@@ -674,8 +671,6 @@ def allocate_graph_structures(n, m, use_arc_mixing=True):
         i = 0
         j = 0
         for a in range(n_arcs - 1, -1, -1):
-            # _source[i] = _node_id(_graph.source(a));
-            # _target[i] = _node_id(_graph.target(a));
             source[i] = n_nodes - (a // m) - 1
             target[i] = n_nodes - ((a % m) + n) - 1
             i += k
@@ -692,21 +687,16 @@ def allocate_graph_structures(n, m, use_arc_mixing=True):
         # Store the arcs in the original order
         i = 0
         for a in range(n_arcs - 1, -1, -1):
-            # _source[i] = _node_id(_graph.source(a));
-            # _target[i] = _node_id(_graph.target(a));
             source[i] = n_nodes - (a // m) - 1
             target[i] = n_nodes - ((a % m) + n) - 1
             i += 1
 
-    # Reset parameters
-    for i in range(n_nodes):
-        supply[i] = 0
-
-    for i in range(n_arcs):
-        cost[i] = 1
-
-    # Default supply type is "GEQ"
-    supply_type = "GEQ"
+    # # Reset parameters
+    # for i in range(n_nodes):
+    #     supply[i] = 0
+    #
+    # for i in range(n_arcs):
+    #     cost[i] = 1
 
     node_arc_data = NodeArcData(cost, supply, flow, pi, source, target)
     spanning_tree = SpanningTree(
@@ -768,17 +758,15 @@ def initialize_graph_structures(graph, node_arc_data, spanning_tree):
     # Initialize artifical cost
 
     artificial_cost = 0.0
-    for i in range(n_arcs):  # (int i = 0; i != _arc_num; ++i) {
+    for i in range(n_arcs):
         if cost[i] > artificial_cost:
             artificial_cost = cost[i]
         if flow[i] != 0:
             flow[i] = 0
     artificial_cost = (artificial_cost + 1) * n_nodes
-    # }
 
     # Initialize arc maps
-    for i in range(n_arcs):  # (int i = 0; i != _arc_num; ++i) {
-        # _flow[i] = 0; # by default, the sparse matrix is empty
+    for i in range(n_arcs):
         state[i] = ArcState.STATE_LOWER
 
     # Set data for the artificial root node
@@ -798,9 +786,7 @@ def initialize_graph_structures(graph, node_arc_data, spanning_tree):
         search_arc_num = n_arcs
         all_arc_num = n_arcs + n_nodes
         e = n_arcs
-        for u in range(n_nodes):  # (int u = 0, e = _arc_num; u != _node_num;
-            # ++u,
-            # ++e) {
+        for u in range(n_nodes):
             parent[u] = root
             pred[u] = e
             thread[u] = u + 1
@@ -829,8 +815,7 @@ def initialize_graph_structures(graph, node_arc_data, spanning_tree):
         search_arc_num = n_arcs + n_nodes
         f = n_arcs + n_nodes
         e = n_arcs
-        for u in range(n_nodes):  # (int u = 0, e = _arc_num; u != _node_num;
-            # ++u, ++e) {
+        for u in range(n_nodes):
             parent[u] = root
             thread[u] = u + 1
             rev_thread[u + 1] = u
@@ -870,8 +855,7 @@ def initialize_graph_structures(graph, node_arc_data, spanning_tree):
         search_arc_num = n_arcs + n_nodes
         f = n_arcs + n_nodes
         e = n_arcs
-        for u in range(n_nodes):  # (int u = 0, e = _arc_num; u != _node_num;
-            # ++u, ++e) {
+        for u in range(n_nodes):
             parent[u] = root
             thread[u] = u + 1
             rev_thread[u + 1] = u
@@ -909,8 +893,6 @@ def initialize_graph_structures(graph, node_arc_data, spanning_tree):
 
 @numba.njit()
 def initialize_supply(left_node_supply, right_node_supply, graph, supply):
-    # Node n; _graph.first(n);
-    # for (; n != INVALIDNODE; _graph.next(n)) {
     for n in range(graph.n_nodes - 1, -1, -1):
         if n < graph.n:
             supply[graph.n_nodes - n - 1] = left_node_supply[n]
@@ -933,7 +915,7 @@ def initialize_cost(cost_matrix, graph, cost):
 @numba.njit()
 def total_cost(flow, cost):
     c = 0.0
-    for i in range(flow.shape[0]):  # (int i=0; i<_flow.size(); i++)
+    for i in range(flow.shape[0]):
         c += flow[i] * cost[i]
     return c
 
