@@ -121,6 +121,7 @@ def find_entering_arc(
 
     for e in range(pivot_block.next_arc[0], pivot_block.search_arc_num):
         c = state_vector[e] * (cost[e] + pi[source[e]] - pi[target[e]])
+        # print(e, c, min, state_vector[e], pi[source[e]], pi[target[e]])
         if c < min:
             min = c
             in_arc = e
@@ -695,6 +696,7 @@ def allocate_graph_structures(n, m, use_arc_mixing=True):
             # _target[i] = _node_id(_graph.target(a));
             source[i] = n_nodes - (a // m) - 1
             target[i] = n_nodes - ((a % m) + n) - 1
+            i += 1
 
     # Reset parameters
     for i in range(n_nodes):
@@ -759,6 +761,8 @@ def initialize_graph_structures(graph, node_arc_data, spanning_tree):
 
     if np.fabs(net_supply) > NET_SUPPLY_ERROR_TOLERANCE:
         return False, (0, 0, 0)
+
+    net_supply = 0 # !!!
 
     # Fix using doubles
     # Initialize artifical cost
@@ -970,58 +974,8 @@ def network_simplex_core(
     while not_converged:
         iter_number += 1
         if max_iter > 0 and iter_number >= max_iter and max_iter > 0:
-            print(
-                "WARNING: RESULT MIGHT BE INACCURATE\nMax number of "
-                "iteration reached. Sometimes iterations"
-                " go on in "
-                "cycle even though the solution has been reached, to check if it's the case here have a look at the minimal reduced cost. If it is very close to machine precision, you might actually have the correct solution, if not try setting the maximum number of iterations a bit higher\n"
-            )
             solution_status = ProblemStatus.MAX_ITER_REACHED
             break
-
-        # # if DEBUG_LVL>0
-        # # if iter_number>MAX_DEBUG_ITER:
-        # #     break
-        # def _node_id(n):
-        #     return graph.n_nodes - n - 1
-        #
-        # if iter_number % 100 == 0 or iter_number % 100 == 1:
-        #     curCost = total_cost(node_arc_data.flow, node_arc_data.cost)
-        #     sumFlow = 0
-        #     if np.fabs(node_arc_data.pi[node_arc_data.source[in_arc]]) >= np.fabs(
-        #         node_arc_data.pi[node_arc_data.target[in_arc]]
-        #     ):
-        #         a = np.fabs(node_arc_data.pi[node_arc_data.source[in_arc]])
-        #     else:
-        #         a = np.fabs(node_arc_data.pi[node_arc_data.target[in_arc]])
-        #
-        #     if a < np.fabs(node_arc_data.cost[in_arc]):
-        #         a = np.fabs(node_arc_data.cost[in_arc])
-        #
-        #     for i in range(node_arc_data.flow.shape[0]):  # (int i=0; i<_flow.size();
-        #         # i++) {
-        #         sumFlow += spanning_tree.state[i] * node_arc_data.flow[i]
-        #
-        #     print(
-        #         f"Sum of the flow {sumFlow}\n{iter_number} "
-        #         f"iterations, current cost={curCost}\nReduced "
-        #         f"cost="
-        #         f"{spanning_tree.state[in_arc] * (node_arc_data.cost[in_arc] + node_arc_data.pi[node_arc_data.source[in_arc]] -node_arc_data.pi[node_arc_data.target[in_arc]])}\nPrecision = {-EPSILON*(a)}\n"
-        #     )
-        #     print(
-        #         f"Arc in = ({_node_id(node_arc_data.source[in_arc])}, "
-        #         f"{_node_id(node_arc_data.target[in_arc])})\n"
-        #     )
-        #     print(
-        #         f"Supplies = ({node_arc_data.supply[node_arc_data.source[in_arc]]}, "
-        #         f"{node_arc_data.supply[node_arc_data.target[in_arc]]} )\n"
-        #     )
-        #     print(node_arc_data.cost[in_arc])
-        #     print(node_arc_data.pi[node_arc_data.source[in_arc]])
-        #     print(node_arc_data.pi[node_arc_data.target[in_arc]])
-        #     print(a)
-        #     print(f"Number of non-zero flows: {np.sum(node_arc_data.flow != 0.0)}")
-        # # endif
 
         join = find_join_node(
             node_arc_data.source,
@@ -1045,45 +999,6 @@ def network_simplex_core(
             update_potential(
                 u_in, v_in, node_arc_data.pi, node_arc_data.cost, spanning_tree
             )
-
-        # # if DEBUG_LVL>0
-        # else:
-        #     print("No change")
-        # # endif
-        # # if DEBUG_LVL>1
-        # # print(
-        # #     f"Arc in = ({node_arc_data.source[in_arc]}, "
-        # #     f"{node_arc_data.target[in_arc]})"
-        # # )
-        # # endif
-
-        # #if DEBUG_LVL>0
-        #                 double curCost=total_cost();
-        #                 double sumFlow=0;
-        #                 double a;
-        #                 a= (fabs(_pi[_source[in_arc]])>=fabs(_pi[_target[in_arc]])) ? fabs(_pi[_source[in_arc]]) : fabs(_pi[_target[in_arc]]);
-        #                 a=a>=fabs(_cost[in_arc])?a:fabs(_cost[in_arc]);
-        #                 for (int i=0; i<_flow.size(); i++) {
-        #                     sumFlow+=_state[i]*_flow[i];
-        #                 }
-        #
-        #                 std::cout << "Sum of the flow " << std::setprecision(20) << sumFlow << "\n" << niter << " iterations, current cost=" << curCost << "\nReduced cost=" << _state[in_arc] * (_cost[in_arc] + _pi[_source[in_arc]] -_pi[_target[in_arc]]) << "\nPrecision = "<< -EPSILON*(a) << "\n";
-        #
-        #                 std::cout << "Arc in = (" << _node_id(_source[in_arc]) << ", " << _node_id(_target[in_arc]) <<")\n";
-        #                 std::cout << "Supplies = (" << _supply[_source[in_arc]] << ", " << _supply[_target[in_arc]] << ")\n";
-
-        # endif
-
-        # #if DEBUG_LVL>1
-        #             sumFlow=0;
-        #             for (int i=0; i<_flow.size(); i++) {
-        #                 sumFlow+=_state[i]*_flow[i];
-        #                 if (_state[i]==STATE_TREE) {
-        #                     std::cout << "Non zero value at (" << _node_num+1-_source[i] << ", " << _node_num+1-_target[i] << ")\n";
-        #                 }
-        #             }
-        #             std::cout << "Sum of the flow " << sumFlow << "\n"<< niter <<" iterations, current cost=" << total_cost() << "\n";
-        # #endif
 
         not_converged, in_arc = find_entering_arc(
             pivot_block, spanning_tree.state, node_arc_data, in_arc
@@ -1128,17 +1043,18 @@ def network_simplex_core(
 @numba.njit()
 def kantorovich_distance(x, y, cost, max_iter=100000):
     node_arc_data, spanning_tree, graph = allocate_graph_structures(
-        x.shape[0], y.shape[0]
+        x.shape[0], y.shape[0], False,
     )
     initialize_supply(x, -y, graph, node_arc_data.supply)
     initialize_cost(cost, graph, node_arc_data.cost)
-    status, (sum_supply, search_arc_num, all_arc_num) = initialize_graph_structures(
+    init_status, (sum_supply, search_arc_num, all_arc_num) = \
+        initialize_graph_structures(
         graph, node_arc_data, spanning_tree
     )
-    if status == False:
+    if init_status == False:
         raise ValueError("Kantorovich distance inputs must be valid probability "
                          "distributions.")
-    network_simplex_core(
+    solve_status = network_simplex_core(
         node_arc_data,
         spanning_tree,
         graph,
@@ -1148,12 +1064,20 @@ def kantorovich_distance(x, y, cost, max_iter=100000):
         "GEQ",
         max_iter,
     )
+    if solve_status == ProblemStatus.MAX_ITER_REACHED:
+        print("WARNING: RESULT MIGHT BE INACURATE\nMax number of iteration reached!")
+    elif solve_status == ProblemStatus.INFEASIBLE:
+        raise ValueError("Optimal transport problem was INFEASIBLE. Please check "
+                         "inputs.")
+    elif solve_status == ProblemStatus.UNBOUNDED:
+        raise ValueError("Optimal transport problem was UNBOUNDED. Please check "
+                         "inputs.")
     return total_cost(node_arc_data.flow, node_arc_data.cost)
 
 
 def create_fixed_cost_kantorovich_distance(cost_matrix):
     node_arc_data, spanning_tree, graph = allocate_graph_structures(
-        cost_matrix.shape[0], cost_matrix.shape[1]
+        cost_matrix.shape[0], cost_matrix.shape[1], use_arc_mixing=True,
     )
     initialize_cost(cost_matrix, graph, node_arc_data.cost)
 
@@ -1162,13 +1086,14 @@ def create_fixed_cost_kantorovich_distance(cost_matrix):
         x, y, node_arc_data=node_arc_data, spanning_tree=spanning_tree, graph=graph
     ):
         initialize_supply(x, -y, graph, node_arc_data.supply)
-        status, (sum_supply, search_arc_num, all_arc_num) = initialize_graph_structures(
+        init_status, (sum_supply, search_arc_num, all_arc_num) = \
+            initialize_graph_structures(
             graph, node_arc_data, spanning_tree
         )
-        if status == False:
+        if init_status == False:
             raise ValueError("Kantorovich distance inputs must be valid probability "
                              "distributions.")
-        network_simplex_core(
+        solve_status = network_simplex_core(
             node_arc_data,
             spanning_tree,
             graph,
@@ -1178,6 +1103,15 @@ def create_fixed_cost_kantorovich_distance(cost_matrix):
             "GEQ",
             100000,
         )
+        if solve_status == ProblemStatus.MAX_ITER_REACHED:
+            print(
+                "WARNING: RESULT MIGHT BE INACURATE\nMax number of iteration reached!")
+        elif solve_status == ProblemStatus.INFEASIBLE:
+            raise ValueError("Optimal transport problem was INFEASIBLE. Please check "
+                             "inputs.")
+        elif solve_status == ProblemStatus.UNBOUNDED:
+            raise ValueError("Optimal transport problem was UNBOUNDED. Please check "
+                             "inputs.")
         return total_cost(node_arc_data.flow, node_arc_data.cost)
 
     return distance
