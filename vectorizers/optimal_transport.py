@@ -40,6 +40,8 @@ NET_SUPPLY_ERROR_TOLERANCE = 1e-8
 INFINITY = np.finfo(np.float64).max
 MAX = np.finfo(np.float64).max
 
+dummy_cost = np.zeros((2, 2), dtype=np.float64)
+
 # Invalid Arc num
 INVALID = -1
 
@@ -919,7 +921,7 @@ def network_simplex_core(
 
 
 @numba.njit()
-def kantorovich_distance(x, y, cost, max_iter=100000):
+def kantorovich_distance(x, y, cost=dummy_cost, max_iter=100000):
     node_arc_data, spanning_tree, graph = allocate_graph_structures(
         x.shape[0], y.shape[0], False,
     )
@@ -942,40 +944,3 @@ def kantorovich_distance(x, y, cost, max_iter=100000):
             "Optimal transport problem was UNBOUNDED. Please check " "inputs."
         )
     return total_cost(node_arc_data.flow, node_arc_data.cost)
-
-
-def create_fixed_cost_kantorovich_distance(cost_matrix):
-    node_arc_data, spanning_tree, graph = allocate_graph_structures(
-        cost_matrix.shape[0], cost_matrix.shape[1], use_arc_mixing=True,
-    )
-    initialize_cost(cost_matrix, graph, node_arc_data.cost)
-
-    @numba.njit()
-    def distance(
-        x, y, node_arc_data=node_arc_data, spanning_tree=spanning_tree, graph=graph
-    ):
-        initialize_supply(x, -y, graph, node_arc_data.supply)
-        init_status = initialize_graph_structures(graph, node_arc_data, spanning_tree)
-        if init_status == False:
-            raise ValueError(
-                "Kantorovich distance inputs must be valid probability "
-                "distributions."
-            )
-        solve_status = network_simplex_core(
-            node_arc_data, spanning_tree, graph, 100000,
-        )
-        if solve_status == ProblemStatus.MAX_ITER_REACHED:
-            print(
-                "WARNING: RESULT MIGHT BE INACURATE\nMax number of iteration reached!"
-            )
-        elif solve_status == ProblemStatus.INFEASIBLE:
-            raise ValueError(
-                "Optimal transport problem was INFEASIBLE. Please check " "inputs."
-            )
-        elif solve_status == ProblemStatus.UNBOUNDED:
-            raise ValueError(
-                "Optimal transport problem was UNBOUNDED. Please check " "inputs."
-            )
-        return total_cost(node_arc_data.flow, node_arc_data.cost)
-
-    return distance
