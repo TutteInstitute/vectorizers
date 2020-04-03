@@ -44,17 +44,19 @@ MAX = np.finfo(np.float64).max
 INVALID = -1
 
 # Problem Status
-class ProblemStatus (Enum):
+class ProblemStatus(Enum):
     OPTIMAL = 0
     MAX_ITER_REACHED = 1
     UNBOUNDED = 2
     INFEASIBLE = 3
 
+
 # Arc States
-class ArcState (IntEnum):
+class ArcState(IntEnum):
     STATE_UPPER = -1
     STATE_TREE = 0
     STATE_LOWER = 1
+
 
 SpanningTree = namedtuple(
     "SpanningTree",
@@ -109,7 +111,7 @@ LeavingArcData = namedtuple(
 
 # locals: c, min, e, cnt, a
 # modifies _in_arc, _next_arc,
-@numba.njit()
+@numba.njit(locals={"a": numba.uint32, "e": numba.uint32})
 def find_entering_arc(
     pivot_block, state_vector, node_arc_data, in_arc,
 ):
@@ -186,7 +188,7 @@ def find_entering_arc(
 # Operates with graph (_source, _target) and MST (_succ_num, _parent, in_arc) data
 # locals: u, v
 # modifies: join
-@numba.njit(locals={"u":numba.types.uint16, "v":numba.types.uint16})
+@numba.njit(locals={"u": numba.types.uint16, "v": numba.types.uint16})
 def find_join_node(source, target, succ_num, parent, in_arc):
     u = source[in_arc]
     v = target[in_arc]
@@ -205,7 +207,18 @@ def find_join_node(source, target, succ_num, parent, in_arc):
 # leaving arc is not the same as the entering arc
 # locals: first, second, result, d, e
 # modifies: u_in, v_in, u_out, delta
-@numba.njit()
+@numba.njit(
+    locals={
+        "u": numba.uint16,
+        "u_in": numba.uint16,
+        "u_out": numba.uint16,
+        "v_in": numba.uint16,
+        "first": numba.uint16,
+        "second": numba.uint16,
+        "result": numba.uint8,
+        "in_arc": numba.uint32,
+    }
+)
 def find_leaving_arc(
     join, in_arc, node_arc_data, spanning_tree,
 ):
@@ -277,7 +290,9 @@ def find_leaving_arc(
 # Change _flow and _state vectors
 # locals: val, u
 # modifies: _state, _flow
-@numba.njit()
+@numba.njit(
+    locals={"u": numba.uint16, "in_arc": numba.uint32, "val": numba.float64,}
+)
 def update_flow(
     join, leaving_arc_data, node_arc_data, spanning_tree, in_arc,
 ):
@@ -328,7 +343,20 @@ def update_flow(
 # more locals: up_limit_in, up_limit_out, _dirty_revs
 # modifies: v_out, _thread, _rev_thread, _parent, _last_succ,
 # modifies: _pred, _forward, _succ_num
-@numba.njit()
+@numba.njit(
+    locals={
+        "u": numba.uint16,
+        "w": numba.uint16,
+        "u_in": numba.uint16,
+        "u_out": numba.uint16,
+        "v_in": numba.uint16,
+        "right": numba.uint16,
+        "stem": numba.uint16,
+        "new_stem": numba.uint16,
+        "par_stem": numba.uint16,
+        "in_arc": numba.uint32,
+    }
+)
 def update_spanning_tree(
     spanning_tree, leaving_arc_data, join, in_arc, source,
 ):
@@ -469,7 +497,11 @@ def update_spanning_tree(
 # Update potentials
 # locals: sigma, end
 # modifies: _pi
-@numba.njit(fastmath=True, inline="always")
+@numba.njit(
+    fastmath=True,
+    inline="always",
+    locals={"u": numba.uint16, "u_in": numba.uint16, "v_in": numba.uint16},
+)
 def update_potential(leaving_arc_data, pi, cost, spanning_tree):
 
     thread = spanning_tree.thread
@@ -515,7 +547,7 @@ def arc_id(arc, graph):
 # Heuristic initial pivots
 # locals: curr, total, supply_nodes, demand_nodes, u
 # modifies:
-@numba.njit()
+@numba.njit(locals={"i": numba.uint16})
 def construct_initial_pivots(graph, node_arc_data, spanning_tree):
 
     cost = node_arc_data.cost
@@ -602,9 +634,7 @@ def construct_initial_pivots(graph, node_arc_data, spanning_tree):
         join = find_join_node(
             source, target, spanning_tree.succ_num, spanning_tree.parent, in_arc
         )
-        leaving_arc_data = find_leaving_arc(
-            join, in_arc, node_arc_data, spanning_tree
-        )
+        leaving_arc_data = find_leaving_arc(join, in_arc, node_arc_data, spanning_tree)
         if leaving_arc_data.delta >= MAX:
             return False, in_arc
 
@@ -694,7 +724,7 @@ def allocate_graph_structures(n, m, use_arc_mixing=True):
     return node_arc_data, spanning_tree, graph
 
 
-@numba.njit()
+@numba.njit(locals={"u": numba.uint16, "e": numba.uint32})
 def initialize_graph_structures(graph, node_arc_data, spanning_tree):
 
     n_nodes = graph.n_nodes
@@ -796,14 +826,14 @@ def set_cost(arc, cost_val, cost, graph):
     cost[arc_id(arc, graph)] = cost_val
 
 
-@numba.njit()
+@numba.njit(locals={"i": numba.uint16, "j": numba.uint16})
 def initialize_cost(cost_matrix, graph, cost):
     for i in range(cost_matrix.shape[0]):
         for j in range(cost_matrix.shape[1]):
             set_cost(i * cost_matrix.shape[1] + j, cost_matrix[i, j], cost, graph)
 
 
-@numba.njit()
+@numba.njit(fastmath=True, locals={"i": numba.uint32})
 def total_cost(flow, cost):
     c = 0.0
     for i in range(flow.shape[0]):
@@ -813,10 +843,7 @@ def total_cost(flow, cost):
 
 @numba.njit(parallel=True)
 def network_simplex_core(
-    node_arc_data,
-    spanning_tree,
-    graph,
-    max_iter,
+    node_arc_data, spanning_tree, graph, max_iter,
 ):
 
     pivot_block = PivotBlock(
@@ -827,18 +854,14 @@ def network_simplex_core(
     solution_status = ProblemStatus.OPTIMAL
 
     # Perform heuristic initial pivots
-    bounded, in_arc = construct_initial_pivots(
-        graph, node_arc_data, spanning_tree
-    )
+    bounded, in_arc = construct_initial_pivots(graph, node_arc_data, spanning_tree)
     if not bounded:
         return ProblemStatus.UNBOUNDED
 
     iter_number = 0
     # pivot.setDantzig(true);
     # Execute the Network Simplex algorithm
-    in_arc = find_entering_arc(
-        pivot_block, spanning_tree.state, node_arc_data, in_arc
-    )
+    in_arc = find_entering_arc(pivot_block, spanning_tree.state, node_arc_data, in_arc)
     while in_arc >= 0:
         iter_number += 1
         if max_iter > 0 and iter_number >= max_iter and max_iter > 0:
@@ -852,9 +875,7 @@ def network_simplex_core(
             spanning_tree.parent,
             in_arc,
         )
-        leaving_arc_data = find_leaving_arc(
-            join, in_arc, node_arc_data, spanning_tree
-        )
+        leaving_arc_data = find_leaving_arc(join, in_arc, node_arc_data, spanning_tree)
         if leaving_arc_data.delta >= MAX:
             return ProblemStatus.UNBOUNDED
 
@@ -904,27 +925,22 @@ def kantorovich_distance(x, y, cost, max_iter=100000):
     )
     initialize_supply(x, -y, graph, node_arc_data.supply)
     initialize_cost(cost, graph, node_arc_data.cost)
-    init_status = \
-        initialize_graph_structures(
-        graph, node_arc_data, spanning_tree
-    )
+    init_status = initialize_graph_structures(graph, node_arc_data, spanning_tree)
     if init_status == False:
-        raise ValueError("Kantorovich distance inputs must be valid probability "
-                         "distributions.")
-    solve_status = network_simplex_core(
-        node_arc_data,
-        spanning_tree,
-        graph,
-        max_iter,
-    )
+        raise ValueError(
+            "Kantorovich distance inputs must be valid probability " "distributions."
+        )
+    solve_status = network_simplex_core(node_arc_data, spanning_tree, graph, max_iter,)
     if solve_status == ProblemStatus.MAX_ITER_REACHED:
         print("WARNING: RESULT MIGHT BE INACURATE\nMax number of iteration reached!")
     elif solve_status == ProblemStatus.INFEASIBLE:
-        raise ValueError("Optimal transport problem was INFEASIBLE. Please check "
-                         "inputs.")
+        raise ValueError(
+            "Optimal transport problem was INFEASIBLE. Please check " "inputs."
+        )
     elif solve_status == ProblemStatus.UNBOUNDED:
-        raise ValueError("Optimal transport problem was UNBOUNDED. Please check "
-                         "inputs.")
+        raise ValueError(
+            "Optimal transport problem was UNBOUNDED. Please check " "inputs."
+        )
     return total_cost(node_arc_data.flow, node_arc_data.cost)
 
 
@@ -939,28 +955,27 @@ def create_fixed_cost_kantorovich_distance(cost_matrix):
         x, y, node_arc_data=node_arc_data, spanning_tree=spanning_tree, graph=graph
     ):
         initialize_supply(x, -y, graph, node_arc_data.supply)
-        init_status = \
-            initialize_graph_structures(
-            graph, node_arc_data, spanning_tree
-        )
+        init_status = initialize_graph_structures(graph, node_arc_data, spanning_tree)
         if init_status == False:
-            raise ValueError("Kantorovich distance inputs must be valid probability "
-                             "distributions.")
+            raise ValueError(
+                "Kantorovich distance inputs must be valid probability "
+                "distributions."
+            )
         solve_status = network_simplex_core(
-            node_arc_data,
-            spanning_tree,
-            graph,
-            100000,
+            node_arc_data, spanning_tree, graph, 100000,
         )
         if solve_status == ProblemStatus.MAX_ITER_REACHED:
             print(
-                "WARNING: RESULT MIGHT BE INACURATE\nMax number of iteration reached!")
+                "WARNING: RESULT MIGHT BE INACURATE\nMax number of iteration reached!"
+            )
         elif solve_status == ProblemStatus.INFEASIBLE:
-            raise ValueError("Optimal transport problem was INFEASIBLE. Please check "
-                             "inputs.")
+            raise ValueError(
+                "Optimal transport problem was INFEASIBLE. Please check " "inputs."
+            )
         elif solve_status == ProblemStatus.UNBOUNDED:
-            raise ValueError("Optimal transport problem was UNBOUNDED. Please check "
-                             "inputs.")
+            raise ValueError(
+                "Optimal transport problem was UNBOUNDED. Please check " "inputs."
+            )
         return total_cost(node_arc_data.flow, node_arc_data.cost)
 
     return distance
