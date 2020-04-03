@@ -103,6 +103,9 @@ NodeArcData = namedtuple(
         "target",  # unsigned int array
     ],
 )
+LeavingArcData = namedtuple(
+    "LeavingArcData", ["u_in", "u_out", "v_in", "delta", "change"]
+)
 
 # locals: c, min, e, cnt, a
 # modifies _in_arc, _next_arc,
@@ -137,7 +140,7 @@ def find_entering_arc(
 
             if min < -(EPSILON * a):
                 pivot_block.next_arc[0] = e
-                return True, in_arc
+                return in_arc
             else:
                 cnt = pivot_block.block_size
 
@@ -159,7 +162,7 @@ def find_entering_arc(
 
             if min < -(EPSILON * a):
                 pivot_block.next_arc[0] = e
-                return True, in_arc
+                return in_arc
             else:
                 cnt = pivot_block.block_size
 
@@ -174,9 +177,9 @@ def find_entering_arc(
         a = np.fabs(cost[in_arc])
 
     if min >= -(EPSILON * a):
-        return False, in_arc
+        return -1
 
-    return True, in_arc
+    return in_arc
 
 
 # Find the join node
@@ -268,7 +271,7 @@ def find_leaving_arc(
         u_in = second
         v_in = first
 
-    return result != 0, (u_in, v_in, u_out, delta)
+    return LeavingArcData(u_in, u_out, v_in, delta, result != 0)
 
 
 # Change _flow and _state vectors
@@ -276,7 +279,7 @@ def find_leaving_arc(
 # modifies: _state, _flow
 @numba.njit()
 def update_flow(
-    change, join, delta, u_out, node_arc_data, spanning_tree, in_arc,
+    join, leaving_arc_data, node_arc_data, spanning_tree, in_arc,
 ):
     source = node_arc_data.source
     target = node_arc_data.target
@@ -288,8 +291,8 @@ def update_flow(
     forward = spanning_tree.forward
 
     # Augment along the cycle
-    if delta > 0:
-        val = state[in_arc] * delta
+    if leaving_arc_data.delta > 0:
+        val = state[in_arc] * leaving_arc_data.delta
         flow[in_arc] += val
         u = source[in_arc]
         while u != join:
@@ -310,12 +313,12 @@ def update_flow(
             u = parent[u]
 
     # Update the state of the entering and leaving arcs
-    if change:
+    if leaving_arc_data.change:
         state[in_arc] = ArcState.STATE_TREE
-        if flow[pred[u_out]] == 0:
-            state[pred[u_out]] = ArcState.STATE_LOWER
+        if flow[pred[leaving_arc_data.u_out]] == 0:
+            state[pred[leaving_arc_data.u_out]] = ArcState.STATE_LOWER
         else:
-            state[pred[u_out]] = ArcState.STATE_UPPER
+            state[pred[leaving_arc_data.u_out]] = ArcState.STATE_UPPER
     else:
         state[in_arc] = -state[in_arc]
 
@@ -327,7 +330,7 @@ def update_flow(
 # modifies: _pred, _forward, _succ_num
 @numba.njit()
 def update_spanning_tree(
-    spanning_tree, v_in, u_in, u_out, join, in_arc, source,
+    spanning_tree, leaving_arc_data, join, in_arc, source,
 ):
 
     parent = spanning_tree.parent
@@ -337,6 +340,10 @@ def update_spanning_tree(
     last_succ = spanning_tree.last_succ
     forward = spanning_tree.forward
     pred = spanning_tree.pred
+
+    u_out = leaving_arc_data.u_out
+    u_in = leaving_arc_data.u_in
+    v_in = leaving_arc_data.v_in
 
     old_rev_thread = rev_thread[u_out]
     old_succ_num = succ_num[u_out]
@@ -463,12 +470,15 @@ def update_spanning_tree(
 # locals: sigma, end
 # modifies: _pi
 @numba.njit(fastmath=True, inline="always")
-def update_potential(u_in, v_in, pi, cost, spanning_tree):
+def update_potential(leaving_arc_data, pi, cost, spanning_tree):
 
     thread = spanning_tree.thread
     pred = spanning_tree.pred
     forward = spanning_tree.forward
     last_succ = spanning_tree.last_succ
+
+    u_in = leaving_arc_data.u_in
+    v_in = leaving_arc_data.v_in
 
     if forward[u_in]:
         sigma = pi[v_in] - pi[u_in] - cost[pred[u_in]]
@@ -592,16 +602,16 @@ def construct_initial_pivots(graph, node_arc_data, spanning_tree):
         join = find_join_node(
             source, target, spanning_tree.succ_num, spanning_tree.parent, in_arc
         )
-        change, (u_in, v_in, u_out, delta) = find_leaving_arc(
+        leaving_arc_data = find_leaving_arc(
             join, in_arc, node_arc_data, spanning_tree
         )
-        if delta >= MAX:
+        if leaving_arc_data.delta >= MAX:
             return False, in_arc
 
-        update_flow(change, join, delta, u_out, node_arc_data, spanning_tree, in_arc)
-        if change:
-            update_spanning_tree(spanning_tree, v_in, u_in, u_out, join, in_arc, source)
-            update_potential(u_in, v_in, pi, cost, spanning_tree)
+        update_flow(join, leaving_arc_data, node_arc_data, spanning_tree, in_arc)
+        if leaving_arc_data.change:
+            update_spanning_tree(spanning_tree, leaving_arc_data, join, in_arc, source)
+            update_potential(leaving_arc_data, pi, cost, spanning_tree)
 
     return True, in_arc
 
@@ -826,10 +836,10 @@ def network_simplex_core(
     iter_number = 0
     # pivot.setDantzig(true);
     # Execute the Network Simplex algorithm
-    not_converged, in_arc = find_entering_arc(
+    in_arc = find_entering_arc(
         pivot_block, spanning_tree.state, node_arc_data, in_arc
     )
-    while not_converged:
+    while in_arc >= 0:
         iter_number += 1
         if max_iter > 0 and iter_number >= max_iter and max_iter > 0:
             solution_status = ProblemStatus.MAX_ITER_REACHED
@@ -842,23 +852,23 @@ def network_simplex_core(
             spanning_tree.parent,
             in_arc,
         )
-        change, (u_in, v_in, u_out, delta) = find_leaving_arc(
+        leaving_arc_data = find_leaving_arc(
             join, in_arc, node_arc_data, spanning_tree
         )
-        if delta >= MAX:
+        if leaving_arc_data.delta >= MAX:
             return ProblemStatus.UNBOUNDED
 
-        update_flow(change, join, delta, u_out, node_arc_data, spanning_tree, in_arc)
+        update_flow(join, leaving_arc_data, node_arc_data, spanning_tree, in_arc)
 
-        if change:
+        if leaving_arc_data.change:
             update_spanning_tree(
-                spanning_tree, v_in, u_in, u_out, join, in_arc, node_arc_data.source
+                spanning_tree, leaving_arc_data, join, in_arc, node_arc_data.source
             )
             update_potential(
-                u_in, v_in, node_arc_data.pi, node_arc_data.cost, spanning_tree
+                leaving_arc_data, node_arc_data.pi, node_arc_data.cost, spanning_tree
             )
 
-        not_converged, in_arc = find_entering_arc(
+        in_arc = find_entering_arc(
             pivot_block, spanning_tree.state, node_arc_data, in_arc
         )
 
