@@ -183,7 +183,7 @@ def find_entering_arc(
 # Operates with graph (_source, _target) and MST (_succ_num, _parent, in_arc) data
 # locals: u, v
 # modifies: join
-@numba.njit()
+@numba.njit(locals={"u":numba.types.uint16, "v":numba.types.uint16})
 def find_join_node(source, target, succ_num, parent, in_arc):
     u = source[in_arc]
     v = target[in_arc]
@@ -462,7 +462,7 @@ def update_spanning_tree(
 # Update potentials
 # locals: sigma, end
 # modifies: _pi
-@numba.njit()
+@numba.njit(fastmath=True, inline="always")
 def update_potential(u_in, v_in, pi, cost, spanning_tree):
 
     thread = spanning_tree.thread
@@ -525,7 +525,7 @@ def construct_initial_pivots(sum_supply, graph, node_arc_data, spanning_tree):
     supply_nodes = []
     demand_nodes = []
 
-    for u in range(node_num - 1, -1, -1):
+    for u in range(node_num):
         curr = supply[node_num - u - 1]  # _node_id(u)
         if curr > 0:
             total += curr
@@ -644,8 +644,8 @@ def allocate_graph_structures(n, m, use_arc_mixing=True):
     max_arc_num = n_arcs + 2 * n_nodes
     root = n_nodes
 
-    source = np.zeros(max_arc_num, dtype=np.uint32)
-    target = np.zeros(max_arc_num, dtype=np.uint32)
+    source = np.zeros(max_arc_num, dtype=np.uint16)
+    target = np.zeros(max_arc_num, dtype=np.uint16)
     cost = np.ones(max_arc_num, dtype=np.float64)
     supply = np.zeros(all_node_num, dtype=np.float64)
     flow = np.zeros(max_arc_num, dtype=np.float64)
