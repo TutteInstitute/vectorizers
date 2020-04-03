@@ -235,6 +235,8 @@ def test_ngram_vectorizer_text():
     vectorizer = NgramVectorizer()
     result = vectorizer.fit_transform(text_token_data)
     assert scipy.sparse.issparse(result)
+    #Ensure that the empty document has an all zero row
+    assert len((result[1, :]).data) == 0
 
 
 def test_ngram_vectorizer_mixed():
