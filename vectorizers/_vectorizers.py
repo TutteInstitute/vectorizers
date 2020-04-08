@@ -260,8 +260,12 @@ def preprocess_token_sequences(
 
     result_sequences = [
         np.array(
-            [token_dictionary[token] for token in sequence if token in token_dictionary],
-            dtype=np.int64
+            [
+                token_dictionary[token]
+                for token in sequence
+                if token in token_dictionary
+            ],
+            dtype=np.int64,
         )
         for sequence in token_sequences
     ]
@@ -521,7 +525,7 @@ def token_cooccurence_matrix(
     kernel_function=flat_kernel,
     window_args=(5,),
     kernel_args=(),
-    symmetrize=False,
+    window_orientation = 'symmetric',
 ):
     """Generate a matrix of (weighted) counts of co-occurrences of tokens within
     windows in a set of sequences of tokens. Each sequence in the collection of
@@ -558,9 +562,9 @@ def token_cooccurence_matrix(
     token_dictionary: dictionary or None (optional, default=None)
         A dictionary mapping tokens to indices
 
-    symmetrize: bool (optional, default=False)
-        Whether to symmetrize the matrix -- if True this means that the
-        co-occurrence of (a,b) is considered the same as the co-occurrence (b,a).
+    window_orientation: string (['before', 'after', 'symmetric'])
+        The orientation of the cooccurence window.  Whether to return all the tokens that
+        occurred within a window before, after or on either side.
 
     Returns
     -------
@@ -583,8 +587,14 @@ def token_cooccurence_matrix(
         shape=(n_unique_tokens, n_unique_tokens),
         dtype=np.float32,
     )
-    if symmetrize:
+    if window_orientation == 'before':
+        cooccurrence_matrix = cooccurrence_matrix.transpose()
+    elif window_orientation == 'after':
+        cooccurrence_matrix = cooccurrence_matrix
+    elif window_orientation == 'symmetric':
         cooccurrence_matrix = cooccurrence_matrix + cooccurrence_matrix.transpose()
+    else:
+        raise ValueError(f'window_orientation must be one of the strings ["before", "after", "symmetric"]')
 
     return cooccurrence_matrix.tocsr()
 
@@ -742,9 +752,9 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
     token_dictionary: dictionary or None (optional, default=None)
         A dictionary mapping tokens to indices
 
-    symmetrize: bool (optional, default=False)
-        Whether to symmetrize the matrix -- if True this means that the
-        co-occurrence of (a,b) is considered the same as the co-occurrence (b,a).
+    window_orientation: string (['before', 'after', 'symmetric'])
+        The orientation of the cooccurence window.  Whether to return all the tokens that
+        occurred within a window before, after or on either side.
 
     validate_data: bool (optional, default=True)
         Check whether the data is valid (e.g. of homogeneous token type).
@@ -763,7 +773,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         kernel_function=flat_kernel,
         window_args=(5,),
         kernel_args=(),
-        symmetrize=False,
+        window_orientation='symmetric',
         validate_data=True,
     ):
         self.token_dictionary = token_dictionary
@@ -779,7 +789,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self.window_args = window_args
         self.kernel_args = kernel_args
 
-        self.symmetrize = symmetrize
+        self.window_orientation = window_orientation
         self.validate_data = validate_data
 
     def fit_transform(self, X, y=None, **fit_params):
@@ -818,7 +828,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             kernel_function=self.kernel_function,
             window_args=window_args,
             kernel_args=self.kernel_args,
-            symmetrize=self.symmetrize,
+            window_orientation=self.window_orientation,
         )
 
         self.metric_ = distances.sparse_hellinger
