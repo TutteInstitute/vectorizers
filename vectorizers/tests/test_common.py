@@ -154,7 +154,9 @@ def test_token_cooccurrence_vectorizer_basic():
     vectorizer = TokenCooccurrenceVectorizer()
     result = vectorizer.fit_transform(token_data)
     assert scipy.sparse.issparse(result)
-    vectorizer = TokenCooccurrenceVectorizer(window_args=(1,), window_orientation='after')
+    vectorizer = TokenCooccurrenceVectorizer(
+        window_args=(1,), window_orientation="after"
+    )
     result = vectorizer.fit_transform(token_data)
     assert result[0, 2] == 8
     assert result[1, 0] == 6
@@ -164,7 +166,9 @@ def test_token_cooccurrence_vectorizer_text():
     vectorizer = TokenCooccurrenceVectorizer()
     result = vectorizer.fit_transform(text_token_data)
     assert scipy.sparse.issparse(result)
-    vectorizer = TokenCooccurrenceVectorizer(window_args=(1,), window_orientation='after')
+    vectorizer = TokenCooccurrenceVectorizer(
+        window_args=(1,), window_orientation="after"
+    )
     result = vectorizer.fit_transform(text_token_data)
     assert result[1, 2] == 8
     assert result[0, 1] == 6
@@ -174,7 +178,9 @@ def test_token_cooccurrence_vectorizer_fixed_tokens():
     vectorizer = TokenCooccurrenceVectorizer(token_dictionary={1: 0, 2: 1, 3: 2})
     result = vectorizer.fit_transform(token_data)
     assert scipy.sparse.issparse(result)
-    vectorizer = TokenCooccurrenceVectorizer(window_args=(1,), window_orientation='after')
+    vectorizer = TokenCooccurrenceVectorizer(
+        window_args=(1,), window_orientation="after"
+    )
     result = vectorizer.fit_transform(token_data)
     assert result[0, 2] == 8
     assert result[1, 0] == 6
@@ -190,7 +196,9 @@ def test_token_cooccurrence_vectorizer_min_occur():
     vectorizer = TokenCooccurrenceVectorizer(min_occurrences=3)
     result = vectorizer.fit_transform(token_data)
     assert scipy.sparse.issparse(result)
-    vectorizer = TokenCooccurrenceVectorizer(window_args=(1,), window_orientation='after')
+    vectorizer = TokenCooccurrenceVectorizer(
+        window_args=(1,), window_orientation="after"
+    )
     result = vectorizer.fit_transform(token_data)
     assert result[0, 2] == 8
     assert result[1, 0] == 6
@@ -200,7 +208,9 @@ def test_token_cooccurrence_vectorizer_max_freq():
     vectorizer = TokenCooccurrenceVectorizer(max_frequency=0.2)
     result = vectorizer.fit_transform(token_data)
     assert scipy.sparse.issparse(result)
-    vectorizer = TokenCooccurrenceVectorizer(window_args=(1,), window_orientation='after')
+    vectorizer = TokenCooccurrenceVectorizer(
+        window_args=(1,), window_orientation="after"
+    )
     result = vectorizer.fit_transform(token_data)
     assert result[0, 2] == 8
     assert result[1, 0] == 6
@@ -210,7 +220,9 @@ def test_token_cooccurrence_vectorizer_info_window():
     vectorizer = TokenCooccurrenceVectorizer(window_function=information_window)
     result = vectorizer.fit_transform(token_data)
     assert scipy.sparse.issparse(result)
-    vectorizer = TokenCooccurrenceVectorizer(window_args=(1,), window_orientation='after')
+    vectorizer = TokenCooccurrenceVectorizer(
+        window_args=(1,), window_orientation="after"
+    )
     result = vectorizer.fit_transform(token_data)
     assert result[0, 2] == 8
     assert result[1, 0] == 6
@@ -235,7 +247,7 @@ def test_ngram_vectorizer_text():
     vectorizer = NgramVectorizer()
     result = vectorizer.fit_transform(text_token_data)
     assert scipy.sparse.issparse(result)
-    #Ensure that the empty document has an all zero row
+    # Ensure that the empty document has an all zero row
     assert len((result[1, :]).data) == 0
 
 
@@ -258,7 +270,7 @@ def test_skipgram_vectorizer_text():
     vectorizer = SkipgramVectorizer()
     result = vectorizer.fit_transform(text_token_data)
     assert scipy.sparse.issparse(result)
-    #Ensure that the empty document has an all zero row
+    # Ensure that the empty document has an all zero row
     assert len((result[1, :]).data) == 0
 
 
