@@ -27,23 +27,23 @@ from vectorizers._vectorizers import (
 )
 
 
-token_data = [
-    [1, 3, 1, 4, 2],
-    [2, 1, 2, 3, 4, 1, 2, 1, 3, 2, 4],
-    [4, 1, 1, 3, 2, 4, 2],
-    [1, 2, 2, 1, 2, 1, 3, 4, 3, 2, 4],
-    [3, 4, 2, 1, 3, 1, 4, 4, 1, 3, 2],
-    [2, 1, 3, 1, 4, 4, 1, 4, 1, 3, 2, 4],
-]
+token_data = (
+    (1, 3, 1, 4, 2),
+    (2, 1, 2, 3, 4, 1, 2, 1, 3, 2, 4),
+    (4, 1, 1, 3, 2, 4, 2),
+    (1, 2, 2, 1, 2, 1, 3, 4, 3, 2, 4),
+    (3, 4, 2, 1, 3, 1, 4, 4, 1, 3, 2),
+    (2, 1, 3, 1, 4, 4, 1, 4, 1, 3, 2, 4),
+)
 
-text_token_data = [
-    ["foo", "pok", "foo", "wer", "bar"],
-    [],
-    ["bar", "foo", "bar", "pok", "wer", "foo", "bar", "foo", "pok", "bar", "wer"],
-    ["wer", "foo", "foo", "pok", "bar", "wer", "bar"],
-    ["foo", "bar", "bar", "foo", "bar", "foo", "pok", "wer", "pok", "bar", "wer"],
-    ["pok", "wer", "bar", "foo", "pok", "foo", "wer", "wer", "foo", "pok", "bar"],
-    [
+text_token_data = (
+    ("foo", "pok", "foo", "wer", "bar"),
+    (),
+    ("bar", "foo", "bar", "pok", "wer", "foo", "bar", "foo", "pok", "bar", "wer"),
+    ("wer", "foo", "foo", "pok", "bar", "wer", "bar"),
+    ("foo", "bar", "bar", "foo", "bar", "foo", "pok", "wer", "pok", "bar", "wer"),
+    ("pok", "wer", "bar", "foo", "pok", "foo", "wer", "wer", "foo", "pok", "bar"),
+    (
         "bar",
         "foo",
         "pok",
@@ -56,18 +56,18 @@ text_token_data = [
         "pok",
         "bar",
         "wer",
-    ],
-]
+    ),
+)
 
 
-mixed_token_data = [
-    [1, "pok", 1, 3.1415, "bar"],
-    ["bar", 1, "bar", "pok", 3.1415, 1, "bar", 1, "pok", "bar", 3.1415],
-    [3.1415, 1, 1, "pok", "bar", 3.1415, "bar"],
-    [1, "bar", "bar", 1, "bar", 1, "pok", 3.1415, "pok", "bar", 3.1415],
-    ["pok", 3.1415, "bar", 1, "pok", 1, 3.1415, 3.1415, 1, "pok", "bar"],
-    ["bar", 1, "pok", 1, 3.1415, 3.1415, 1, 3.1415, 1, "pok", "bar", 3.1415],
-]
+mixed_token_data = (
+    (1, "pok", 1, 3.1415, "bar"),
+    ("bar", 1, "bar", "pok", 3.1415, 1, "bar", 1, "pok", "bar", 3.1415),
+    (3.1415, 1, 1, "pok", "bar", 3.1415, "bar"),
+    (1, "bar", "bar", 1, "bar", 1, "pok", 3.1415, "pok", "bar", 3.1415),
+    ("pok", 3.1415, "bar", 1, "pok", 1, 3.1415, 3.1415, 1, "pok", "bar"),
+    ("bar", 1, "pok", 1, 3.1415, 3.1415, 1, 3.1415, 1, "pok", "bar", 3.1415),
+)
 
 point_data = [
     np.random.multivariate_normal(
@@ -154,7 +154,9 @@ def test_token_cooccurrence_vectorizer_basic():
     vectorizer = TokenCooccurrenceVectorizer()
     result = vectorizer.fit_transform(token_data)
     assert scipy.sparse.issparse(result)
-    vectorizer = TokenCooccurrenceVectorizer(window_args=(1,))
+    vectorizer = TokenCooccurrenceVectorizer(
+        window_args=(1,), window_orientation="after"
+    )
     result = vectorizer.fit_transform(token_data)
     assert result[0, 2] == 8
     assert result[1, 0] == 6
@@ -164,7 +166,9 @@ def test_token_cooccurrence_vectorizer_text():
     vectorizer = TokenCooccurrenceVectorizer()
     result = vectorizer.fit_transform(text_token_data)
     assert scipy.sparse.issparse(result)
-    vectorizer = TokenCooccurrenceVectorizer(window_args=(1,))
+    vectorizer = TokenCooccurrenceVectorizer(
+        window_args=(1,), window_orientation="after"
+    )
     result = vectorizer.fit_transform(text_token_data)
     assert result[1, 2] == 8
     assert result[0, 1] == 6
@@ -174,7 +178,9 @@ def test_token_cooccurrence_vectorizer_fixed_tokens():
     vectorizer = TokenCooccurrenceVectorizer(token_dictionary={1: 0, 2: 1, 3: 2})
     result = vectorizer.fit_transform(token_data)
     assert scipy.sparse.issparse(result)
-    vectorizer = TokenCooccurrenceVectorizer(window_args=(1,))
+    vectorizer = TokenCooccurrenceVectorizer(
+        window_args=(1,), window_orientation="after"
+    )
     result = vectorizer.fit_transform(token_data)
     assert result[0, 2] == 8
     assert result[1, 0] == 6
@@ -190,7 +196,9 @@ def test_token_cooccurrence_vectorizer_min_occur():
     vectorizer = TokenCooccurrenceVectorizer(min_occurrences=3)
     result = vectorizer.fit_transform(token_data)
     assert scipy.sparse.issparse(result)
-    vectorizer = TokenCooccurrenceVectorizer(window_args=(1,))
+    vectorizer = TokenCooccurrenceVectorizer(
+        window_args=(1,), window_orientation="after"
+    )
     result = vectorizer.fit_transform(token_data)
     assert result[0, 2] == 8
     assert result[1, 0] == 6
@@ -200,7 +208,9 @@ def test_token_cooccurrence_vectorizer_max_freq():
     vectorizer = TokenCooccurrenceVectorizer(max_frequency=0.2)
     result = vectorizer.fit_transform(token_data)
     assert scipy.sparse.issparse(result)
-    vectorizer = TokenCooccurrenceVectorizer(window_args=(1,))
+    vectorizer = TokenCooccurrenceVectorizer(
+        window_args=(1,), window_orientation="after"
+    )
     result = vectorizer.fit_transform(token_data)
     assert result[0, 2] == 8
     assert result[1, 0] == 6
@@ -210,7 +220,9 @@ def test_token_cooccurrence_vectorizer_info_window():
     vectorizer = TokenCooccurrenceVectorizer(window_function=information_window)
     result = vectorizer.fit_transform(token_data)
     assert scipy.sparse.issparse(result)
-    vectorizer = TokenCooccurrenceVectorizer(window_args=(1,))
+    vectorizer = TokenCooccurrenceVectorizer(
+        window_args=(1,), window_orientation="after"
+    )
     result = vectorizer.fit_transform(token_data)
     assert result[0, 2] == 8
     assert result[1, 0] == 6
@@ -235,7 +247,7 @@ def test_ngram_vectorizer_text():
     vectorizer = NgramVectorizer()
     result = vectorizer.fit_transform(text_token_data)
     assert scipy.sparse.issparse(result)
-    #Ensure that the empty document has an all zero row
+    # Ensure that the empty document has an all zero row
     assert len((result[1, :]).data) == 0
 
 
@@ -258,7 +270,7 @@ def test_skipgram_vectorizer_text():
     vectorizer = SkipgramVectorizer()
     result = vectorizer.fit_transform(text_token_data)
     assert scipy.sparse.issparse(result)
-    #Ensure that the empty document has an all zero row
+    # Ensure that the empty document has an all zero row
     assert len((result[1, :]).data) == 0
 
 
