@@ -260,8 +260,12 @@ def preprocess_token_sequences(
 
     result_sequences = [
         np.array(
-            [token_dictionary[token] for token in sequence if token in token_dictionary],
-            dtype=np.int64
+            [
+                token_dictionary[token]
+                for token in sequence
+                if token in token_dictionary
+            ],
+            dtype=np.int64,
         )
         for sequence in token_sequences
     ]
@@ -1223,7 +1227,9 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
             second_token = self._inverse_token_dictionary_[raw_val % n_unique_tokens]
             self.skipgram_dictionary_[(first_token, second_token)] = i
 
-        self.inverse_skipgram_dictionary_ = {index: token for token, index in self.skipgram_dictionary_.items()}
+        self.inverse_skipgram_dictionary_ = {
+            index: token for token, index in self.skipgram_dictionary_.items()
+        }
         self._train_matrix = base_matrix.tocsc()[:, self._column_is_kept].tocsr()
         self._train_matrix.eliminate_zeros()
         self.metric_ = distances.sparse_hellinger
@@ -1350,7 +1356,9 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
 
         # Remove defaultdict behavior
         self.ngram_dictionary_ = dict(self.ngram_dictionary_)
-        self.inverse_ngram_dictionary_ = {index: token for token, index in self.ngram_dictionary_.items()}
+        self.inverse_ngram_dictionary_ = {
+            index: token for token, index in self.ngram_dictionary_.items()
+        }
 
         if indptr[-1] > np.iinfo(np.int32).max:  # = 2**31 - 1
             indices_dtype = np.int64
