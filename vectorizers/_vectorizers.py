@@ -1184,9 +1184,9 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
         flat_sequence = flatten(X)
         (
             token_sequences,
-            self.token_dictionary_,
-            self.inverse_token_dictionary_,
-            self.token_frequencies_,
+            self._token_dictionary_,
+            self._inverse_token_dictionary_,
+            self._token_frequencies_,
             self.excluded_tokens_,
         ) = preprocess_token_sequences(
             X,
@@ -1200,7 +1200,7 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
             excluded_token_regex=self.excluded_token_regex,
         )
 
-        n_unique_tokens = len(self.token_dictionary_)
+        n_unique_tokens = len(self._token_dictionary_)
 
         row, col, data = skip_grams_matrix_coo_data(
             X,
@@ -1208,7 +1208,7 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
             self.kernel_function,
             self.window_args,
             self.kernel_args,
-            self.token_dictionary_,
+            self._token_dictionary_,
         )
 
         base_matrix = scipy.sparse.coo_matrix((data, (row, col)))
@@ -1219,10 +1219,11 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
         self.skipgram_dictionary_ = {}
         for i in range(self._kept_columns.shape[0]):
             raw_val = self._kept_columns[i]
-            first_token = self.inverse_token_dictionary_[raw_val // n_unique_tokens]
-            second_token = self.inverse_token_dictionary_[raw_val % n_unique_tokens]
+            first_token = self._inverse_token_dictionary_[raw_val // n_unique_tokens]
+            second_token = self._inverse_token_dictionary_[raw_val % n_unique_tokens]
             self.skipgram_dictionary_[(first_token, second_token)] = i
 
+        self.inverse_skipgram_dictionary_ = {index: token for token, index in self.skipgram_dictionary_.items()}
         self._train_matrix = base_matrix.tocsc()[:, self._column_is_kept].tocsr()
         self._train_matrix.eliminate_zeros()
         self.metric_ = distances.sparse_hellinger
@@ -1238,12 +1239,12 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
         (token_sequences, _, _, _, _) = preprocess_token_sequences(
             X,
             flat_sequence,
-            self.token_dictionary_,
+            self._token_dictionary_,
             ignored_tokens=self.ignored_tokens,
             excluded_token_regex=self.excluded_token_regex,
         )
 
-        n_unique_tokens = len(self.token_dictionary_)
+        n_unique_tokens = len(self._token_dictionary_)
 
         row, col, data = skip_grams_matrix_coo_data(
             X,
@@ -1251,7 +1252,7 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
             self.kernel_function,
             self.window_args,
             self.kernel_args,
-            self.token_dictionary_,
+            self._token_dictionary_,
         )
 
         base_matrix = scipy.sparse.coo_matrix((data, (row, col)))
@@ -1295,9 +1296,9 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         flat_sequence = flatten(X)
         (
             token_sequences,
-            self.token_dictionary_,
-            self.inverse_token_dictionary_,
-            self.token_frequencies_,
+            self._token_dictionary_,
+            self._inverse_token_dictionary_,
+            self._token_frequencies_,
             self.excluded_tokens_,
         ) = preprocess_token_sequences(
             X,
@@ -1328,10 +1329,10 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
             ):
                 try:
                     if len(index_gram) == 1:
-                        token_gram = self.inverse_token_dictionary_[index_gram[0]]
+                        token_gram = self._inverse_token_dictionary_[index_gram[0]]
                     else:
                         token_gram = tuple(
-                            self.inverse_token_dictionary_[index]
+                            self._inverse_token_dictionary_[index]
                             for index in index_gram
                         )
                     col_index = self.ngram_dictionary_[token_gram]
@@ -1349,6 +1350,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
 
         # Remove defaultdict behavior
         self.ngram_dictionary_ = dict(self.ngram_dictionary_)
+        self.inverse_ngram_dictionary_ = {index: token for token, index in self.ngram_dictionary_.items()}
 
         if indptr[-1] > np.iinfo(np.int32).max:  # = 2**31 - 1
             indices_dtype = np.int64
@@ -1376,7 +1378,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         (token_sequences, _, _, _, _) = preprocess_token_sequences(
             X,
             flat_sequence,
-            self.token_dictionary_,
+            self._token_dictionary_,
             ignored_tokens=self.ignored_tokens,
             excluded_token_regex=self.excluded_token_regex,
         )
@@ -1393,10 +1395,10 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
             ):
                 try:
                     if len(index_gram) == 1:
-                        token_gram = self.inverse_token_dictionary_[index_gram[0]]
+                        token_gram = self._inverse_token_dictionary_[index_gram[0]]
                     else:
                         token_gram = tuple(
-                            self.inverse_token_dictionary_[index]
+                            self._inverse_token_dictionary_[index]
                             for index in index_gram
                         )
                     col_index = self.ngram_dictionary_[token_gram]
