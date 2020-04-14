@@ -830,6 +830,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             kernel_args=self.kernel_args,
             window_orientation=self.window_orientation,
         )
+        self.cooccurrences_.eliminate_zeros()
 
         self.metric_ = distances.sparse_hellinger
 
