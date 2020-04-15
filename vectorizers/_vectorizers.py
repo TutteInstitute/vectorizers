@@ -802,8 +802,8 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         flat_sequences = flatten(X)
         (
             token_sequences,
-            self.inverse_column_dictionary_,
-            self.column_dictionary_,
+            self.column_label_dictionary_,
+            self.column_index_dictionary_,
             self.token_frequencies_,
             self.excluded_tokens_,
         ) = preprocess_token_sequences(
@@ -825,7 +825,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
         self.cooccurrences_ = token_cooccurence_matrix(
             token_sequences,
-            len(self.inverse_column_dictionary_),
+            len(self.column_label_dictionary_),
             window_function=self.window_function,
             kernel_function=self.kernel_function,
             window_args=window_args,
@@ -1229,15 +1229,15 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
         self._column_is_kept = column_sums > 0
         self._kept_columns = np.where(self._column_is_kept)[0]
 
-        self.inverse_column_dictionary_ = {}
+        self.column_label_dictionary_ = {}
         for i in range(self._kept_columns.shape[0]):
             raw_val = self._kept_columns[i]
             first_token = self._inverse_token_dictionary_[raw_val // n_unique_tokens]
             second_token = self._inverse_token_dictionary_[raw_val % n_unique_tokens]
-            self.inverse_column_dictionary_[(first_token, second_token)] = i
+            self.column_label_dictionary_[(first_token, second_token)] = i
 
-        self.column_dictionary_ = {
-            index: token for token, index in self.inverse_column_dictionary_.items()
+        self.column_index_dictionary_ = {
+            index: token for token, index in self.column_label_dictionary_.items()
         }
         self._train_matrix = base_matrix.tocsc()[:, self._column_is_kept].tocsr()
         self._train_matrix.eliminate_zeros()
@@ -1328,11 +1328,11 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         )
 
         if self.ngram_dictionary is not None:
-            self.inverse_column_dictionary_ = self.ngram_dictionary
+            self.column_label_dictionary_ = self.ngram_dictionary
         else:
-            self.inverse_column_dictionary_ = defaultdict()
-            self.inverse_column_dictionary_.default_factory = (
-                self.inverse_column_dictionary_.__len__
+            self.column_label_dictionary_ = defaultdict()
+            self.column_label_dictionary_.default_factory = (
+                self.column_label_dictionary_.__len__
             )
 
         indptr = [0]
@@ -1352,7 +1352,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
                             self._inverse_token_dictionary_[index]
                             for index in index_gram
                         )
-                    col_index = self.inverse_column_dictionary_[token_gram]
+                    col_index = self.column_label_dictionary_[token_gram]
                     if col_index in counter:
                         counter[col_index] += 1
                     else:
@@ -1366,9 +1366,9 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
             data.extend(counter.values())
 
         # Remove defaultdict behavior
-        self.inverse_column_dictionary_ = dict(self.inverse_column_dictionary_)
-        self.column_dictionary_ = {
-            index: token for token, index in self.inverse_column_dictionary_.items()
+        self.column_label_dictionary_ = dict(self.column_label_dictionary_)
+        self.column_index_dictionary_ = {
+            index: token for token, index in self.column_label_dictionary_.items()
         }
 
         if indptr[-1] > np.iinfo(np.int32).max:  # = 2**31 - 1
@@ -1381,7 +1381,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
 
         self._train_matrix = scipy.sparse.csr_matrix(
             (data, indices, indptr),
-            shape=(len(indptr) - 1, len(self.inverse_column_dictionary_)),
+            shape=(len(indptr) - 1, len(self.column_label_dictionary_)),
             dtype=np.float32,
         )
         self._train_matrix.sort_indices()
@@ -1420,7 +1420,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
                             self._inverse_token_dictionary_[index]
                             for index in index_gram
                         )
-                    col_index = self.inverse_column_dictionary_[token_gram]
+                    col_index = self.column_label_dictionary_[token_gram]
                     if col_index in counter:
                         counter[col_index] += 1
                     else:
@@ -1443,7 +1443,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
 
         result = scipy.sparse.csr_matrix(
             (data, indices, indptr),
-            shape=(len(indptr) - 1, len(self.inverse_column_dictionary_)),
+            shape=(len(indptr) - 1, len(self.column_label_dictionary_)),
             dtype=np.float32,
         )
         result.sort_indices()
