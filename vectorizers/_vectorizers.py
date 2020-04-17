@@ -449,12 +449,8 @@ def skip_grams_matrix_coo_data(
     n_unique_tokens = len(token_dictionary)
 
     for row_idx in range(len(list_of_token_sequences)):
-        token_index_sequence = np.array(
-            [token_dictionary[token] for token in list_of_token_sequences[row_idx]],
-            dtype=np.int64,
-        )
         skip_gram_data = build_skip_grams(
-            token_index_sequence,
+            list_of_token_sequences[row_idx],
             window_function,
             kernel_function,
             window_args,
@@ -1216,7 +1212,7 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
         n_unique_tokens = len(self._token_dictionary_)
 
         row, col, data = skip_grams_matrix_coo_data(
-            X,
+            token_sequences,
             self.window_function,
             self.kernel_function,
             self.window_args,
@@ -1262,7 +1258,7 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
         n_unique_tokens = len(self._token_dictionary_)
 
         row, col, data = skip_grams_matrix_coo_data(
-            X,
+            token_sequences,
             self.window_function,
             self.kernel_function,
             self.window_args,
