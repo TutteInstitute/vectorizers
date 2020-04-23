@@ -37,6 +37,8 @@ token_data = (
     (2, 1, 3, 1, 4, 4, 1, 4, 1, 3, 2, 4),
 )
 
+text_token_data_small = (("foo", "bar"),)
+
 text_token_data = (
     ("foo", "pok", "foo", "wer", "bar"),
     (),
@@ -138,6 +140,7 @@ def test_ngrams_of():
 
 def test_find_bin_boundaries_min():
     data = np.random.poisson(5, size=1000)
+    data = np.append(data, [0, 0, 0])
     bins = find_bin_boundaries(data, 10)
     # Poisson so smallest bin should be at 0
     assert bins[0] == 0.0
@@ -164,6 +167,14 @@ def test_token_cooccurrence_vectorizer_basic():
     assert (result != transform).nnz == 0
     assert result[0, 2] == 8
     assert result[1, 0] == 6
+
+
+def test_token_cooccurrence_vectorizer_transform():
+    vectorizer = TokenCooccurrenceVectorizer()
+    result = vectorizer.fit_transform(text_token_data_small)
+    transform = vectorizer.transform(text_token_data)
+    assert result.shape == transform.shape
+    assert transform[0, 0] == 28
 
 
 def test_token_cooccurrence_vectorizer_text():
@@ -313,7 +324,7 @@ def test_distribution_vectorizer_bad_params():
         )
     vectorizer = DistributionVectorizer()
     with pytest.raises(ValueError):
-        vectorizer.fit([[[1, 2, 3], [1, 2], [1, 2, 3, 4]], [[1, 2], [1, ], [1, 2, 3]]])
+        vectorizer.fit([[[1, 2, 3], [1, 2], [1, 2, 3, 4]], [[1, 2], [1,], [1, 2, 3]]])
 
 
 def test_histogram_vectorizer_basic():
