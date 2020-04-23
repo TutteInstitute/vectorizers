@@ -1487,8 +1487,11 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         if self.ngram_dictionary is not None:
             self.column_label_dictionary_ = self.ngram_dictionary
         else:
-            self.column_label_dictionary_ = defaultdict()
-            self.column_label_dictionary_.default_factory = (
+            if self.ngram_size == 1:
+                self.column_label_dictionary_= self._token_dictionary_
+            else:
+                self.column_label_dictionary_ = defaultdict()
+                self.column_label_dictionary_.default_factory = (
                 self.column_label_dictionary_.__len__
             )
 
