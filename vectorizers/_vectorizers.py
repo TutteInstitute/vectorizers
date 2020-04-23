@@ -36,6 +36,8 @@ from .utils import (
 )
 import vectorizers.distances as distances
 
+from ._window_kernels import _KERNEL_FUNCTIONS, _WINDOW_FUNCTIONS
+
 
 def construct_token_dictionary_and_frequency(token_sequence, token_dictionary=None):
     """Construct a dictionary mapping tokens to indices and a table of token
@@ -89,12 +91,12 @@ def select_tokens_by_regex(tokens, regex):
 
 
 def prune_token_dictionary(
-        token_dictionary,
-        token_frequencies,
-        ignored_tokens=None,
-        excluded_token_regex=None,
-        min_frequency=0.0,
-        max_frequency=1.0,
+    token_dictionary,
+    token_frequencies,
+    ignored_tokens=None,
+    excluded_token_regex=None,
+    min_frequency=0.0,
+    max_frequency=1.0,
 ):
     """Prune the token dictionary based on constraints of tokens to ignore and
     min and max allowable token frequencies. This will remove any tokens that should
@@ -158,15 +160,15 @@ def prune_token_dictionary(
 
 
 def preprocess_token_sequences(
-        token_sequences,
-        flat_sequence,
-        token_dictionary=None,
-        min_occurrences=None,
-        max_occurrences=None,
-        min_frequency=None,
-        max_frequency=None,
-        ignored_tokens=None,
-        excluded_token_regex=None,
+    token_sequences,
+    flat_sequence,
+    token_dictionary=None,
+    min_occurrences=None,
+    max_occurrences=None,
+    min_frequency=None,
+    max_frequency=None,
+    ignored_tokens=None,
+    excluded_token_regex=None,
 ):
     """Perform a standard set of preprocessing for token sequences. This includes
     constructing a token dictionary and token frequencies, pruning the dictionary
@@ -269,15 +271,7 @@ def preprocess_token_sequences(
         )
         for sequence in token_sequences
     ]
-    """
-    result_sequences = []
-    for sequence in token_sequences:
-        result_sequence = np.array(
-            [token_dictionary[token] for token in sequence if token in token_dictionary]
-        )
-        if len(result_sequence) > 0:
-            result_sequences.append(result_sequence)
-    """
+
     return (
         result_sequences,
         token_dictionary,
@@ -288,55 +282,8 @@ def preprocess_token_sequences(
 
 
 @numba.njit(nogil=True)
-def information_window(token_sequence, desired_entropy, token_frequency):
-    result = []
-
-    for i in range(len(token_sequence)):
-        counter = 0
-        current_entropy = 0.0
-
-        for j in range(i + 1, len(token_sequence)):
-            current_entropy -= np.log(token_frequency[int(token_sequence[j])])
-            counter += 1
-            if current_entropy >= desired_entropy:
-                break
-
-        result.append(token_sequence[i + 1: i + 1 + counter])
-
-    return result
-
-
-@numba.njit(nogil=True)
-def fixed_window(token_sequence, window_size):
-    result = []
-
-    for i in range(len(token_sequence)):
-        result.append(token_sequence[i + 1: i + window_size + 1])
-
-    return result
-
-
-@numba.njit(nogil=True)
-def flat_kernel(window):
-    return np.ones(len(window), dtype=np.float32)
-
-
-@numba.njit(nogil=True)
-def triangle_kernel(window, window_size):
-    start = max(window_size, len(window))
-    stop = window_size - len(window)
-    return np.arange(start, stop, -1).astype(np.float32)
-
-
-@numba.njit(nogil=True)
-def harmonic_kernel(window):
-    result = np.arange(1, len(window) + 1).astype(np.float32)
-    return 1.0 / result
-
-
-@numba.njit(nogil=True)
 def build_skip_grams(
-        token_sequence, window_function, kernel_function, window_args, kernel_args
+    token_sequence, window_function, kernel_function, window_args, kernel_args
 ):
     """Given a single token sequence produce an array of weighted skip-grams
     associated to each token in the original sequence. The resulting array has
@@ -400,12 +347,12 @@ def build_skip_grams(
 
 
 def skip_grams_matrix_coo_data(
-        list_of_token_sequences,
-        window_function,
-        kernel_function,
-        window_args,
-        kernel_args,
-        token_dictionary,
+    list_of_token_sequences,
+    window_function,
+    kernel_function,
+    window_args,
+    kernel_args,
+    token_dictionary,
 ):
     """Given a list of token sequences construct the relevant data for a sparse
     matrix representation with a row for each token sequence and a column for each
@@ -469,7 +416,7 @@ def skip_grams_matrix_coo_data(
 
 @numba.njit(nogil=True, parallel=True)
 def sequence_skip_grams(
-        token_sequences, window_function, kernel_function, window_args, kernel_args
+    token_sequences, window_function, kernel_function, window_args, kernel_args
 ):
     """Produce skip-gram data for a combined over a list of token sequences. In this
     case each token sequence represents a sequence with boundaries over which
@@ -517,10 +464,10 @@ def sequence_skip_grams(
 def token_cooccurence_matrix(
         token_sequences,
         n_unique_tokens,
-        window_function=fixed_window,
-        kernel_function=flat_kernel,
-        window_args=(5,),
-        kernel_args=(),
+        window_function,
+        kernel_function,
+        window_args,
+        kernel_args,
         window_orientation="symmetric",
 ):
     """Generate a matrix of (weighted) counts of co-occurrences of tokens within
@@ -735,17 +682,20 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         A set of tokens that should be ignored entirely. If None then no tokens will
         be ignored in this fashion.
 
-    window_function: numba.jitted callable (optional, default=fixed_window)
-        A function producing a sequence of windows given a source sequence
+    excluded_regex: str or None (optional, default=None)
+        The regular expression by which tokens are ignored if re.fullmatch returns True.
 
-    kernel_function: numba.jitted callable (optional, default=flat_kernel)
-        A function producing weights given a window of tokens
+    window_function: numba.jitted callable or str (optional, default='fixed')
+        A function producing a sequence of windows given a source sequence and a window_radius and term frequencies.
+        The string options are ['fixed', 'information'] for using pre-defined functions.
 
-    window_args: tuple (optional, default=(5,)
-        Arguments to pass through to the window function
+    kernel_function: numba.jitted callable or str (optional, default='flat')
+        A function producing weights given a window of tokens and a window_radius.
+        The string options are ['flat', 'triangular', 'harmonic'] for using pre-defined functions.
 
-    kernel_args: tuple (optional, default=())
-        Arguments to pass through to the kernel function
+    window_radius: int (optional, default=5)
+        Argument to pass through to the window function.  Outside of boundary cases, this is the expected width
+        of the (directed) windows produced by the window function.
 
     token_dictionary: dictionary or None (optional, default=None)
         A dictionary mapping tokens to indices
@@ -767,10 +717,9 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             max_frequency=None,
             ignored_tokens=None,
             excluded_token_regex=None,
-            window_function=fixed_window,
-            kernel_function=flat_kernel,
-            window_args=(5,),
-            kernel_args=(),
+            window_function="fixed",
+            kernel_function="flat",
+            window_radius=5,
             window_orientation="symmetric",
             validate_data=True,
     ):
@@ -784,8 +733,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
         self.window_function = window_function
         self.kernel_function = kernel_function
-        self.window_args = window_args
-        self.kernel_args = kernel_args
+        self.window_radius = window_radius
 
         self.window_orientation = window_orientation
         self.validate_data = validate_data
@@ -800,7 +748,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             token_sequences,
             self.column_label_dictionary_,
             self.column_index_dictionary_,
-            self.token_frequencies_,
+            self._token_frequencies_,
             self.excluded_tokens_,
         ) = preprocess_token_sequences(
             X,
@@ -814,18 +762,40 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             excluded_token_regex=self.excluded_token_regex,
         )
 
-        if self.window_function is information_window:
-            window_args = (*self.window_args, self.token_frequencies_)
+        if callable(self.kernel_function):
+            self._kernel_function = self.kernel_function
+        elif self.kernel_function in _KERNEL_FUNCTIONS:
+            self._kernel_function = _KERNEL_FUNCTIONS[self.kernel_function]
         else:
-            window_args = self.window_args
+            raise ValueError(
+                f"Unrecognized kernel_function; should be callable or one of {_KERNEL_FUNCTIONS.keys()}"
+            )
+
+        if callable(self.window_function):
+            self._window_function = self.window_function
+        elif self.window_function in _WINDOW_FUNCTIONS:
+            self._window_function = _WINDOW_FUNCTIONS[self.window_function]
+        else:
+            raise ValueError(
+                f"Unrecognized window_function; should be callable or one of {_WINDOW_FUNCTIONS.keys()}"
+            )
+
+            ## Adjust the window size for the info window
+        if self.window_function == "information":
+            entropy = np.dot(
+                self._token_frequencies_, np.log2(self._token_frequencies_)
+            )
+            self._window_size = self.window_radius * entropy
+        else:
+            self._window_size = self.window_radius
 
         self.cooccurrences_ = token_cooccurence_matrix(
             token_sequences,
             len(self.column_label_dictionary_),
-            window_function=self.window_function,
-            kernel_function=self.kernel_function,
-            window_args=window_args,
-            kernel_args=self.kernel_args,
+            window_function=self._window_function,
+            kernel_function=self._kernel_function,
+            window_args=(self._window_size, self._token_frequencies_),
+            kernel_args=(self.window_radius,),
             window_orientation=self.window_orientation,
         )
         self.cooccurrences_.eliminate_zeros()
@@ -1080,12 +1050,12 @@ class HistogramVectorizer(BaseEstimator, TransformerMixin):
 
     # TODO: time stamps, generic groupby
     def __init__(
-            self,
-            n_components=20,
-            strategy="uniform",
-            ground_distance="euclidean",
-            absolute_range=(-np.inf, np.inf),
-            append_outlier_bins=False,
+        self,
+        n_components=20,
+        strategy="uniform",
+        ground_distance="euclidean",
+        absolute_range=(-np.inf, np.inf),
+        append_outlier_bins=False,
     ):
         self.n_components = n_components
         self.strategy = strategy
@@ -1187,7 +1157,7 @@ class CyclicHistogramVectorizer(BaseEstimator, TransformerMixin):
     """
 
     def __init__(
-            self, periodicity="week", resolution="day",
+        self, periodicity="week", resolution="day",
     ):
         self.periodicity = periodicity
         self.resolution = resolution
@@ -1207,20 +1177,81 @@ class CyclicHistogramVectorizer(BaseEstimator, TransformerMixin):
 
 
 class SkipgramVectorizer(BaseEstimator, TransformerMixin):
+    """Given a sequence, or list of sequences of tokens, produce a
+    kernel weighted count matrix of ordered pairs of tokens occurring in a window.
+    If passed a single sequence of tokens it  will use windows to determine co-occurrence.
+    If passed a list of sequences of tokens it will use windows within each sequence in the list
+    -- with windows not extending beyond the boundaries imposed by the individual sequences in the list.
+
+    Parameters
+    ----------
+    token_dictionary: dictionary or None (optional, default=None)
+        A fixed ditionary mapping tokens to indices, or None if the dictionary
+        should be learned from the training data.
+
+    min_occurrences: int or None (optional, default=None)
+        The minimal number of occurrences of a token for it to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by min_frequency.
+
+    max_occurrences int or None (optional, default=None)
+        The maximal number of occurrences of a token for it to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by max_frequency.
+
+    min_frequency: float or None (optional, default=None)
+        The minimal frequency of occurrence of a token for it to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by min_occurences.
+
+    max_frequency: float or None (optional, default=None)
+        The maximal frequency of occurrence of a token for it to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by max_occurences.
+
+    ignored_tokens: set or None (optional, default=None)
+        A set of tokens that should be ignored entirely. If None then no tokens will
+        be ignored in this fashion.
+
+    excluded_regex: str or None (optional, default=None)
+        The regular expression by which tokens are ignored if re.fullmatch returns True.
+
+    window_function: numba.jitted callable or str (optional, default='fixed')
+        A function producing a sequence of windows given a source sequence and a window_radius and term frequencies.
+        The string options are ['fixed', 'information'] for using pre-defined functions.
+
+    kernel_function: numba.jitted callable or str (optional, default='flat')
+        A function producing weights given a window of tokens and a window_radius.
+        The string options are ['flat', 'triangular', 'harmonic'] for using pre-defined functions.
+
+    window_radius: int (optional, default=5)
+        Argument to pass through to the window function.  Outside of boundary cases, this is the expected width
+        of the (directed) windows produced by the window function.
+
+    token_dictionary: dictionary or None (optional, default=None)
+        A dictionary mapping tokens to indices
+
+    window_orientation: string (['before', 'after', 'symmetric'])
+        The orientation of the cooccurence window.  Whether to return all the tokens that
+        occurred within a window before, after or on either side.
+
+    validate_data: bool (optional, default=True)
+        Check whether the data is valid (e.g. of homogeneous token type).
+    """
+
     def __init__(
-            self,
-            token_dictionary=None,
-            min_occurrences=None,
-            max_occurrences=None,
-            min_frequency=None,
-            max_frequency=None,
-            ignored_tokens=None,
-            excluded_token_regex=None,
-            window_function=fixed_window,
-            kernel_function=flat_kernel,
-            window_args=(5,),
-            kernel_args=(),
-            validate_data=True,
+        self,
+        token_dictionary=None,
+        min_occurrences=None,
+        max_occurrences=None,
+        min_frequency=None,
+        max_frequency=None,
+        ignored_tokens=None,
+        excluded_token_regex=None,
+        window_function="fixed",
+        kernel_function="flat",
+        window_radius=5,
+        validate_data=True,
     ):
         self.token_dictionary = token_dictionary
         self.min_occurrences = min_occurrences
@@ -1232,8 +1263,7 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
 
         self.window_function = window_function
         self.kernel_function = kernel_function
-        self.window_args = window_args
-        self.kernel_args = kernel_args
+        self.window_radius = window_radius
         self.validate_data = validate_data
 
     def fit(self, X, y=None, **fit_params):
@@ -1262,12 +1292,42 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
 
         n_unique_tokens = len(self._token_dictionary_)
 
+        # Set the kernel and window functions
+
+        if callable(self.kernel_function):
+            self._kernel_function = self.kernel_function
+        elif self.kernel_function in _KERNEL_FUNCTIONS:
+            self._kernel_function = _KERNEL_FUNCTIONS[self.kernel_function]
+        else:
+            raise ValueError(
+                f"Unrecognized kernel_function; should be callable or one of {_KERNEL_FUNCTIONS.keys()}"
+            )
+
+        if callable(self.window_function):
+            self._window_function = self.window_function
+        elif self.window_function in _WINDOW_FUNCTIONS:
+            self._window_function = _WINDOW_FUNCTIONS[self.window_function]
+        else:
+            raise ValueError(
+                f"Unrecognized window_function; should be callable or one of {_WINDOW_FUNCTIONS.keys()}"
+            )
+
+        #  Adjust the window size for the info window
+        if self.window_function == "information":
+            entropy = np.dot(
+                self._token_frequencies_, np.log2(self._token_frequencies_)
+            )
+            self._window_size = self.window_radius * entropy
+        else:
+            self._window_size = self.window_radius
+
+        # Build the matrix
         row, col, data = skip_grams_matrix_coo_data(
             token_sequences,
-            self.window_function,
-            self.kernel_function,
-            self.window_args,
-            self.kernel_args,
+            self._window_function,
+            self._kernel_function,
+            (self._window_size, self._token_frequencies_),
+            tuple([self.window_radius]),
             self._token_dictionary_,
         )
 
@@ -1310,10 +1370,10 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
 
         row, col, data = skip_grams_matrix_coo_data(
             token_sequences,
-            self.window_function,
-            self.kernel_function,
-            self.window_args,
-            self.kernel_args,
+            self._window_function,
+            self._kernel_function,
+            (self._window_size, self._token_frequencies_),
+            tuple([self.window_radius]),
             self._token_dictionary_,
         )
 
@@ -1324,19 +1384,74 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
 
 
 class NgramVectorizer(BaseEstimator, TransformerMixin):
+    """Given a sequence, or list of sequences of tokens, produce a
+    count matrix of n-grams of successive tokens.  This either produces n-grams for a fixed size or all n-grams
+    up to a fixed size.
+
+    Parameters
+    ----------
+    ngram_size: int (default = 1)
+        The size of the ngrams to count.
+
+    ngram_behaviour: string (optional, default="exact")
+        The n-gram behaviour. Should be one of ["exact", "subgrams"] to produce either fixed size ngram_size
+        or all ngrams of size upto (and including) ngram_size.
+
+    ngram_dictionary: dictionary or None (optional, default=None)
+        A fixed dictionary mapping tokens to indices, or None if the dictionary
+        should be learned from the training data.
+
+    token_dictionary: dictionary or None (optional, default=None)
+        A fixed dictionary mapping tokens to indices, or None if the dictionary
+        should be learned from the training data.
+
+    min_occurrences: int or None (optional, default=None)
+        The minimal number of occurrences of a token for it to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by min_frequency.
+
+    max_occurrences int or None (optional, default=None)
+        The maximal number of occurrences of a token for it to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by max_frequency.
+
+    min_frequency: float or None (optional, default=None)
+        The minimal frequency of occurrence of a token for it to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by min_occurences.
+
+    max_frequency: float or None (optional, default=None)
+        The maximal frequency of occurrence of a token for it to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by max_occurences.
+
+    ignored_tokens: set or None (optional, default=None)
+        A set of tokens that should be ignored entirely. If None then no tokens will
+        be ignored in this fashion.
+
+    excluded_regex: str or None (optional, default=None)
+        The regular expression by which tokens are ignored if re.fullmatch returns True.
+
+    token_dictionary: dictionary or None (optional, default=None)
+        A dictionary mapping tokens to indices
+
+    validate_data: bool (optional, default=True)
+        Check whether the data is valid (e.g. of homogeneous token type).
+    """
+
     def __init__(
-            self,
-            ngram_size=1,
-            ngram_behaviour="exact",
-            ngram_dictionary=None,
-            token_dictionary=None,
-            min_occurrences=None,
-            max_occurrences=None,
-            min_frequency=None,
-            max_frequency=None,
-            ignored_tokens=None,
-            excluded_token_regex=None,
-            validate_data=True,
+        self,
+        ngram_size=1,
+        ngram_behaviour="exact",
+        ngram_dictionary=None,
+        token_dictionary=None,
+        min_occurrences=None,
+        max_occurrences=None,
+        min_frequency=None,
+        max_frequency=None,
+        ignored_tokens=None,
+        excluded_token_regex=None,
+        validate_data=True,
     ):
         self.ngram_size = ngram_size
         self.ngram_behaviour = ngram_behaviour
@@ -1389,7 +1504,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
             counter = {}
             numba_sequence = np.array(sequence)
             for index_gram in ngrams_of(
-                    numba_sequence, self.ngram_size, self.ngram_behaviour
+                numba_sequence, self.ngram_size, self.ngram_behaviour
             ):
                 try:
                     if len(index_gram) == 1:
@@ -1457,7 +1572,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
             counter = {}
             numba_sequence = np.array(sequence)
             for index_gram in ngrams_of(
-                    numba_sequence, self.ngram_size, self.ngram_behaviour
+                numba_sequence, self.ngram_size, self.ngram_behaviour
             ):
                 try:
                     if len(index_gram) == 1:
@@ -1500,11 +1615,11 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
 
 class KDEVectorizer(BaseEstimator, TransformerMixin):
     def __init__(
-            self,
-            bandwidth=None,
-            n_components=50,
-            kernel="gaussian",
-            evaluation_grid_strategy="uniform",
+        self,
+        bandwidth=None,
+        n_components=50,
+        kernel="gaussian",
+        evaluation_grid_strategy="uniform",
     ):
         self.n_components = n_components
         self.evaluation_grid_strategy = evaluation_grid_strategy
@@ -1592,6 +1707,6 @@ class SequentialDifferenceTransformer(BaseEstimator, TransformerMixin):
 
         for sequence in X:
             seq = np.array(sequence)
-            result.append(seq[self.offset:] - seq[: -self.offset])
+            result.append(seq[self.offset :] - seq[: -self.offset])
 
         return result

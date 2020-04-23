@@ -18,14 +18,15 @@ from vectorizers import Wasserstein1DHistogramTransformer
 from vectorizers.distances import kantorovich1d
 
 from vectorizers._vectorizers import (
+    ngrams_of,
+    find_bin_boundaries,
+)
+from vectorizers._window_kernels import (
     harmonic_kernel,
     triangle_kernel,
     flat_kernel,
     information_window,
-    ngrams_of,
-    find_bin_boundaries,
 )
-
 
 token_data = (
     (1, 3, 1, 4, 2),
@@ -99,21 +100,21 @@ value_sequence_data = [
 
 
 def test_harmonic_kernel():
-    kernel = harmonic_kernel([0, 0, 0, 0])
+    kernel = harmonic_kernel([0, 0, 0, 0], 4.0)
     assert kernel[0] == 1.0
     assert kernel[-1] == 1.0 / 4.0
     assert kernel[1] == 1.0 / 2.0
 
 
 def test_triangle_kernel():
-    kernel = triangle_kernel([0, 0, 0, 0], 4)
+    kernel = triangle_kernel([0, 0, 0, 0], 4.0)
     assert kernel[0] == 4.0
     assert kernel[-1] == 1.0
     assert kernel[1] == 3.0
 
 
 def test_flat_kernel():
-    kernel = flat_kernel([0] * np.random.randint(2, 10))
+    kernel = flat_kernel([0] * np.random.randint(2, 10), 0.0)
     assert np.all(kernel == 1.0)
 
 
@@ -157,7 +158,7 @@ def test_token_cooccurrence_vectorizer_basic():
     assert (result != transform).nnz == 0
     assert scipy.sparse.issparse(result)
     vectorizer = TokenCooccurrenceVectorizer(
-        window_args=(1,), window_orientation="after"
+        window_radius=1, window_orientation="after"
     )
     result = vectorizer.fit_transform(token_data)
     transform = vectorizer.transform(token_data)
@@ -173,7 +174,7 @@ def test_token_cooccurrence_vectorizer_text():
     transform = vectorizer.transform(text_token_data)
     assert (result != transform).nnz == 0
     vectorizer = TokenCooccurrenceVectorizer(
-        window_args=(1,), window_orientation="after"
+        window_radius=1, window_orientation="after"
     )
     result = vectorizer.fit_transform(text_token_data)
     transform = vectorizer.transform(text_token_data)
@@ -187,7 +188,7 @@ def test_token_cooccurrence_vectorizer_fixed_tokens():
     result = vectorizer.fit_transform(token_data)
     assert scipy.sparse.issparse(result)
     vectorizer = TokenCooccurrenceVectorizer(
-        window_args=(1,), window_orientation="after"
+        window_radius=1, window_orientation="after"
     )
     result = vectorizer.fit_transform(token_data)
     assert result[0, 2] == 8
@@ -205,7 +206,7 @@ def test_token_cooccurrence_vectorizer_min_occur():
     result = vectorizer.fit_transform(token_data)
     assert scipy.sparse.issparse(result)
     vectorizer = TokenCooccurrenceVectorizer(
-        window_args=(1,), window_orientation="after"
+        window_radius=1, window_orientation="after"
     )
     result = vectorizer.fit_transform(token_data)
     assert result[0, 2] == 8
@@ -217,7 +218,7 @@ def test_token_cooccurrence_vectorizer_max_freq():
     result = vectorizer.fit_transform(token_data)
     assert scipy.sparse.issparse(result)
     vectorizer = TokenCooccurrenceVectorizer(
-        window_args=(1,), window_orientation="after"
+        window_radius=1, window_orientation="after"
     )
     result = vectorizer.fit_transform(token_data)
     assert result[0, 2] == 8
@@ -225,11 +226,11 @@ def test_token_cooccurrence_vectorizer_max_freq():
 
 
 def test_token_cooccurrence_vectorizer_info_window():
-    vectorizer = TokenCooccurrenceVectorizer(window_function=information_window)
+    vectorizer = TokenCooccurrenceVectorizer(window_function="information")
     result = vectorizer.fit_transform(token_data)
     assert scipy.sparse.issparse(result)
     vectorizer = TokenCooccurrenceVectorizer(
-        window_args=(1,), window_orientation="after"
+        window_radius=1, window_orientation="after"
     )
     result = vectorizer.fit_transform(token_data)
     assert result[0, 2] == 8
