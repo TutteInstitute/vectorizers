@@ -153,11 +153,15 @@ def test_find_boundaries_all_dupes():
 def test_token_cooccurrence_vectorizer_basic():
     vectorizer = TokenCooccurrenceVectorizer()
     result = vectorizer.fit_transform(token_data)
+    transform = vectorizer.transform(token_data)
+    assert (result != transform).nnz == 0
     assert scipy.sparse.issparse(result)
     vectorizer = TokenCooccurrenceVectorizer(
         window_args=(1,), window_orientation="after"
     )
     result = vectorizer.fit_transform(token_data)
+    transform = vectorizer.transform(token_data)
+    assert (result != transform).nnz == 0
     assert result[0, 2] == 8
     assert result[1, 0] == 6
 
@@ -166,10 +170,14 @@ def test_token_cooccurrence_vectorizer_text():
     vectorizer = TokenCooccurrenceVectorizer()
     result = vectorizer.fit_transform(text_token_data)
     assert scipy.sparse.issparse(result)
+    transform = vectorizer.transform(text_token_data)
+    assert (result != transform).nnz == 0
     vectorizer = TokenCooccurrenceVectorizer(
         window_args=(1,), window_orientation="after"
     )
     result = vectorizer.fit_transform(text_token_data)
+    transform = vectorizer.transform(text_token_data)
+    assert (result != transform).nnz == 0
     assert result[1, 2] == 8
     assert result[0, 1] == 6
 
