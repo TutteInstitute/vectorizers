@@ -60,7 +60,6 @@ text_token_data = (
     ),
 )
 
-
 mixed_token_data = (
     (1, "pok", 1, 3.1415, "bar"),
     ("bar", 1, "bar", "pok", 3.1415, 1, "bar", 1, "pok", "bar", 3.1415),
@@ -154,11 +153,15 @@ def test_find_boundaries_all_dupes():
 def test_token_cooccurrence_vectorizer_basic():
     vectorizer = TokenCooccurrenceVectorizer()
     result = vectorizer.fit_transform(token_data)
+    transform = vectorizer.transform(token_data)
+    assert (result != transform).nnz == 0
     assert scipy.sparse.issparse(result)
     vectorizer = TokenCooccurrenceVectorizer(
         window_radius=1, window_orientation="after"
     )
     result = vectorizer.fit_transform(token_data)
+    transform = vectorizer.transform(token_data)
+    assert (result != transform).nnz == 0
     assert result[0, 2] == 8
     assert result[1, 0] == 6
 
@@ -167,10 +170,14 @@ def test_token_cooccurrence_vectorizer_text():
     vectorizer = TokenCooccurrenceVectorizer()
     result = vectorizer.fit_transform(text_token_data)
     assert scipy.sparse.issparse(result)
+    transform = vectorizer.transform(text_token_data)
+    assert (result != transform).nnz == 0
     vectorizer = TokenCooccurrenceVectorizer(
         window_radius=1, window_orientation="after"
     )
     result = vectorizer.fit_transform(text_token_data)
+    transform = vectorizer.transform(text_token_data)
+    assert (result != transform).nnz == 0
     assert result[1, 2] == 8
     assert result[0, 1] == 6
 
@@ -306,7 +313,7 @@ def test_distribution_vectorizer_bad_params():
         )
     vectorizer = DistributionVectorizer()
     with pytest.raises(ValueError):
-        vectorizer.fit([[[1, 2, 3], [1, 2], [1, 2, 3, 4]], [[1, 2], [1,], [1, 2, 3]]])
+        vectorizer.fit([[[1, 2, 3], [1, 2], [1, 2, 3, 4]], [[1, 2], [1, ], [1, 2, 3]]])
 
 
 def test_histogram_vectorizer_basic():
