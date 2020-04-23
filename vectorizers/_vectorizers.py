@@ -91,12 +91,12 @@ def select_tokens_by_regex(tokens, regex):
 
 
 def prune_token_dictionary(
-    token_dictionary,
-    token_frequencies,
-    ignored_tokens=None,
-    excluded_token_regex=None,
-    min_frequency=0.0,
-    max_frequency=1.0,
+        token_dictionary,
+        token_frequencies,
+        ignored_tokens=None,
+        excluded_token_regex=None,
+        min_frequency=0.0,
+        max_frequency=1.0,
 ):
     """Prune the token dictionary based on constraints of tokens to ignore and
     min and max allowable token frequencies. This will remove any tokens that should
@@ -160,15 +160,15 @@ def prune_token_dictionary(
 
 
 def preprocess_token_sequences(
-    token_sequences,
-    flat_sequence,
-    token_dictionary=None,
-    min_occurrences=None,
-    max_occurrences=None,
-    min_frequency=None,
-    max_frequency=None,
-    ignored_tokens=None,
-    excluded_token_regex=None,
+        token_sequences,
+        flat_sequence,
+        token_dictionary=None,
+        min_occurrences=None,
+        max_occurrences=None,
+        min_frequency=None,
+        max_frequency=None,
+        ignored_tokens=None,
+        excluded_token_regex=None,
 ):
     """Perform a standard set of preprocessing for token sequences. This includes
     constructing a token dictionary and token frequencies, pruning the dictionary
@@ -283,7 +283,7 @@ def preprocess_token_sequences(
 
 @numba.njit(nogil=True)
 def build_skip_grams(
-    token_sequence, window_function, kernel_function, window_args, kernel_args
+        token_sequence, window_function, kernel_function, window_args, kernel_args
 ):
     """Given a single token sequence produce an array of weighted skip-grams
     associated to each token in the original sequence. The resulting array has
@@ -347,12 +347,12 @@ def build_skip_grams(
 
 
 def skip_grams_matrix_coo_data(
-    list_of_token_sequences,
-    window_function,
-    kernel_function,
-    window_args,
-    kernel_args,
-    token_dictionary,
+        list_of_token_sequences,
+        window_function,
+        kernel_function,
+        window_args,
+        kernel_args,
+        token_dictionary,
 ):
     """Given a list of token sequences construct the relevant data for a sparse
     matrix representation with a row for each token sequence and a column for each
@@ -416,7 +416,7 @@ def skip_grams_matrix_coo_data(
 
 @numba.njit(nogil=True, parallel=True)
 def sequence_skip_grams(
-    token_sequences, window_function, kernel_function, window_args, kernel_args
+        token_sequences, window_function, kernel_function, window_args, kernel_args
 ):
     """Produce skip-gram data for a combined over a list of token sequences. In this
     case each token sequence represents a sequence with boundaries over which
@@ -841,18 +841,13 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             excluded_token_regex=self.excluded_token_regex,
         )
 
-        if self.window_function is information_window:
-            window_args = (*self.window_args, token_frequencies)
-        else:
-            window_args = self.window_args
-
         cooccurrences = token_cooccurence_matrix(
             token_sequences,
             len(self.column_label_dictionary_),
-            window_function=self.window_function,
-            kernel_function=self.kernel_function,
-            window_args=window_args,
-            kernel_args=self.kernel_args,
+            window_function=self._window_function,
+            kernel_function=self._kernel_function,
+            window_args=(self._window_size, self._token_frequencies_),
+            kernel_args=(self.window_radius,),
             window_orientation=self.window_orientation,
         )
         cooccurrences.eliminate_zeros()
@@ -1050,12 +1045,12 @@ class HistogramVectorizer(BaseEstimator, TransformerMixin):
 
     # TODO: time stamps, generic groupby
     def __init__(
-        self,
-        n_components=20,
-        strategy="uniform",
-        ground_distance="euclidean",
-        absolute_range=(-np.inf, np.inf),
-        append_outlier_bins=False,
+            self,
+            n_components=20,
+            strategy="uniform",
+            ground_distance="euclidean",
+            absolute_range=(-np.inf, np.inf),
+            append_outlier_bins=False,
     ):
         self.n_components = n_components
         self.strategy = strategy
@@ -1157,7 +1152,7 @@ class CyclicHistogramVectorizer(BaseEstimator, TransformerMixin):
     """
 
     def __init__(
-        self, periodicity="week", resolution="day",
+            self, periodicity="week", resolution="day",
     ):
         self.periodicity = periodicity
         self.resolution = resolution
@@ -1240,18 +1235,18 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
     """
 
     def __init__(
-        self,
-        token_dictionary=None,
-        min_occurrences=None,
-        max_occurrences=None,
-        min_frequency=None,
-        max_frequency=None,
-        ignored_tokens=None,
-        excluded_token_regex=None,
-        window_function="fixed",
-        kernel_function="flat",
-        window_radius=5,
-        validate_data=True,
+            self,
+            token_dictionary=None,
+            min_occurrences=None,
+            max_occurrences=None,
+            min_frequency=None,
+            max_frequency=None,
+            ignored_tokens=None,
+            excluded_token_regex=None,
+            window_function="fixed",
+            kernel_function="flat",
+            window_radius=5,
+            validate_data=True,
     ):
         self.token_dictionary = token_dictionary
         self.min_occurrences = min_occurrences
@@ -1440,18 +1435,18 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
     """
 
     def __init__(
-        self,
-        ngram_size=1,
-        ngram_behaviour="exact",
-        ngram_dictionary=None,
-        token_dictionary=None,
-        min_occurrences=None,
-        max_occurrences=None,
-        min_frequency=None,
-        max_frequency=None,
-        ignored_tokens=None,
-        excluded_token_regex=None,
-        validate_data=True,
+            self,
+            ngram_size=1,
+            ngram_behaviour="exact",
+            ngram_dictionary=None,
+            token_dictionary=None,
+            min_occurrences=None,
+            max_occurrences=None,
+            min_frequency=None,
+            max_frequency=None,
+            ignored_tokens=None,
+            excluded_token_regex=None,
+            validate_data=True,
     ):
         self.ngram_size = ngram_size
         self.ngram_behaviour = ngram_behaviour
@@ -1504,7 +1499,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
             counter = {}
             numba_sequence = np.array(sequence)
             for index_gram in ngrams_of(
-                numba_sequence, self.ngram_size, self.ngram_behaviour
+                    numba_sequence, self.ngram_size, self.ngram_behaviour
             ):
                 try:
                     if len(index_gram) == 1:
@@ -1572,7 +1567,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
             counter = {}
             numba_sequence = np.array(sequence)
             for index_gram in ngrams_of(
-                numba_sequence, self.ngram_size, self.ngram_behaviour
+                    numba_sequence, self.ngram_size, self.ngram_behaviour
             ):
                 try:
                     if len(index_gram) == 1:
@@ -1615,11 +1610,11 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
 
 class KDEVectorizer(BaseEstimator, TransformerMixin):
     def __init__(
-        self,
-        bandwidth=None,
-        n_components=50,
-        kernel="gaussian",
-        evaluation_grid_strategy="uniform",
+            self,
+            bandwidth=None,
+            n_components=50,
+            kernel="gaussian",
+            evaluation_grid_strategy="uniform",
     ):
         self.n_components = n_components
         self.evaluation_grid_strategy = evaluation_grid_strategy
@@ -1707,6 +1702,6 @@ class SequentialDifferenceTransformer(BaseEstimator, TransformerMixin):
 
         for sequence in X:
             seq = np.array(sequence)
-            result.append(seq[self.offset :] - seq[: -self.offset])
+            result.append(seq[self.offset:] - seq[: -self.offset])
 
         return result
