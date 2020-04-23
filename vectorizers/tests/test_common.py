@@ -140,6 +140,7 @@ def test_ngrams_of():
 
 def test_find_bin_boundaries_min():
     data = np.random.poisson(5, size=1000)
+    data = np.append(data, [0, 0, 0])
     bins = find_bin_boundaries(data, 10)
     # Poisson so smallest bin should be at 0
     assert bins[0] == 0.0
