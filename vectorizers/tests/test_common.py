@@ -37,8 +37,6 @@ token_data = (
     (2, 1, 3, 1, 4, 4, 1, 4, 1, 3, 2, 4),
 )
 
-text_token_data_small = (("foo", "bar"),)
-
 text_token_data = (
     ("foo", "pok", "foo", "wer", "bar"),
     (),
@@ -61,6 +59,10 @@ text_token_data = (
         "wer",
     ),
 )
+
+text_token_data_permutation = (('wer', 'pok'), ('bar', 'pok'), ('foo', 'pok', 'wer'))
+text_token_data_subset = (("foo", "pok"), ("pok", "foo", "foo"))
+text_token_data_new_token = (("foo", "pok"), ("pok", "foo", "foo", "zaz"))
 
 mixed_token_data = (
     (1, "pok", 1, 3.1415, "bar"),
@@ -98,7 +100,6 @@ value_sequence_data = [
     np.random.poisson(9.0, size=60),
     np.random.poisson(2.0, size=80),
 ]
-
 
 def test_harmonic_kernel():
     kernel = harmonic_kernel([0, 0, 0, 0], 4.0)
@@ -168,14 +169,23 @@ def test_token_cooccurrence_vectorizer_basic():
     assert result[0, 2] == 8
     assert result[1, 0] == 6
 
+def test_token_cooccurrence_vectorizer_column_order():
+    vectorizer = TokenCooccurrenceVectorizer().fit(text_token_data)
+    vectorizer_permuted = TokenCooccurrenceVectorizer().fit(text_token_data_permutation)
+    assert vectorizer.column_label_dictionary_ == vectorizer_permuted.column_label_dictionary_
 
 def test_token_cooccurrence_vectorizer_transform():
     vectorizer = TokenCooccurrenceVectorizer()
-    result = vectorizer.fit_transform(text_token_data_small)
+    result = vectorizer.fit_transform(text_token_data_subset)
     transform = vectorizer.transform(text_token_data)
     assert result.shape == transform.shape
-    assert transform[0, 0] == 28
+    assert transform[0, 0] == 34
 
+def test_token_cooccurence_vectorizer_transform_new_vocab():
+    vectorizer = TokenCooccurrenceVectorizer()
+    result = vectorizer.fit_transform(text_token_data_subset)
+    transform = vectorizer.transform(text_token_data_new_token)
+    assert (result != transform).nnz == 0
 
 def test_token_cooccurrence_vectorizer_text():
     vectorizer = TokenCooccurrenceVectorizer()
@@ -324,7 +334,7 @@ def test_distribution_vectorizer_bad_params():
         )
     vectorizer = DistributionVectorizer()
     with pytest.raises(ValueError):
-        vectorizer.fit([[[1, 2, 3], [1, 2], [1, 2, 3, 4]], [[1, 2], [1,], [1, 2, 3]]])
+        vectorizer.fit([[[1, 2, 3], [1, 2], [1, 2, 3, 4]], [[1, 2], [1, ], [1, 2, 3]]])
 
 
 def test_histogram_vectorizer_basic():
