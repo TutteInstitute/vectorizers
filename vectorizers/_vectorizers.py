@@ -822,6 +822,8 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         -------
         A scipy.sparse.csr_matrix
         """
+        check_is_fitted(self, ["column_label_dictionary_"])
+
         if self.validate_data:
             validate_homogeneous_token_types(X)
 
