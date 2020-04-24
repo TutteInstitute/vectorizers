@@ -1106,6 +1106,7 @@ class HistogramVectorizer(BaseEstimator, TransformerMixin):
         """
         Apply binning to a full data set returning an nparray.
         """
+        check_is_fitted(self, ["bin_intervals_"])
         result = np.ndarray((len(X), len(self.bin_intervals_)))
         for i, seq in enumerate(X):
             result[i, :] = self._vector_transform(seq).values
@@ -1353,6 +1354,7 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
         return self._train_matrix
 
     def transform(self, X):
+        check_is_fitted(self, ["_token_dictionary_", "_column_is_kept",])
         flat_sequence = flatten(X)
         (token_sequences, _, _, _) = preprocess_token_sequences(
             X,
@@ -1488,12 +1490,12 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
             self.column_label_dictionary_ = self.ngram_dictionary
         else:
             if self.ngram_size == 1:
-                self.column_label_dictionary_= self._token_dictionary_
+                self.column_label_dictionary_ = self._token_dictionary_
             else:
                 self.column_label_dictionary_ = defaultdict()
                 self.column_label_dictionary_.default_factory = (
-                self.column_label_dictionary_.__len__
-            )
+                    self.column_label_dictionary_.__len__
+                )
 
         indptr = [0]
         indices = []
@@ -1553,6 +1555,14 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         return self._train_matrix
 
     def transform(self, X):
+        check_is_fitted(
+            self,
+            [
+                "_token_dictionary_",
+                "_inverse_token_dictionary_",
+                "column_label_dictionary_",
+            ],
+        )
         flat_sequence = flatten(X)
         (token_sequences, _, _, _) = preprocess_token_sequences(
             X,
@@ -1660,6 +1670,7 @@ class KDEVectorizer(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X):
+        check_is_fitted(self, ["bandwidth_", "evaluation_grid_"])
 
         result = np.empty((len(X), self.n_components), dtype=np.float64)
 
