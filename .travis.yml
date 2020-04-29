@@ -13,6 +13,8 @@ matrix:
            SKLEARN_VERSION="0.20.3"
     - env: PYTHON_VERSION="3.8" NUMPY_VERSION="*" SCIPY_VERSION="*"
            SKLEARN_VERSION="*"
+    - env: PYTHON_VERSION="3.8" NUMPY_VERSION="*" SCIPY_VERSION="*"
+           SKLEARN_VERSION="*" COVERAGE="true"
 
 install:
   # install miniconda
@@ -35,14 +37,22 @@ install:
       fi
   - conda install --yes pandas numba
   - pip install codecov
+  - pip install coverage
+  - pip install coveralls
   - pip install .
 
 script:
-  - mkdir for_test
-  - cd for_test
-  - pytest -v --pyargs vectorizers
-  - export NUMBA_DISABLE_JIT=1
-  - pytest -v --cov=vectorizers --pyargs vectorizers
-
+  - |
+      if [ "$COVERAGE" = "true" ]; then
+         # disable numba for coverage run
+         export NUMBA_DISABLE_JIT=1
+         coverage run -m pytest -v --pyargs vectorizers -k tests
+      else
+         pytest -v --pyargs vectorizers
+      fi
 after_success:
-  - codecov
+  - |
+      if [ "$COVERAGE" = "true" ]; then
+         codecov
+         coveralls
+      fi
