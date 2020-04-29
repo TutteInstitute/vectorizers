@@ -1,6 +1,6 @@
 .. -*- mode: rst -*-
 
-|Travis|_ |AppVeyor|_ |Codecov|_ |CircleCI|_ |ReadTheDocs|_
+|Travis|_ |AppVeyor|_ |Codecov|_ |Coveralls|_ |CircleCI|_ |ReadTheDocs|_
 
 .. |Travis| image:: https://travis-ci.org/TutteInstitute/vectorizers.svg?branch=master
 .. _Travis: https://travis-ci.org/TutteInstitute/vectorizers
@@ -10,6 +10,10 @@
 
 .. |Codecov| image:: https://codecov.io/gh/TutteInstitute/vectorizers/branch/master/graph/badge.svg
 .. _Codecov: https://codecov.io/gh/scikit-learn-contrib/project-template
+
+.. |Coveralls| image:: https://coveralls.io/repos/github/TutteInstitute/vectorizers/badge.svg?branch=master
+.. _Coveralls: https://coveralls.io/github/TutteInstitute/vectorizers?branch=master
+
 
 .. |CircleCI| image:: https://circleci.com/gh/TutteInstitute/vectorizers.svg?style=shield&circle-token=:circle-token
 .. _CircleCI: https://circleci.com/gh/scikit-learn-contrib/project-template/tree/master
