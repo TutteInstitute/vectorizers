@@ -20,6 +20,7 @@ from vectorizers.distances import kantorovich1d
 from vectorizers._vectorizers import (
     ngrams_of,
     find_bin_boundaries,
+    remove_node,
 )
 from vectorizers._window_kernels import (
     harmonic_kernel,
@@ -60,7 +61,7 @@ text_token_data = (
     ),
 )
 
-text_token_data_permutation = (('wer', 'pok'), ('bar', 'pok'), ('foo', 'pok', 'wer'))
+text_token_data_permutation = (("wer", "pok"), ("bar", "pok"), ("foo", "pok", "wer"))
 text_token_data_subset = (("foo", "pok"), ("pok", "foo", "foo"))
 text_token_data_new_token = (("foo", "pok"), ("pok", "foo", "foo", "zaz"))
 
@@ -100,6 +101,7 @@ value_sequence_data = [
     np.random.poisson(9.0, size=60),
     np.random.poisson(2.0, size=80),
 ]
+
 
 def test_harmonic_kernel():
     kernel = harmonic_kernel([0, 0, 0, 0], 4.0)
@@ -169,10 +171,15 @@ def test_token_cooccurrence_vectorizer_basic():
     assert result[0, 2] == 8
     assert result[1, 0] == 6
 
+
 def test_token_cooccurrence_vectorizer_column_order():
     vectorizer = TokenCooccurrenceVectorizer().fit(text_token_data)
     vectorizer_permuted = TokenCooccurrenceVectorizer().fit(text_token_data_permutation)
-    assert vectorizer.column_label_dictionary_ == vectorizer_permuted.column_label_dictionary_
+    assert (
+        vectorizer.column_label_dictionary_
+        == vectorizer_permuted.column_label_dictionary_
+    )
+
 
 def test_token_cooccurrence_vectorizer_transform():
     vectorizer = TokenCooccurrenceVectorizer()
@@ -181,11 +188,13 @@ def test_token_cooccurrence_vectorizer_transform():
     assert result.shape == transform.shape
     assert transform[0, 0] == 34
 
+
 def test_token_cooccurence_vectorizer_transform_new_vocab():
     vectorizer = TokenCooccurrenceVectorizer()
     result = vectorizer.fit_transform(text_token_data_subset)
     transform = vectorizer.transform(text_token_data_new_token)
     assert (result != transform).nnz == 0
+
 
 def test_token_cooccurrence_vectorizer_text():
     vectorizer = TokenCooccurrenceVectorizer()
@@ -334,7 +343,7 @@ def test_distribution_vectorizer_bad_params():
         )
     vectorizer = DistributionVectorizer()
     with pytest.raises(ValueError):
-        vectorizer.fit([[[1, 2, 3], [1, 2], [1, 2, 3, 4]], [[1, 2], [1, ], [1, 2, 3]]])
+        vectorizer.fit([[[1, 2, 3], [1, 2], [1, 2, 3, 4]], [[1, 2], [1,], [1, 2, 3]]])
 
 
 def test_histogram_vectorizer_basic():
@@ -381,4 +390,27 @@ def test_wass1d_transfomer():
             assert np.isclose(
                 kantorovich1d(histogram_data[i], histogram_data[j]),
                 np.sum(np.abs(result[i] - result[j])),
+            )
+
+
+def test_node_removal():
+    graph = scipy.sparse.random(10, 10, 0.1, format="csr")
+    node_to_remove = np.argmax(np.array(graph.sum(axis=1))[0])
+    graph_less_node = remove_node(graph, node_to_remove, inplace=False)
+    assert (graph != graph_less_node).sum() > 0
+    with pytest.raises(ValueError):
+        graph_less_node = remove_node(graph, node_to_remove, inplace=True)
+    inplace_graph = graph.tolil()
+    remove_node(inplace_graph, node_to_remove, inplace=True)
+    assert (inplace_graph != graph_less_node).sum() == 0
+
+    assert np.all([node_to_remove not in row for row in inplace_graph.rows])
+    assert len(inplace_graph.rows[node_to_remove]) == 0
+
+    orig_graph = graph.tolil()
+    for i, row in enumerate(orig_graph.rows):
+        if node_to_remove in row and i != node_to_remove:
+            assert np.all(
+                np.unique(np.hstack([row, orig_graph.rows[node_to_remove]]))
+                == np.unique(np.hstack(inplace_graph.rows[i], [node_to_remove]))
             )

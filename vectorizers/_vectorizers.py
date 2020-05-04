@@ -287,10 +287,12 @@ def preprocess_token_sequences(
 
 def remove_node(adjacency_matrix, node, inplace=True):
     if not inplace:
-        if scipy.sparse.isspmatrix_lil:
+        if scipy.sparse.isspmatrix_lil(adjacency_matrix):
             adj = adjacency_matrix.copy()
         else:
             adj = adjacency_matrix.tolil()
+    elif not scipy.sparse.isspmatrix_lil(adjacency_matrix):
+        raise ValueError("Can only remove node in place from LIL matrices")
     else:
         adj = adjacency_matrix
     # Copy the row we want to kill
