@@ -285,6 +285,46 @@ def preprocess_token_sequences(
     )
 
 
+def remove_node(adjacency_matrix, node, inplace=True):
+    if not inplace:
+        if scipy.sparse.isspmatrix_lil(adjacency_matrix):
+            adj = adjacency_matrix.copy()
+        else:
+            adj = adjacency_matrix.tolil()
+    elif not scipy.sparse.isspmatrix_lil(adjacency_matrix):
+        raise ValueError("Can only remove node in place from LIL matrices")
+    else:
+        adj = adjacency_matrix
+    # Copy the row we want to kill
+    row_to_remove = adj.rows[node].copy()
+    data_to_remove = adj.data[node].copy()
+    # Process all the rows making changes as required
+    for i in range(adj.rows.shape[0]):
+        if i == node:
+            adj.rows[i] = []
+            adj.data[i] = []
+        else:
+            try:
+                # Find out if this node has selected node as a successor
+                index_to_modify = adj.rows[i].index(node)
+                # If so replace the entry for that node with successor entries
+                # from the selected node
+                adj.rows[i][index_to_modify : index_to_modify + 1] = row_to_remove
+                adj.data[i][index_to_modify : index_to_modify + 1] = data_to_remove
+            except ValueError:
+                # We didn't have the selected node in the data; nothing to do
+                pass
+
+    if not inplace:
+        # Clean up the result
+        result = adj.tocsr()
+        result.eliminate_zeros()
+        result.sort_indices()
+        return result
+    else:
+        return adj
+
+
 @numba.njit(nogil=True)
 def build_skip_grams(
     token_sequence, window_function, kernel_function, window_args, kernel_args
