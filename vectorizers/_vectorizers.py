@@ -389,9 +389,8 @@ def build_skip_grams(
 
     return new_tokens
 
-def build_tree_skip_grams(
-    adjacency_matrix, kernel_function, window_size
-):
+
+def build_tree_skip_grams(adjacency_matrix, kernel_function, window_size):
     """
     Takes and adjacency matrix counts the co-occurrence of each token within a window_size
     number of hops from each vertex.  These counts are weighted by the kernel function.
@@ -416,6 +415,7 @@ def build_tree_skip_grams(
         walk = walk.dot(adjacency_matrix)
         result += walk * weights[i]
     return result
+
 
 def skip_grams_matrix_coo_data(
     list_of_token_sequences,
@@ -925,12 +925,14 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
         return cooccurrences
 
+
 class LabeledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
     """
     This takes a sequence of labeled directed graphs and produces a co-occurence count matrix
     of their labels.
 
     """
+
     def __init__(
         self,
         token_dictionary=None,
@@ -940,7 +942,7 @@ class LabeledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         max_frequency=None,
         ignored_tokens=None,
         excluded_token_regex=None,
-        #window_function="fixed",
+        # window_function="fixed",
         kernel_function="flat",
         window_radius=5,
         window_orientation="symmetric",
@@ -997,10 +999,12 @@ class LabeledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         # build token_cooccurence_matrix()
         # This calls sequence_skip_grams() on token_sequences
         # This calls build_skip_grams()... need a custom version
-        self.cooccurrences_ = build_tree_skip_grams(sequence_of_trees,
-                                                    kernel_function=self._kernel_function,
-                                                    window_size=self._window_size
-                                                    ).todense()
+        self.cooccurrences_ = build_tree_skip_grams(
+            sequence_of_trees,
+            kernel_function=self._kernel_function,
+            window_size=self._window_size,
+        ).todense()
+
 
 class DistributionVectorizer(BaseEstimator, TransformerMixin):
     def __init__(
