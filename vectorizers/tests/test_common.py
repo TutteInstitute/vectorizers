@@ -112,8 +112,11 @@ path_graph_two_out = scipy.sparse.csr_matrix(
 
 
 def test_build_tree_skip_grams():
-    result = build_tree_skip_grams(path_graph, kernel_function=flat_kernel, window_size=2)
+    result = build_tree_skip_grams(
+        path_graph, kernel_function=flat_kernel, window_size=2
+    )
     assert np.allclose(result.toarray(), path_graph_two_out.toarray())
+
 
 def test_harmonic_kernel():
     kernel = harmonic_kernel([0, 0, 0, 0], 4.0)
@@ -402,4 +405,27 @@ def test_wass1d_transfomer():
             assert np.isclose(
                 kantorovich1d(histogram_data[i], histogram_data[j]),
                 np.sum(np.abs(result[i] - result[j])),
+            )
+
+
+def test_node_removal():
+    graph = scipy.sparse.random(10, 10, 0.1, format="csr")
+    node_to_remove = np.argmax(np.array(graph.sum(axis=0)).T[0])
+    graph_less_node = remove_node(graph, node_to_remove, inplace=False)
+    assert (graph != graph_less_node).sum() > 0
+    with pytest.raises(ValueError):
+        graph_less_node = remove_node(graph, node_to_remove, inplace=True)
+    inplace_graph = graph.tolil()
+    remove_node(inplace_graph, node_to_remove, inplace=True)
+    assert (inplace_graph != graph_less_node).sum() == 0
+
+    assert np.all([node_to_remove not in row for row in inplace_graph.rows])
+    assert len(inplace_graph.rows[node_to_remove]) == 0
+
+    orig_graph = graph.tolil()
+    for i, row in enumerate(orig_graph.rows):
+        if node_to_remove in row and i != node_to_remove:
+            assert np.all(
+                np.unique(np.hstack([row, orig_graph.rows[node_to_remove]]))
+                == np.unique(np.hstack([inplace_graph.rows[i], [node_to_remove]]))
             )
