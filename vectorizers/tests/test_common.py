@@ -395,7 +395,7 @@ def test_wass1d_transfomer():
 
 def test_node_removal():
     graph = scipy.sparse.random(10, 10, 0.1, format="csr")
-    node_to_remove = np.argmax(np.array(graph.sum(axis=1))[0])
+    node_to_remove = np.argmax(np.array(graph.sum(axis=0)).T[0])
     graph_less_node = remove_node(graph, node_to_remove, inplace=False)
     assert (graph != graph_less_node).sum() > 0
     with pytest.raises(ValueError):
