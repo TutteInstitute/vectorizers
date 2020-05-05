@@ -412,7 +412,7 @@ def build_tree_skip_grams(adjacency_matrix, kernel_function, window_size):
     result = adjacency_matrix * weights[0]
     walk = adjacency_matrix
     for i in range(1, window_size):
-        walk = walk.dot(adjacency_matrix)
+        walk = walk @ adjacency_matrix
         result += walk * weights[i]
     return result
 
