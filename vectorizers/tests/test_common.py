@@ -21,6 +21,7 @@ from vectorizers._vectorizers import (
     ngrams_of,
     find_bin_boundaries,
     build_tree_skip_grams,
+    remove_node,
 )
 from vectorizers._window_kernels import (
     harmonic_kernel,
@@ -28,8 +29,6 @@ from vectorizers._window_kernels import (
     flat_kernel,
     information_window,
 )
-
-import networkx as nx
 
 token_data = (
     (1, 3, 1, 4, 2),
