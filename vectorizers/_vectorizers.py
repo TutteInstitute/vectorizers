@@ -349,6 +349,33 @@ def build_skip_grams(
 
     return new_tokens
 
+def build_tree_skip_grams(
+    adjacency_matrix, kernel_function, window_size
+):
+    """
+    Takes and adjacency matrix counts the co-occurrence of each token within a window_size
+    number of hops from each vertex.  These counts are weighted by the kernel function.
+    Parameters
+    ----------
+    adjacency_matrix: array
+        This should be an adjacency matrix of a graph.
+    kernel_function: a function that takes a window and a window_size parameter
+        and returns a vector of weights.
+    window_size:
+        The size of the window to apply the kernel over.
+
+    Returns
+    -------
+    co_occurences: array of shape adjacency_matrix.shape
+        These are a sparse matrix of weighted co-occurrence counts
+    """
+    weights = kernel_function(np.arange(window_size), window_size)
+    result = adjacency_matrix * weights[0]
+    walk = adjacency_matrix
+    for i in range(1, window_size):
+        walk = walk.dot(adjacency_matrix)
+        result += walk * weights[i]
+    return result
 
 def skip_grams_matrix_coo_data(
     list_of_token_sequences,
@@ -858,6 +885,82 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
         return cooccurrences
 
+class LabeledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
+    """
+    This takes a sequence of labeled directed graphs and produces a co-occurence count matrix
+    of their labels.
+
+    """
+    def __init__(
+        self,
+        token_dictionary=None,
+        min_occurrences=None,
+        max_occurrences=None,
+        min_frequency=None,
+        max_frequency=None,
+        ignored_tokens=None,
+        excluded_token_regex=None,
+        #window_function="fixed",
+        kernel_function="flat",
+        window_radius=5,
+        window_orientation="symmetric",
+        validate_data=True,
+    ):
+        self.token_dictionary = token_dictionary
+        self.min_occurrences = min_occurrences
+        self.min_frequency = min_frequency
+        self.max_occurrences = max_occurrences
+        self.max_frequency = max_frequency
+        self.ignored_tokens = ignored_tokens
+        self.excluded_token_regex = excluded_token_regex
+
+        # self.window_function = window_function
+        self.kernel_function = kernel_function
+        self.window_radius = window_radius
+
+        self.window_orientation = window_orientation
+        self.validate_data = validate_data
+
+    def fit(self, X, y=None, **fit_params):
+        """
+        Takes a sequence of labelled trees and learns the weighted co-occurence counts of the labels.
+        Parameters
+        ----------
+        X: sequence of (sparse.csr_matrix, label_to_index_dictionary) tuples
+            Here the sparse.csr_matrix should the adjacency matrix of one of your trees
+            The label_to_index_dictionary should be a dictionary from your vertex labels to row and column indices.
+
+        Returns
+        -------
+        self
+        """
+
+        # Pre-process trees.  This filters the tokens and learns a global token dictionary.
+        (
+            sequence_of_trees,
+            self.column_label_dictionary_,
+            self.column_index_dictionary_,
+            self._token_frequencies_,
+        ) = preprocess_tree_sequences(X)
+
+        if callable(self.kernel_function):
+            self._kernel_function = self.kernel_function
+        elif self.kernel_function in _KERNEL_FUNCTIONS:
+            self._kernel_function = _KERNEL_FUNCTIONS[self.kernel_function]
+        else:
+            raise ValueError(
+                f"Unrecognized kernel_function; should be callable or one of {_KERNEL_FUNCTIONS.keys()}"
+            )
+
+        self._window_size = self.window_radius
+
+        # build token_cooccurence_matrix()
+        # This calls sequence_skip_grams() on token_sequences
+        # This calls build_skip_grams()... need a custom version
+        self.cooccurrences_ = build_tree_skip_grams(sequence_of_trees,
+                                                    kernel_function=self._kernel_function,
+                                                    window_size=self._window_size
+                                                    ).todense()
 
 class DistributionVectorizer(BaseEstimator, TransformerMixin):
     def __init__(

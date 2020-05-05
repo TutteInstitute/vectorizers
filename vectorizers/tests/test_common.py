@@ -20,6 +20,7 @@ from vectorizers.distances import kantorovich1d
 from vectorizers._vectorizers import (
     ngrams_of,
     find_bin_boundaries,
+    build_tree_skip_grams,
 )
 from vectorizers._window_kernels import (
     harmonic_kernel,
@@ -27,6 +28,8 @@ from vectorizers._window_kernels import (
     flat_kernel,
     information_window,
 )
+
+import networkx as nx
 
 token_data = (
     (1, 3, 1, 4, 2),
@@ -60,7 +63,7 @@ text_token_data = (
     ),
 )
 
-text_token_data_permutation = (('wer', 'pok'), ('bar', 'pok'), ('foo', 'pok', 'wer'))
+text_token_data_permutation = (("wer", "pok"), ("bar", "pok"), ("foo", "pok", "wer"))
 text_token_data_subset = (("foo", "pok"), ("pok", "foo", "foo"))
 text_token_data_new_token = (("foo", "pok"), ("pok", "foo", "foo", "zaz"))
 
@@ -100,6 +103,18 @@ value_sequence_data = [
     np.random.poisson(9.0, size=60),
     np.random.poisson(2.0, size=80),
 ]
+
+path_graph = scipy.sparse.csr_matrix(
+    [[0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1], [0, 0, 0, 0]]
+)
+path_graph_two_out = scipy.sparse.csr_matrix(
+    [[0, 1, 1, 0], [0, 0, 1, 1], [0, 0, 0, 1], [0, 0, 0, 0]]
+)
+
+
+def test_build_tree_skip_grams():
+    result = build_tree_skip_grams(path_graph, kernel_function=flat_kernel, window_size=2)
+    assert np.allclose(result.toarray(), path_graph_two_out.toarray())
 
 def test_harmonic_kernel():
     kernel = harmonic_kernel([0, 0, 0, 0], 4.0)
@@ -169,10 +184,15 @@ def test_token_cooccurrence_vectorizer_basic():
     assert result[0, 2] == 8
     assert result[1, 0] == 6
 
+
 def test_token_cooccurrence_vectorizer_column_order():
     vectorizer = TokenCooccurrenceVectorizer().fit(text_token_data)
     vectorizer_permuted = TokenCooccurrenceVectorizer().fit(text_token_data_permutation)
-    assert vectorizer.column_label_dictionary_ == vectorizer_permuted.column_label_dictionary_
+    assert (
+        vectorizer.column_label_dictionary_
+        == vectorizer_permuted.column_label_dictionary_
+    )
+
 
 def test_token_cooccurrence_vectorizer_transform():
     vectorizer = TokenCooccurrenceVectorizer()
@@ -181,11 +201,13 @@ def test_token_cooccurrence_vectorizer_transform():
     assert result.shape == transform.shape
     assert transform[0, 0] == 34
 
+
 def test_token_cooccurence_vectorizer_transform_new_vocab():
     vectorizer = TokenCooccurrenceVectorizer()
     result = vectorizer.fit_transform(text_token_data_subset)
     transform = vectorizer.transform(text_token_data_new_token)
     assert (result != transform).nnz == 0
+
 
 def test_token_cooccurrence_vectorizer_text():
     vectorizer = TokenCooccurrenceVectorizer()
@@ -334,7 +356,7 @@ def test_distribution_vectorizer_bad_params():
         )
     vectorizer = DistributionVectorizer()
     with pytest.raises(ValueError):
-        vectorizer.fit([[[1, 2, 3], [1, 2], [1, 2, 3, 4]], [[1, 2], [1, ], [1, 2, 3]]])
+        vectorizer.fit([[[1, 2, 3], [1, 2], [1, 2, 3, 4]], [[1, 2], [1,], [1, 2, 3]]])
 
 
 def test_histogram_vectorizer_basic():
