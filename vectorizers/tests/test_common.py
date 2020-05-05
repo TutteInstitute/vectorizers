@@ -20,6 +20,7 @@ from vectorizers.distances import kantorovich1d
 from vectorizers._vectorizers import (
     ngrams_of,
     find_bin_boundaries,
+    build_tree_skip_grams,
     remove_node,
 )
 from vectorizers._window_kernels import (
@@ -101,6 +102,20 @@ value_sequence_data = [
     np.random.poisson(9.0, size=60),
     np.random.poisson(2.0, size=80),
 ]
+
+path_graph = scipy.sparse.csr_matrix(
+    [[0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1], [0, 0, 0, 0]]
+)
+path_graph_two_out = scipy.sparse.csr_matrix(
+    [[0, 1, 1, 0], [0, 0, 1, 1], [0, 0, 0, 1], [0, 0, 0, 0]]
+)
+
+
+def test_build_tree_skip_grams():
+    result = build_tree_skip_grams(
+        path_graph, kernel_function=flat_kernel, window_size=2
+    )
+    assert np.allclose(result.toarray(), path_graph_two_out.toarray())
 
 
 def test_harmonic_kernel():
