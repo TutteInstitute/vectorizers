@@ -412,5 +412,5 @@ def test_node_removal():
         if node_to_remove in row and i != node_to_remove:
             assert np.all(
                 np.unique(np.hstack([row, orig_graph.rows[node_to_remove]]))
-                == np.unique(np.hstack(inplace_graph.rows[i], [node_to_remove]))
+                == np.unique(np.hstack([inplace_graph.rows[i], [node_to_remove]]))
             )
