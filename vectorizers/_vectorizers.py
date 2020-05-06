@@ -438,7 +438,7 @@ def build_tree_skip_grams(
     count_matrix = adjacency_matrix * weights[0]
     walk = adjacency_matrix
     for i in range(1, window_size):
-        walk = walk.dot(adjacency_matrix)
+        walk = walk @ adjacency_matrix
         count_matrix += walk * weights[i]
 
     # Now collapse the rows and columns with the same label
