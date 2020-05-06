@@ -544,6 +544,33 @@ def sequence_skip_grams(
     return result
 
 
+def sequence_tree_skip_grams(
+    tree_sequences, kernel_function, window_size, label_dictionary,
+):
+    """
+
+    Returns
+    -------
+
+    """
+    n_tokens = len(label_dictionary)
+    global_counts = scipy.sparse.coo_matrix((n_tokens, n_tokens))
+    for adj_matrix, token_sequence in tree_sequences:
+        # TODO: Remove vertices who's token is not contained in label_dictionary
+        (count_matrix, unique_labels,) = build_tree_skip_grams(
+            token_sequence=token_sequence, adjacency_matrix=adj_matrix,
+            kernel_function=kernel_function,
+            window_size=window_size,
+        )
+        # Reorder these based on the label_dictionary
+        count_matrix = count_matrix.tocoo()
+        rows = [label_dictionary[unique_labels[x]] for x in count_matrix.row]
+        cols = [label_dictionary[unique_labels[x]] for x in count_matrix.col]
+        data = count_matrix.data
+        reordered_matrix = scipy.sparse.coo_matrix((data, (rows, cols)), shape=(n_tokens, n_tokens))
+        global_counts += reordered_matrix
+    return global_counts
+
 def token_cooccurence_matrix(
     token_sequences,
     n_unique_tokens,
