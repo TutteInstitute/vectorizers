@@ -234,6 +234,7 @@ def preprocess_token_sequences(
     ) = construct_token_dictionary_and_frequency(flat_sequence, token_dictionary)
 
     if token_dictionary is None:
+        # TODO refactor this code into prune_token_dictionary()
         if min_occurrences is None:
             if min_frequency is None:
                 min_frequency = 0.0
@@ -545,7 +546,7 @@ def sequence_skip_grams(
 
 
 def sequence_tree_skip_grams(
-    tree_sequences, kernel_function, window_size, label_dictionary,
+    tree_sequences, kernel_function, window_size, label_dictionary, window_orientation,
 ):
     """
     Takes a sequence of labelled trees and counts the weighted skip grams of their labels.
@@ -576,7 +577,8 @@ def sequence_tree_skip_grams(
     for adj_matrix, token_sequence in tree_sequences:
         # TODO: Remove vertices who's token is not contained in label_dictionary
         (count_matrix, unique_labels,) = build_tree_skip_grams(
-            token_sequence=token_sequence, adjacency_matrix=adj_matrix,
+            token_sequence=token_sequence,
+            adjacency_matrix=adj_matrix,
             kernel_function=kernel_function,
             window_size=window_size,
         )
@@ -585,10 +587,26 @@ def sequence_tree_skip_grams(
         rows = [label_dictionary[unique_labels[x]] for x in count_matrix.row]
         cols = [label_dictionary[unique_labels[x]] for x in count_matrix.col]
         data = count_matrix.data
-        reordered_matrix = scipy.sparse.coo_matrix((data, (rows, cols)), shape=(n_tokens, n_tokens))
+        reordered_matrix = scipy.sparse.coo_matrix(
+            (data, (rows, cols)), shape=(n_tokens, n_tokens)
+        )
         global_counts += reordered_matrix
     global_counts = global_counts.tocsr()
+
+    if window_orientation == "before":
+        global_counts = global_counts.T
+    elif window_orientation == "symmetric":
+        global_counts += global_counts.T
+    elif window_orientation == "after":
+        pass
+    else:
+        raise ValueError(
+            f"Sorry your window_orientation must be one of ['before', 'after', 'symmetric'].  "
+            f"You passed us {window_orientation}"
+        )
+
     return global_counts
+
 
 def token_cooccurence_matrix(
     token_sequences,
@@ -1091,13 +1109,9 @@ class LabeledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         -------
         self
         """
-
         # Filter and process the raw token counts and build the token dictionaries.
-        # TODO: Need to filter these for isolate nodes.  They shouldn't get any frequency.
-        # TODO: Maybe write a getdegree function that sums the row and column sum of a vertex then check >0
-        raw_token_sequences = [
-            label_sequence for adjacency, label_sequence in X
-        ]
+        # WARNING: We count isolated vertices as an occurence of a label.  It's a feature.
+        raw_token_sequences = [label_sequence for adjacency, label_sequence in X]
         flat_sequences = flatten(raw_token_sequences)
         (
             token_sequences,
@@ -1115,6 +1129,7 @@ class LabeledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             ignored_tokens=self.ignored_tokens,
             excluded_token_regex=self.excluded_token_regex,
         )
+        # TODO: write a preprocess_tree_sequence function that steals code from here but returns the cleaned trees.
 
         if callable(self.kernel_function):
             self._kernel_function = self.kernel_function
@@ -1128,14 +1143,14 @@ class LabeledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self._window_size = self.window_radius
 
         # build token_cooccurence_matrix()
-        # This calls sequence_skip_grams() on token_sequences
-        # This calls build_skip_grams()... need a custom version
         self.cooccurrences_ = sequence_tree_skip_grams(
-        X,
-        kernel_function=self._kernel_function,
-        window_size=self._window_size,
-        label_dictionary=self.column_label_dictionary_,
+            X,
+            kernel_function=self._kernel_function,
+            window_size=self._window_size,
+            label_dictionary=self.column_label_dictionary_,
+            window_orientation=self.window_orientation,
         )
+
         return self
 
     def fit_transform(self, X, y=None, **fit_params):
@@ -1155,6 +1170,7 @@ class LabeledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         """
         self.fit(X)
         return self.cooccurrences_
+
 
 class DistributionVectorizer(BaseEstimator, TransformerMixin):
     def __init__(

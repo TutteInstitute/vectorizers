@@ -119,7 +119,7 @@ label_dictionary = {"a": 0, "b": 1, "c": 2, "d": 3, "e": 4}
 sub_dictionary = {"a": 0, "b": 1, "c": 2}
 
 def test_LabeledTreeCooccurrenceVectorizer():
-    model = LabeledTreeCooccurrenceVectorizer(window_radius=2)
+    model = LabeledTreeCooccurrenceVectorizer(window_radius=2, window_orientation='after')
     result = model.fit_transform(tree_sequence)
     expected_result = scipy.sparse.csr_matrix(
         np.array(
@@ -164,8 +164,8 @@ def test_sequence_tree_skip_grams():
         kernel_function=flat_kernel,
         window_size=2,
         label_dictionary=label_dictionary,
+        window_orientation='after',
     )
-    print(result)
     expected_result = scipy.sparse.csr_matrix(
         np.array(
             [
@@ -177,7 +177,6 @@ def test_sequence_tree_skip_grams():
             ]
         )
     )
-    print(expected_result)
     assert np.allclose(result.toarray(), expected_result.toarray())
 
 def test_harmonic_kernel():

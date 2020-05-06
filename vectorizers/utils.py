@@ -45,9 +45,8 @@ def sparse_collapse(matrix, labels, sparse=True):
             trans ^= 1
         else:
             trans = np.hstack([trans ^ 1, trans])
-    result = matrix @ trans
-    result = result.T @ trans
-    return result.T, transformer.classes_
+    result = trans.T @ matrix @ trans
+    return result, transformer.classes_
 
 def cast_tokens_to_strings(data):
     """Given token data (either an iterator of tokens, or an iterator of iterators
