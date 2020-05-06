@@ -4,7 +4,7 @@ import scipy.stats
 import itertools
 from collections.abc import Iterable
 from sklearn.mixture import GaussianMixture
-from sklearn.preprocessing import normalize
+from sklearn.preprocessing import normalize, LabelBinarizer
 from typing import Union, Sequence, AnyStr
 from collections import Counter
 
@@ -18,6 +18,36 @@ def flatten(list_of_seq):
     else:
         return list_of_seq
 
+
+def sparse_collapse(matrix, labels, sparse=True):
+    """
+    Groups the rows and columns of a matrix by the the labels array.
+    The group by operation is summation.
+    Parameters
+    ----------
+    matrix: sparse matrix of shape (n, n)
+        a square matrix to group by
+    labels: array of length (n)
+        An array of the labels of the rows and columns to group by
+    sparse: bool (default=True)
+        Should I maintain sparsity?
+    Returns
+    -------
+    matrix: sparse matrix of shape (unique_labels, unique_labels)
+        This is the matrix of the summation of values between unique labels
+    labels: array of length (unique_labels)
+        This is the array of the labels of the rows and columns of our matrix.
+    """
+    transformer = LabelBinarizer(sparse_output=sparse)
+    trans = transformer.fit_transform(labels)
+    if (trans.shape[1]) == 1:
+        if len(transformer.classes_) == 1:
+            trans ^= 1
+        else:
+            trans = np.hstack([trans ^ 1, trans])
+    result = matrix @ trans
+    result = result.T @ trans
+    return result.T, transformer.classes_
 
 def cast_tokens_to_strings(data):
     """Given token data (either an iterator of tokens, or an iterator of iterators
