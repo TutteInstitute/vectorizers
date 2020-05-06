@@ -34,6 +34,7 @@ from .utils import (
     vectorize_diagram,
     pairwise_gaussian_ground_distance,
     validate_homogeneous_token_types,
+    sparse_collapse,
 )
 import vectorizers.distances as distances
 
@@ -390,13 +391,18 @@ def build_skip_grams(
     return new_tokens
 
 
-def build_tree_skip_grams(adjacency_matrix, kernel_function, window_size):
+def build_tree_skip_grams(
+    token_sequence, adjacency_matrix, kernel_function, window_size
+):
     """
     Takes and adjacency matrix counts the co-occurrence of each token within a window_size
     number of hops from each vertex.  These counts are weighted by the kernel function.
     Parameters
     ----------
-    adjacency_matrix: array
+    token_sequence: array
+        This should be a sequence of tokens that represent the labels of the adjacency matrix's vertices
+        len(token_sequence) == adjacency_matrix.shape[0]
+    adjacency_matrix: matrix of ndarray
         This should be an adjacency matrix of a graph.
     kernel_function: a function that takes a window and a window_size parameter
         and returns a vector of weights.
@@ -405,16 +411,22 @@ def build_tree_skip_grams(adjacency_matrix, kernel_function, window_size):
 
     Returns
     -------
-    co_occurences: array of shape adjacency_matrix.shape
-        These are a sparse matrix of weighted co-occurrence counts
+    matrix: sparse matrix of shape (unique_labels, unique_labels)
+        This is the matrix of the summation of values between unique labels
+    labels: array of length (unique_labels)
+        This is the array of the labels of the rows and columns of our matrix.
     """
     weights = kernel_function(np.arange(window_size), window_size)
-    result = adjacency_matrix * weights[0]
+    count_matrix = adjacency_matrix * weights[0]
     walk = adjacency_matrix
     for i in range(1, window_size):
         walk = walk.dot(adjacency_matrix)
-        result += walk * weights[i]
-    return result
+        count_matrix += walk * weights[i]
+
+    # Now collapse the rows and columns with the same label
+    (grouped_matrix, new_labels) = sparse_collapse(count_matrix, token_sequence)
+
+    return grouped_matrix, new_labels
 
 
 def skip_grams_matrix_coo_data(
