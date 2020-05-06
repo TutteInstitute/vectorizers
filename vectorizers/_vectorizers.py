@@ -99,6 +99,9 @@ def prune_token_dictionary(
     excluded_token_regex=None,
     min_frequency=0.0,
     max_frequency=1.0,
+    min_occurrences=None,
+    max_occurrences=None,
+    total_tokens=None,
 ):
     """Prune the token dictionary based on constraints of tokens to ignore and
     min and max allowable token frequencies. This will remove any tokens that should
@@ -125,6 +128,17 @@ def prune_token_dictionary(
         The maximum frequency of occurrence allowed for tokens. Tokens that occur
         more frequently than this will be pruned.
 
+    min_occurrences: int or None (optional, default=None)
+        A constraint on the minimum number of occurrences for a token to be considered
+        valid. If None then no constraint will be applied.
+
+    max_occurrences: int or None (optional, default=None)
+        A constraint on the maximum number of occurrences for a token to be considered
+        valid. If None then no constraint will be applied.
+
+    total_tokens: int or None (optional, default=None)
+        Must be set if you pass in min_occurrence and max_occurrence.
+
     Returns
     -------
     new_token_dictionary: dictionary
@@ -134,6 +148,25 @@ def prune_token_dictionary(
         The token frequencies remapped to the new token indexing given by
         new_token_dictionary.
     """
+
+    if min_occurrences is None:
+        if min_frequency is None:
+            min_frequency = 0.0
+    else:
+        if min_frequency is not None:
+            assert min_occurrences / total_tokens == min_frequency
+        else:
+            min_frequency = min_occurrences / total_tokens
+
+    if max_occurrences is None:
+        if max_frequency is None:
+            max_frequency = 1.0
+    else:
+        if max_frequency is not None:
+            assert max_occurrences / total_tokens == max_frequency
+        else:
+            max_frequency = min(1.0, max_occurrences / total_tokens)
+
     if ignored_tokens is not None:
         tokens_to_prune = set(ignored_tokens)
     else:
@@ -234,25 +267,6 @@ def preprocess_token_sequences(
     ) = construct_token_dictionary_and_frequency(flat_sequence, token_dictionary)
 
     if token_dictionary is None:
-        # TODO refactor this code into prune_token_dictionary()
-        if min_occurrences is None:
-            if min_frequency is None:
-                min_frequency = 0.0
-        else:
-            if min_frequency is not None:
-                assert min_occurrences / total_tokens == min_frequency
-            else:
-                min_frequency = min_occurrences / total_tokens
-
-        if max_occurrences is None:
-            if max_frequency is None:
-                max_frequency = 1.0
-        else:
-            if max_frequency is not None:
-                assert max_occurrences / total_tokens == max_frequency
-            else:
-                max_frequency = min(1.0, max_occurrences / total_tokens)
-
         token_dictionary, token_frequencies = prune_token_dictionary(
             token_dictionary_,
             token_frequencies,
@@ -260,6 +274,9 @@ def preprocess_token_sequences(
             excluded_token_regex=excluded_token_regex,
             min_frequency=min_frequency,
             max_frequency=max_frequency,
+            min_occurrences=min_occurrences,
+            max_occurrences=max_occurrences,
+            total_tokens=total_tokens,
         )
 
     inverse_token_dictionary = {
