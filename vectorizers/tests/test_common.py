@@ -11,6 +11,7 @@ from vectorizers import SkipgramVectorizer
 from vectorizers import DistributionVectorizer
 from vectorizers import HistogramVectorizer
 from vectorizers import KDEVectorizer
+from vectorizers import LabeledTreeCooccurrenceVectorizer
 
 from vectorizers import SequentialDifferenceTransformer
 from vectorizers import Wasserstein1DHistogramTransformer
@@ -117,6 +118,21 @@ tree_sequence = [(path_graph, unique_labels), (path_graph, shifted_labels)]
 label_dictionary = {"a": 0, "b": 1, "c": 2, "d": 3, "e": 4}
 sub_dictionary = {"a": 0, "b": 1, "c": 2}
 
+def test_LabeledTreeCooccurrenceVectorizer():
+    model = LabeledTreeCooccurrenceVectorizer(window_radius=2)
+    result = model.fit_transform(tree_sequence)
+    expected_result = scipy.sparse.csr_matrix(
+        np.array(
+            [
+                [0, 1, 1, 0, 0],
+                [0, 0, 2, 2, 0],
+                [0, 0, 0, 2, 1],
+                [0, 0, 0, 0, 1],
+                [0, 0, 0, 0, 0],
+            ]
+        )
+    )
+    assert np.allclose(result.toarray(), expected_result.toarray())
 
 def test_build_tree_skip_grams_contract():
     (result_matrix, result_labels) = build_tree_skip_grams(
@@ -163,7 +179,6 @@ def test_sequence_tree_skip_grams():
     )
     print(expected_result)
     assert np.allclose(result.toarray(), expected_result.toarray())
-
 
 def test_harmonic_kernel():
     kernel = harmonic_kernel([0, 0, 0, 0], 4.0)

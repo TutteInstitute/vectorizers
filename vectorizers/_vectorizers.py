@@ -548,10 +548,28 @@ def sequence_tree_skip_grams(
     tree_sequences, kernel_function, window_size, label_dictionary,
 ):
     """
+    Takes a sequence of labelled trees and counts the weighted skip grams of their labels.
+    For our purposes we take a labelled tree to be a tuple containing an adjacency matrix and an
+    array of it's vertex labels.
+    Parameters
+    ----------
+    tree_sequences: sequence of tuples (sparse matrix of size (n,n), array of size (n))
+        Each tuple in this sequence represents a labelled tree.
+        The first element is a sparse adjacency matrix
+        The second element is an array of node labels
+    kernel_function: numba.jitted callable
+        A function producing weights given a window of tokens
+        Currently this needs to take a window_size parameter.
+    window_size: int
+        The number of steps out to look in your tree skip gram
+    label_dictionary: dict
+        A dictionary mapping from your valid label set to indices.  This is used as the global
+        alignment for your new label space.
 
     Returns
     -------
-
+    skip_gram_matrix: sparse.csr_matrix
+        A matrix of weighted graph label co-occurence counts.
     """
     n_tokens = len(label_dictionary)
     global_counts = scipy.sparse.coo_matrix((n_tokens, n_tokens))
@@ -569,6 +587,7 @@ def sequence_tree_skip_grams(
         data = count_matrix.data
         reordered_matrix = scipy.sparse.coo_matrix((data, (rows, cols)), shape=(n_tokens, n_tokens))
         global_counts += reordered_matrix
+    global_counts = global_counts.tocsr()
     return global_counts
 
 def token_cooccurence_matrix(
@@ -967,14 +986,69 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
 class LabeledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
     """
-    This takes a sequence of labeled directed graphs and produces a co-occurence count matrix
+    Takes a sequence of labelled trees and counts and produces a co-occurence count matrix
     of their labels.
+    For our purposes we take a labelled tree to be a tuple containing an adjacency matrix and an
+    array of it's vertex labels.
+    Parameters
+    ----------
+    tree_sequences: sequence of tuples (sparse matrix of size (n,n), array of size (n))
+        Each tuple in this sequence represents a labelled tree.
+        The first element is a sparse adjacency matrix
+        The second element is an array of node labels
+        min_occurrences: int or None (optional, default=None)
+        The minimal number of occurrences of a token for it to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by min_frequency.
 
+    min_occurrences: int or None (optional, default=None)
+        The minimal number of occurrences of a token for it to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by min_frequency.
+
+    max_occurrences int or None (optional, default=None)
+        The maximal number of occurrences of a token for it to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by max_frequency.
+
+    min_frequency: float or None (optional, default=None)
+        The minimal frequency of occurrence of a token for it to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by min_occurences.
+
+    max_frequency: float or None (optional, default=None)
+        The maximal frequency of occurrence of a token for it to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by max_occurences.
+
+    ignored_tokens: set or None (optional, default=None)
+        A set of tokens that should be ignored entirely. If None then no tokens will
+        be ignored in this fashion.
+
+    excluded_regex: str or None (optional, default=None)
+        The regular expression by which tokens are ignored if re.fullmatch returns True.
+
+    kernel_function: numba.jitted callable or str (optional, default='flat')
+        A function producing weights given a window of tokens and a window_radius.
+        The string options are ['flat', 'triangular', 'harmonic'] for using pre-defined functions.
+
+    window_radius: int (optional, default=5)
+        Argument to pass through to the window function.  Outside of boundary cases, this is the expected width
+        of the (directed) windows produced by the window function.
+
+    token_dictionary: dictionary or None (optional, default=None)
+        A dictionary mapping tokens to indices
+
+    window_orientation: string (['before', 'after', 'symmetric'])
+        The orientation of the cooccurence window.  Whether to return all the tokens that
+        occurred within a window before, after or on either side.
+
+    validate_data: bool (optional, default=True)
+        Check whether the data is valid (e.g. of homogeneous token type).
     """
 
     def __init__(
         self,
-        token_dictionary=None,
         min_occurrences=None,
         max_occurrences=None,
         min_frequency=None,
@@ -984,6 +1058,7 @@ class LabeledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         # window_function="fixed",
         kernel_function="flat",
         window_radius=5,
+        token_dictionary=None,
         window_orientation="symmetric",
         validate_data=True,
     ):
@@ -1007,22 +1082,39 @@ class LabeledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         Takes a sequence of labelled trees and learns the weighted co-occurence counts of the labels.
         Parameters
         ----------
-        X: sequence of (sparse.csr_matrix, label_to_index_dictionary) tuples
-            Here the sparse.csr_matrix should the adjacency matrix of one of your trees
-            The label_to_index_dictionary should be a dictionary from your vertex labels to row and column indices.
+        X: Iterable of tuples (nd.array | scipy.sparse.csr_matrix, label_sequence)
+        An iterable of tuples the with
+        first = adjacency matrices of the tree's that make up your corpus.
+        second = a sequence of labels of length first.shape[0] representing the labels of each vertex.
 
         Returns
         -------
         self
         """
 
-        # Pre-process trees.  This filters the tokens and learns a global token dictionary.
+        # Filter and process the raw token counts and build the token dictionaries.
+        # TODO: Need to filter these for isolate nodes.  They shouldn't get any frequency.
+        # TODO: Maybe write a getdegree function that sums the row and column sum of a vertex then check >0
+        raw_token_sequences = [
+            label_sequence for adjacency, label_sequence in X
+        ]
+        flat_sequences = flatten(raw_token_sequences)
         (
-            sequence_of_trees,
+            token_sequences,
             self.column_label_dictionary_,
             self.column_index_dictionary_,
             self._token_frequencies_,
-        ) = preprocess_tree_sequences(X)
+        ) = preprocess_token_sequences(
+            raw_token_sequences,
+            flat_sequences,
+            self.token_dictionary,
+            min_occurrences=self.min_occurrences,
+            max_occurrences=self.max_occurrences,
+            min_frequency=self.min_frequency,
+            max_frequency=self.max_frequency,
+            ignored_tokens=self.ignored_tokens,
+            excluded_token_regex=self.excluded_token_regex,
+        )
 
         if callable(self.kernel_function):
             self._kernel_function = self.kernel_function
@@ -1038,12 +1130,31 @@ class LabeledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         # build token_cooccurence_matrix()
         # This calls sequence_skip_grams() on token_sequences
         # This calls build_skip_grams()... need a custom version
-        self.cooccurrences_ = build_tree_skip_grams(
-            sequence_of_trees,
-            kernel_function=self._kernel_function,
-            window_size=self._window_size,
-        ).todense()
+        self.cooccurrences_ = sequence_tree_skip_grams(
+        X,
+        kernel_function=self._kernel_function,
+        window_size=self._window_size,
+        label_dictionary=self.column_label_dictionary_,
+        )
+        return self
 
+    def fit_transform(self, X, y=None, **fit_params):
+        """
+        Takes a sequence of labelled trees and learns the weighted co-occurence counts of the labels.
+        Parameters
+        ----------
+        X: Iterable of tuples (nd.array | scipy.sparse.csr_matrix, label_sequence)
+        An iterable of tuples the with
+        first = adjacency matrices of the tree's that make up your corpus.
+        second = a sequence of labels of length first.shape[0] representing the labels of each vertex.
+
+        Returns
+        -------
+        co_occurence: scipy.sparse.csr_matrix
+            A weighted label co-occurence count matrix
+        """
+        self.fit(X)
+        return self.cooccurrences_
 
 class DistributionVectorizer(BaseEstimator, TransformerMixin):
     def __init__(
