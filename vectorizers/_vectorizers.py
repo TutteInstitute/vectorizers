@@ -1135,7 +1135,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         return cooccurrences
 
 
-class LabeledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
+class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
     """
     Takes a sequence of labelled trees and counts and produces a co-occurence count matrix
     of their labels.

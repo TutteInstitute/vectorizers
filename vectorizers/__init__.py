@@ -7,7 +7,7 @@ from ._vectorizers import KDEVectorizer
 from ._vectorizers import ProductDistributionVectorizer
 from ._vectorizers import Wasserstein1DHistogramTransformer
 from ._vectorizers import SequentialDifferenceTransformer
-from ._vectorizers import LabeledTreeCooccurrenceVectorizer
+from ._vectorizers import LabelledTreeCooccurrenceVectorizer
 
 from .utils import cast_tokens_to_strings
 
@@ -23,6 +23,6 @@ __all__ = [
     "ProductDistributionVectorizer",
     "Wasserstein1DHistogramTransformer",
     "SequentialDifferenceTransformer",
-    "LabeledTreeCooccurrenceVectorizer",
+    "LabelledTreeCooccurrenceVectorizer",
     "__version__",
 ]
