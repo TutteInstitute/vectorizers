@@ -194,6 +194,122 @@ def prune_token_dictionary(
     return new_vocabulary, new_token_frequency
 
 
+def preprocess_tree_sequences(
+    tree_sequences,
+    flat_sequence,
+    token_dictionary=None,
+    min_occurrences=None,
+    max_occurrences=None,
+    min_frequency=None,
+    max_frequency=None,
+    ignored_tokens=None,
+    excluded_token_regex=None,
+):
+    """Perform a standard set of preprocessing for token sequences. This includes
+    constructing a token dictionary and token frequencies, pruning the dictionary
+    according to frequency and ignored token constraints, and editing the token
+    sequences to only include tokens in the pruned dictionary. Note that either
+    min_occurrences or min_frequency can be provided (respectively
+    max_occurences or max_frequency). If both are provided they must agree.
+
+    Parameters
+    ----------
+    tree_sequences: sequence of tuples (sparse matrix of size (n,n), array of size (n))
+        Each tuple in this sequence represents a labelled tree.
+        The first element is a sparse adjacency matrix
+        The second element is an array of node labels
+
+    flat_sequence: tuple
+        A tuple tokens for processing.
+
+    token_dictionary: dictionary or None (optional, default=None)
+        A fixed dictionary mapping tokens to indices, constraining the tokens
+        that are allowed. If None then the allowed tokens and a mapping will
+        be learned from the data and returned.
+
+    min_occurrences: int or None (optional, default=None)
+        A constraint on the minimum number of occurrences for a token to be considered
+        valid. If None then no constraint will be applied.
+
+    max_occurrences: int or None (optional, default=None)
+        A constraint on the maximum number of occurrences for a token to be considered
+        valid. If None then no constraint will be applied.
+
+    min_frequency: float or None (optional, default=None)
+        A constraint on the minimum frequency of occurrence for a token to be
+        considered valid. If None then no constraint will be applied.
+
+    max_frequency: float or None (optional, default=None)
+        A constraint on the minimum frequency of occurrence for a token to be
+        considered valid. If None then no constraint will be applied.
+
+    ignored_tokens: set or None (optional, default=None)
+        A set of tokens that should be ignored. If None then no tokens will
+        be ignored.
+
+    Returns
+    -------
+    result_sequences: list of np.ndarray
+        The sequences, pruned of tokens not meeting constraints.
+
+    token_dictionary: dictionary
+        The token dictionary mapping tokens to indices.
+
+    token_frequencies: array of shape (len(token_dictionary),)
+        The frequency of occurrence of the tokens in the token_dictionary.
+    """
+    (
+        token_dictionary_,
+        token_frequencies,
+        total_tokens,
+    ) = construct_token_dictionary_and_frequency(flat_sequence, token_dictionary)
+
+    if token_dictionary is None:
+        token_dictionary, token_frequencies = prune_token_dictionary(
+            token_dictionary_,
+            token_frequencies,
+            ignored_tokens=ignored_tokens,
+            excluded_token_regex=excluded_token_regex,
+            min_frequency=min_frequency,
+            max_frequency=max_frequency,
+            min_occurrences=min_occurrences,
+            max_occurrences=max_occurrences,
+            total_tokens=total_tokens,
+        )
+
+    inverse_token_dictionary = {
+        index: token for token, index in token_dictionary.items()
+    }
+
+    # Wee will prune the edges from any nodes who's labels are to be filtered and reconnect their parents with their children.
+    # This will remove them from our computation without having to alter the matrix size or label_sequence.
+    result_sequence = []
+    for adj_matrix, label_sequence in tree_sequences:
+        node_index_to_remove = [
+            i for i, x in enumerate(label_sequence) if x not in token_dictionary_
+        ]
+        result_matrix = adj_matrix.tolil().copy()
+        for node_index in node_index_to_remove:
+            remove_node(result_matrix, node_index)
+        # TODO: It is tempting to eliminate the zero row/columns and trim the label_sequence
+        # It's currently not necessary since we will never see values here but might make the code
+        # more robust.  It might look like the following:
+        # label_in_dictionary = np.array([x in token_dictionary_ for x in label_sequence])
+        # result_matrix = result_matrix.tocsr()[label_in_dictionary, :]
+        # result_matrix = result_matrix.T[label_in_dictionary, :].T.tocoo()
+        # result_sequence = label_sequence[label_in_dictionary]
+        # result_sequence.append((result_matrix, result_sequence))
+
+        result_sequence.append((result_matrix, label_sequence))
+
+    return (
+        result_sequence,
+        token_dictionary,
+        inverse_token_dictionary,
+        token_frequencies,
+    )
+
+
 def preprocess_token_sequences(
     token_sequences,
     flat_sequence,
@@ -1031,10 +1147,6 @@ class LabeledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         Each tuple in this sequence represents a labelled tree.
         The first element is a sparse adjacency matrix
         The second element is an array of node labels
-        min_occurrences: int or None (optional, default=None)
-        The minimal number of occurrences of a token for it to be considered and
-        counted. If None then there is no constraint, or the constraint is
-        determined by min_frequency.
 
     min_occurrences: int or None (optional, default=None)
         The minimal number of occurrences of a token for it to be considered and
@@ -1131,12 +1243,12 @@ class LabeledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         raw_token_sequences = [label_sequence for adjacency, label_sequence in X]
         flat_sequences = flatten(raw_token_sequences)
         (
-            token_sequences,
+            clean_tree_sequence,
             self.column_label_dictionary_,
             self.column_index_dictionary_,
             self._token_frequencies_,
-        ) = preprocess_token_sequences(
-            raw_token_sequences,
+        ) = preprocess_tree_sequences(
+            X,
             flat_sequences,
             self.token_dictionary,
             min_occurrences=self.min_occurrences,
@@ -1146,7 +1258,6 @@ class LabeledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             ignored_tokens=self.ignored_tokens,
             excluded_token_regex=self.excluded_token_regex,
         )
-        # TODO: write a preprocess_tree_sequence function that steals code from here but returns the cleaned trees.
 
         if callable(self.kernel_function):
             self._kernel_function = self.kernel_function
@@ -1161,7 +1272,7 @@ class LabeledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
         # build token_cooccurence_matrix()
         self.cooccurrences_ = sequence_tree_skip_grams(
-            X,
+            clean_tree_sequence,
             kernel_function=self._kernel_function,
             window_size=self._window_size,
             label_dictionary=self.column_label_dictionary_,
