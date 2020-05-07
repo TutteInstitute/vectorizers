@@ -34,6 +34,7 @@ from .utils import (
     vectorize_diagram,
     pairwise_gaussian_ground_distance,
     validate_homogeneous_token_types,
+    sparse_collapse,
 )
 import vectorizers.distances as distances
 
@@ -98,6 +99,9 @@ def prune_token_dictionary(
     excluded_token_regex=None,
     min_frequency=0.0,
     max_frequency=1.0,
+    min_occurrences=None,
+    max_occurrences=None,
+    total_tokens=None,
 ):
     """Prune the token dictionary based on constraints of tokens to ignore and
     min and max allowable token frequencies. This will remove any tokens that should
@@ -124,6 +128,17 @@ def prune_token_dictionary(
         The maximum frequency of occurrence allowed for tokens. Tokens that occur
         more frequently than this will be pruned.
 
+    min_occurrences: int or None (optional, default=None)
+        A constraint on the minimum number of occurrences for a token to be considered
+        valid. If None then no constraint will be applied.
+
+    max_occurrences: int or None (optional, default=None)
+        A constraint on the maximum number of occurrences for a token to be considered
+        valid. If None then no constraint will be applied.
+
+    total_tokens: int or None (optional, default=None)
+        Must be set if you pass in min_occurrence and max_occurrence.
+
     Returns
     -------
     new_token_dictionary: dictionary
@@ -133,6 +148,25 @@ def prune_token_dictionary(
         The token frequencies remapped to the new token indexing given by
         new_token_dictionary.
     """
+
+    if min_occurrences is None:
+        if min_frequency is None:
+            min_frequency = 0.0
+    else:
+        if min_frequency is not None:
+            assert min_occurrences / total_tokens == min_frequency
+        else:
+            min_frequency = min_occurrences / total_tokens
+
+    if max_occurrences is None:
+        if max_frequency is None:
+            max_frequency = 1.0
+    else:
+        if max_frequency is not None:
+            assert max_occurrences / total_tokens == max_frequency
+        else:
+            max_frequency = min(1.0, max_occurrences / total_tokens)
+
     if ignored_tokens is not None:
         tokens_to_prune = set(ignored_tokens)
     else:
@@ -158,6 +192,122 @@ def prune_token_dictionary(
     )
 
     return new_vocabulary, new_token_frequency
+
+
+def preprocess_tree_sequences(
+    tree_sequences,
+    flat_sequence,
+    token_dictionary=None,
+    min_occurrences=None,
+    max_occurrences=None,
+    min_frequency=None,
+    max_frequency=None,
+    ignored_tokens=None,
+    excluded_token_regex=None,
+):
+    """Perform a standard set of preprocessing for token sequences. This includes
+    constructing a token dictionary and token frequencies, pruning the dictionary
+    according to frequency and ignored token constraints, and editing the token
+    sequences to only include tokens in the pruned dictionary. Note that either
+    min_occurrences or min_frequency can be provided (respectively
+    max_occurences or max_frequency). If both are provided they must agree.
+
+    Parameters
+    ----------
+    tree_sequences: sequence of tuples (sparse matrix of size (n,n), array of size (n))
+        Each tuple in this sequence represents a labelled tree.
+        The first element is a sparse adjacency matrix
+        The second element is an array of node labels
+
+    flat_sequence: tuple
+        A tuple tokens for processing.
+
+    token_dictionary: dictionary or None (optional, default=None)
+        A fixed dictionary mapping tokens to indices, constraining the tokens
+        that are allowed. If None then the allowed tokens and a mapping will
+        be learned from the data and returned.
+
+    min_occurrences: int or None (optional, default=None)
+        A constraint on the minimum number of occurrences for a token to be considered
+        valid. If None then no constraint will be applied.
+
+    max_occurrences: int or None (optional, default=None)
+        A constraint on the maximum number of occurrences for a token to be considered
+        valid. If None then no constraint will be applied.
+
+    min_frequency: float or None (optional, default=None)
+        A constraint on the minimum frequency of occurrence for a token to be
+        considered valid. If None then no constraint will be applied.
+
+    max_frequency: float or None (optional, default=None)
+        A constraint on the minimum frequency of occurrence for a token to be
+        considered valid. If None then no constraint will be applied.
+
+    ignored_tokens: set or None (optional, default=None)
+        A set of tokens that should be ignored. If None then no tokens will
+        be ignored.
+
+    Returns
+    -------
+    result_sequences: list of np.ndarray
+        The sequences, pruned of tokens not meeting constraints.
+
+    token_dictionary: dictionary
+        The token dictionary mapping tokens to indices.
+
+    token_frequencies: array of shape (len(token_dictionary),)
+        The frequency of occurrence of the tokens in the token_dictionary.
+    """
+    (
+        token_dictionary_,
+        token_frequencies,
+        total_tokens,
+    ) = construct_token_dictionary_and_frequency(flat_sequence, token_dictionary)
+
+    if token_dictionary is None:
+        token_dictionary, token_frequencies = prune_token_dictionary(
+            token_dictionary_,
+            token_frequencies,
+            ignored_tokens=ignored_tokens,
+            excluded_token_regex=excluded_token_regex,
+            min_frequency=min_frequency,
+            max_frequency=max_frequency,
+            min_occurrences=min_occurrences,
+            max_occurrences=max_occurrences,
+            total_tokens=total_tokens,
+        )
+
+    inverse_token_dictionary = {
+        index: token for token, index in token_dictionary.items()
+    }
+
+    # Wee will prune the edges from any nodes who's labels are to be filtered and reconnect their parents with their children.
+    # This will remove them from our computation without having to alter the matrix size or label_sequence.
+    result_sequence = []
+    for adj_matrix, label_sequence in tree_sequences:
+        node_index_to_remove = [
+            i for i, x in enumerate(label_sequence) if x not in token_dictionary_
+        ]
+        result_matrix = adj_matrix.tolil().copy()
+        for node_index in node_index_to_remove:
+            remove_node(result_matrix, node_index)
+        # TODO: It is tempting to eliminate the zero row/columns and trim the label_sequence
+        # It's currently not necessary since we will never see values here but might make the code
+        # more robust.  It might look like the following:
+        # label_in_dictionary = np.array([x in token_dictionary_ for x in label_sequence])
+        # result_matrix = result_matrix.tocsr()[label_in_dictionary, :]
+        # result_matrix = result_matrix.T[label_in_dictionary, :].T.tocoo()
+        # result_sequence = label_sequence[label_in_dictionary]
+        # result_sequence.append((result_matrix, result_sequence))
+
+        result_sequence.append((result_matrix, label_sequence))
+
+    return (
+        result_sequence,
+        token_dictionary,
+        inverse_token_dictionary,
+        token_frequencies,
+    )
 
 
 def preprocess_token_sequences(
@@ -233,24 +383,6 @@ def preprocess_token_sequences(
     ) = construct_token_dictionary_and_frequency(flat_sequence, token_dictionary)
 
     if token_dictionary is None:
-        if min_occurrences is None:
-            if min_frequency is None:
-                min_frequency = 0.0
-        else:
-            if min_frequency is not None:
-                assert min_occurrences / total_tokens == min_frequency
-            else:
-                min_frequency = min_occurrences / total_tokens
-
-        if max_occurrences is None:
-            if max_frequency is None:
-                max_frequency = 1.0
-        else:
-            if max_frequency is not None:
-                assert max_occurrences / total_tokens == max_frequency
-            else:
-                max_frequency = min(1.0, max_occurrences / total_tokens)
-
         token_dictionary, token_frequencies = prune_token_dictionary(
             token_dictionary_,
             token_frequencies,
@@ -258,6 +390,9 @@ def preprocess_token_sequences(
             excluded_token_regex=excluded_token_regex,
             min_frequency=min_frequency,
             max_frequency=max_frequency,
+            min_occurrences=min_occurrences,
+            max_occurrences=max_occurrences,
+            total_tokens=total_tokens,
         )
 
     inverse_token_dictionary = {
@@ -390,13 +525,18 @@ def build_skip_grams(
     return new_tokens
 
 
-def build_tree_skip_grams(adjacency_matrix, kernel_function, window_size):
+def build_tree_skip_grams(
+    token_sequence, adjacency_matrix, kernel_function, window_size
+):
     """
     Takes and adjacency matrix counts the co-occurrence of each token within a window_size
     number of hops from each vertex.  These counts are weighted by the kernel function.
     Parameters
     ----------
-    adjacency_matrix: array
+    token_sequence: array
+        This should be a sequence of tokens that represent the labels of the adjacency matrix's vertices
+        len(token_sequence) == adjacency_matrix.shape[0]
+    adjacency_matrix: matrix of ndarray
         This should be an adjacency matrix of a graph.
     kernel_function: a function that takes a window and a window_size parameter
         and returns a vector of weights.
@@ -405,16 +545,22 @@ def build_tree_skip_grams(adjacency_matrix, kernel_function, window_size):
 
     Returns
     -------
-    co_occurences: array of shape adjacency_matrix.shape
-        These are a sparse matrix of weighted co-occurrence counts
+    matrix: sparse matrix of shape (unique_labels, unique_labels)
+        This is the matrix of the summation of values between unique labels
+    labels: array of length (unique_labels)
+        This is the array of the labels of the rows and columns of our matrix.
     """
     weights = kernel_function(np.arange(window_size), window_size)
-    result = adjacency_matrix * weights[0]
+    count_matrix = adjacency_matrix * weights[0]
     walk = adjacency_matrix
     for i in range(1, window_size):
         walk = walk @ adjacency_matrix
-        result += walk * weights[i]
-    return result
+        count_matrix += walk * weights[i]
+
+    # Now collapse the rows and columns with the same label
+    (grouped_matrix, new_labels) = sparse_collapse(count_matrix, token_sequence)
+
+    return grouped_matrix, new_labels
 
 
 def skip_grams_matrix_coo_data(
@@ -530,6 +676,69 @@ def sequence_skip_grams(
         result[count : count + arr.shape[0]] = arr
         count += arr.shape[0]
     return result
+
+
+def sequence_tree_skip_grams(
+    tree_sequences, kernel_function, window_size, label_dictionary, window_orientation,
+):
+    """
+    Takes a sequence of labelled trees and counts the weighted skip grams of their labels.
+    For our purposes we take a labelled tree to be a tuple containing an adjacency matrix and an
+    array of it's vertex labels.
+    Parameters
+    ----------
+    tree_sequences: sequence of tuples (sparse matrix of size (n,n), array of size (n))
+        Each tuple in this sequence represents a labelled tree.
+        The first element is a sparse adjacency matrix
+        The second element is an array of node labels
+    kernel_function: numba.jitted callable
+        A function producing weights given a window of tokens
+        Currently this needs to take a window_size parameter.
+    window_size: int
+        The number of steps out to look in your tree skip gram
+    label_dictionary: dict
+        A dictionary mapping from your valid label set to indices.  This is used as the global
+        alignment for your new label space.
+
+    Returns
+    -------
+    skip_gram_matrix: sparse.csr_matrix
+        A matrix of weighted graph label co-occurence counts.
+    """
+    n_tokens = len(label_dictionary)
+    global_counts = scipy.sparse.coo_matrix((n_tokens, n_tokens))
+    for adj_matrix, token_sequence in tree_sequences:
+        # TODO: Remove vertices who's token is not contained in label_dictionary
+        (count_matrix, unique_labels,) = build_tree_skip_grams(
+            token_sequence=token_sequence,
+            adjacency_matrix=adj_matrix,
+            kernel_function=kernel_function,
+            window_size=window_size,
+        )
+        # Reorder these based on the label_dictionary
+        count_matrix = count_matrix.tocoo()
+        rows = [label_dictionary[unique_labels[x]] for x in count_matrix.row]
+        cols = [label_dictionary[unique_labels[x]] for x in count_matrix.col]
+        data = count_matrix.data
+        reordered_matrix = scipy.sparse.coo_matrix(
+            (data, (rows, cols)), shape=(n_tokens, n_tokens)
+        )
+        global_counts += reordered_matrix
+    global_counts = global_counts.tocsr()
+
+    if window_orientation == "before":
+        global_counts = global_counts.T
+    elif window_orientation == "symmetric":
+        global_counts += global_counts.T
+    elif window_orientation == "after":
+        pass
+    else:
+        raise ValueError(
+            f"Sorry your window_orientation must be one of ['before', 'after', 'symmetric'].  "
+            f"You passed us {window_orientation}"
+        )
+
+    return global_counts
 
 
 def token_cooccurence_matrix(
@@ -928,14 +1137,65 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
 class LabeledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
     """
-    This takes a sequence of labeled directed graphs and produces a co-occurence count matrix
+    Takes a sequence of labelled trees and counts and produces a co-occurence count matrix
     of their labels.
+    For our purposes we take a labelled tree to be a tuple containing an adjacency matrix and an
+    array of it's vertex labels.
+    Parameters
+    ----------
+    tree_sequences: sequence of tuples (sparse matrix of size (n,n), array of size (n))
+        Each tuple in this sequence represents a labelled tree.
+        The first element is a sparse adjacency matrix
+        The second element is an array of node labels
 
+    min_occurrences: int or None (optional, default=None)
+        The minimal number of occurrences of a token for it to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by min_frequency.
+
+    max_occurrences int or None (optional, default=None)
+        The maximal number of occurrences of a token for it to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by max_frequency.
+
+    min_frequency: float or None (optional, default=None)
+        The minimal frequency of occurrence of a token for it to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by min_occurences.
+
+    max_frequency: float or None (optional, default=None)
+        The maximal frequency of occurrence of a token for it to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by max_occurences.
+
+    ignored_tokens: set or None (optional, default=None)
+        A set of tokens that should be ignored entirely. If None then no tokens will
+        be ignored in this fashion.
+
+    excluded_regex: str or None (optional, default=None)
+        The regular expression by which tokens are ignored if re.fullmatch returns True.
+
+    kernel_function: numba.jitted callable or str (optional, default='flat')
+        A function producing weights given a window of tokens and a window_radius.
+        The string options are ['flat', 'triangular', 'harmonic'] for using pre-defined functions.
+
+    window_radius: int (optional, default=5)
+        Argument to pass through to the window function.  Outside of boundary cases, this is the expected width
+        of the (directed) windows produced by the window function.
+
+    token_dictionary: dictionary or None (optional, default=None)
+        A dictionary mapping tokens to indices
+
+    window_orientation: string (['before', 'after', 'symmetric'])
+        The orientation of the cooccurence window.  Whether to return all the tokens that
+        occurred within a window before, after or on either side.
+
+    validate_data: bool (optional, default=True)
+        Check whether the data is valid (e.g. of homogeneous token type).
     """
 
     def __init__(
         self,
-        token_dictionary=None,
         min_occurrences=None,
         max_occurrences=None,
         min_frequency=None,
@@ -945,6 +1205,7 @@ class LabeledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         # window_function="fixed",
         kernel_function="flat",
         window_radius=5,
+        token_dictionary=None,
         window_orientation="symmetric",
         validate_data=True,
     ):
@@ -968,22 +1229,35 @@ class LabeledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         Takes a sequence of labelled trees and learns the weighted co-occurence counts of the labels.
         Parameters
         ----------
-        X: sequence of (sparse.csr_matrix, label_to_index_dictionary) tuples
-            Here the sparse.csr_matrix should the adjacency matrix of one of your trees
-            The label_to_index_dictionary should be a dictionary from your vertex labels to row and column indices.
+        X: Iterable of tuples (nd.array | scipy.sparse.csr_matrix, label_sequence)
+        An iterable of tuples the with
+        first = adjacency matrices of the tree's that make up your corpus.
+        second = a sequence of labels of length first.shape[0] representing the labels of each vertex.
 
         Returns
         -------
         self
         """
-
-        # Pre-process trees.  This filters the tokens and learns a global token dictionary.
+        # Filter and process the raw token counts and build the token dictionaries.
+        # WARNING: We count isolated vertices as an occurence of a label.  It's a feature.
+        raw_token_sequences = [label_sequence for adjacency, label_sequence in X]
+        flat_sequences = flatten(raw_token_sequences)
         (
-            sequence_of_trees,
+            clean_tree_sequence,
             self.column_label_dictionary_,
             self.column_index_dictionary_,
             self._token_frequencies_,
-        ) = preprocess_tree_sequences(X)
+        ) = preprocess_tree_sequences(
+            X,
+            flat_sequences,
+            self.token_dictionary,
+            min_occurrences=self.min_occurrences,
+            max_occurrences=self.max_occurrences,
+            min_frequency=self.min_frequency,
+            max_frequency=self.max_frequency,
+            ignored_tokens=self.ignored_tokens,
+            excluded_token_regex=self.excluded_token_regex,
+        )
 
         if callable(self.kernel_function):
             self._kernel_function = self.kernel_function
@@ -997,13 +1271,33 @@ class LabeledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self._window_size = self.window_radius
 
         # build token_cooccurence_matrix()
-        # This calls sequence_skip_grams() on token_sequences
-        # This calls build_skip_grams()... need a custom version
-        self.cooccurrences_ = build_tree_skip_grams(
-            sequence_of_trees,
+        self.cooccurrences_ = sequence_tree_skip_grams(
+            clean_tree_sequence,
             kernel_function=self._kernel_function,
             window_size=self._window_size,
-        ).todense()
+            label_dictionary=self.column_label_dictionary_,
+            window_orientation=self.window_orientation,
+        )
+
+        return self
+
+    def fit_transform(self, X, y=None, **fit_params):
+        """
+        Takes a sequence of labelled trees and learns the weighted co-occurence counts of the labels.
+        Parameters
+        ----------
+        X: Iterable of tuples (nd.array | scipy.sparse.csr_matrix, label_sequence)
+        An iterable of tuples the with
+        first = adjacency matrices of the tree's that make up your corpus.
+        second = a sequence of labels of length first.shape[0] representing the labels of each vertex.
+
+        Returns
+        -------
+        co_occurence: scipy.sparse.csr_matrix
+            A weighted label co-occurence count matrix
+        """
+        self.fit(X)
+        return self.cooccurrences_
 
 
 class DistributionVectorizer(BaseEstimator, TransformerMixin):

@@ -11,6 +11,7 @@ from vectorizers import SkipgramVectorizer
 from vectorizers import DistributionVectorizer
 from vectorizers import HistogramVectorizer
 from vectorizers import KDEVectorizer
+from vectorizers import LabeledTreeCooccurrenceVectorizer
 
 from vectorizers import SequentialDifferenceTransformer
 from vectorizers import Wasserstein1DHistogramTransformer
@@ -22,6 +23,7 @@ from vectorizers._vectorizers import (
     find_bin_boundaries,
     build_tree_skip_grams,
     remove_node,
+    sequence_tree_skip_grams,
 )
 from vectorizers._window_kernels import (
     harmonic_kernel,
@@ -106,16 +108,88 @@ value_sequence_data = [
 path_graph = scipy.sparse.csr_matrix(
     [[0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1], [0, 0, 0, 0]]
 )
+path_graph_labels = np.array(["a", "b", "a", "c"])
 path_graph_two_out = scipy.sparse.csr_matrix(
     [[0, 1, 1, 0], [0, 0, 1, 1], [0, 0, 0, 1], [0, 0, 0, 0]]
 )
+unique_labels = np.array(["a", "b", "c", "d"])
+shifted_labels = np.array(["b", "c", "d", "e"])
+tree_sequence = [(path_graph, unique_labels), (path_graph, shifted_labels)]
+label_dictionary = {"a": 0, "b": 1, "c": 2, "d": 3, "e": 4}
+sub_dictionary = {"a": 0, "b": 1, "c": 2}
 
 
-def test_build_tree_skip_grams():
-    result = build_tree_skip_grams(
-        path_graph, kernel_function=flat_kernel, window_size=2
+def test_LabeledTreeCooccurrenceVectorizer():
+    model = LabeledTreeCooccurrenceVectorizer(
+        window_radius=2, window_orientation="after"
     )
-    assert np.allclose(result.toarray(), path_graph_two_out.toarray())
+    result = model.fit_transform(tree_sequence)
+    expected_result = scipy.sparse.csr_matrix(
+        np.array(
+            [
+                [0, 1, 1, 0, 0],
+                [0, 0, 2, 2, 0],
+                [0, 0, 0, 2, 1],
+                [0, 0, 0, 0, 1],
+                [0, 0, 0, 0, 0],
+            ]
+        )
+    )
+    assert np.allclose(result.toarray(), expected_result.toarray())
+
+
+def test_LabeledTreeCooccurrenceVectorizer_reduced_vocab():
+    model = LabeledTreeCooccurrenceVectorizer(
+        window_radius=2, window_orientation="after", token_dictionary=sub_dictionary,
+    )
+    result = model.fit_transform(tree_sequence)
+    assert result.shape == (3, 3)
+
+
+def test_build_tree_skip_grams_contract():
+    (result_matrix, result_labels) = build_tree_skip_grams(
+        token_sequence=path_graph_labels,
+        adjacency_matrix=path_graph,
+        kernel_function=flat_kernel,
+        window_size=2,
+    )
+    expected_result = scipy.sparse.csr_matrix(
+        [[1.0, 1.0, 1.0], [1.0, 0.0, 1.0], [0.0, 0.0, 0.0]]
+    )
+    assert np.allclose(result_matrix.toarray(), expected_result.toarray())
+
+
+def test_build_tree_skip_grams_no_contract():
+    (result_matrix, result_labels) = build_tree_skip_grams(
+        token_sequence=unique_labels,
+        adjacency_matrix=path_graph,
+        kernel_function=flat_kernel,
+        window_size=2,
+    )
+    assert np.allclose(result_matrix.toarray(), path_graph_two_out.toarray())
+    assert np.array_equal(unique_labels, result_labels)
+
+
+def test_sequence_tree_skip_grams():
+    result = sequence_tree_skip_grams(
+        tree_sequence,
+        kernel_function=flat_kernel,
+        window_size=2,
+        label_dictionary=label_dictionary,
+        window_orientation="after",
+    )
+    expected_result = scipy.sparse.csr_matrix(
+        np.array(
+            [
+                [0, 1, 1, 0, 0],
+                [0, 0, 2, 2, 0],
+                [0, 0, 0, 2, 1],
+                [0, 0, 0, 0, 1],
+                [0, 0, 0, 0, 0],
+            ]
+        )
+    )
+    assert np.allclose(result.toarray(), expected_result.toarray())
 
 
 def test_harmonic_kernel():
