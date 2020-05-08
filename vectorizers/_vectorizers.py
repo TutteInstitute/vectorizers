@@ -411,14 +411,15 @@ def preprocess_tree_sequences(
         for node_index in node_index_to_remove:
             remove_node(result_matrix, node_index)
 
-        # Eliminate the zero row/columns and trim the label_sequence
+        #  If we want to eliminate the zero row/columns and trim the label_sequence:
+        #
+        #  label_in_dictionary = np.array([x in token_dictionary for x in label_sequence])
+        #  result_matrix = result_matrix.tocsr()[label_in_dictionary, :]
+        #  result_matrix = result_matrix.T[label_in_dictionary, :].T.tocoo()
+        #  result_labels = label_sequence[label_in_dictionary]
+        #  result_sequence.append((result_matrix, result_labels))
 
-        label_in_dictionary = np.array([x in token_dictionary for x in label_sequence])
-        result_matrix = result_matrix.tocsr()[label_in_dictionary, :]
-        result_matrix = result_matrix.T[label_in_dictionary, :].T.tocoo()
-        result_labels = label_sequence[label_in_dictionary]
-
-        result_sequence.append((result_matrix, result_labels))
+        result_sequence.append((result_matrix, label_sequence))
 
     return (
         result_sequence,
