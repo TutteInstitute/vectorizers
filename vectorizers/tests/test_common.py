@@ -195,8 +195,8 @@ def test_equality_of_CooccurrenceVectorizers(
     )
 
     assert np.allclose(
-        tree_model.fit_transform(seq_tree_sequence).toarray(),
         tree_model.transform(seq_tree_sequence).toarray(),
+        seq_model.transform(text_token_data_permutation).toarray(),
     )
 
 def test_build_tree_skip_grams_contract():
