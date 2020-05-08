@@ -118,6 +118,15 @@ tree_sequence = [(path_graph, unique_labels), (path_graph, shifted_labels)]
 label_dictionary = {"a": 0, "b": 1, "c": 2, "d": 3, "e": 4}
 sub_dictionary = {"a": 0, "b": 1, "c": 2}
 
+seq_tree_sequence = [
+    (scipy.sparse.csr_matrix([[0, 1], [0, 0]]), np.array(["wer", "pok"])),
+    (scipy.sparse.csr_matrix([[0, 1], [0, 0]]), np.array(["bar", "pok"])),
+    (
+        scipy.sparse.csr_matrix([[0, 1, 0], [0, 0, 1], [0, 0, 0]]),
+        np.array(["foo", "pok", "wer"]),
+    ),
+]
+
 
 def test_LabeledTreeCooccurrenceVectorizer():
     model = LabelledTreeCooccurrenceVectorizer(
@@ -145,6 +154,50 @@ def test_LabeledTreeCooccurrenceVectorizer_reduced_vocab():
     result = model.fit_transform(tree_sequence)
     assert result.shape == (3, 3)
 
+
+@pytest.mark.parametrize("min_token_occurrences", [None, 2])
+@pytest.mark.parametrize("max_token_occurrences", [None, 2])
+@pytest.mark.parametrize("min_document_occurrences", [None, 1])
+@pytest.mark.parametrize("max_document_frequency", [None, 0.7])
+@pytest.mark.parametrize("window_orientation", ["before", "after", "symmetric"])
+@pytest.mark.parametrize("window_radius", [1, 2])
+@pytest.mark.parametrize("kernel_function", ["harmonic", "flat"])
+def test_equality_of_CooccurrenceVectorizers(
+    min_token_occurrences,
+    max_token_occurrences,
+    min_document_occurrences,
+    max_document_frequency,
+    window_radius,
+    window_orientation,
+    kernel_function,
+):
+    tree_model = LabelledTreeCooccurrenceVectorizer(
+        window_radius=window_radius,
+        window_orientation=window_orientation,
+        kernel_function=kernel_function,
+        min_occurrences=min_token_occurrences,
+        max_occurrences=max_token_occurrences,
+        max_tree_frequency=max_document_frequency,
+        min_tree_occurrences=min_document_occurrences,
+    )
+    seq_model = TokenCooccurrenceVectorizer(
+        window_radius=window_radius,
+        window_orientation=window_orientation,
+        kernel_function=kernel_function,
+        min_occurrences=min_token_occurrences,
+        max_occurrences=max_token_occurrences,
+        max_document_frequency=max_document_frequency,
+        min_document_occurrences=min_document_occurrences,
+    )
+    assert np.allclose(
+        tree_model.fit_transform(seq_tree_sequence).toarray(),
+        seq_model.fit_transform(text_token_data_permutation).toarray(),
+    )
+
+    assert np.allclose(
+        tree_model.transform(seq_tree_sequence).toarray(),
+        seq_model.transform(text_token_data_permutation).toarray(),
+    )
 
 def test_build_tree_skip_grams_contract():
     (result_matrix, result_labels) = build_tree_skip_grams(
@@ -384,6 +437,34 @@ def test_ngram_vectorizer_mixed():
         vectorizer.fit_transform(mixed_token_data)
 
 
+def test_ngram_vectorizer_min_doc():
+    vectorizer = NgramVectorizer(min_document_occurrences=2)
+    count_matrix = vectorizer.fit_transform(text_token_data_permutation)
+    assert count_matrix.shape == (3, 2)
+    assert np.all(count_matrix.toarray() == np.array([[1, 1], [1, 0], [1, 1]]))
+
+
+def test_ngram_vectorizer_min_doc_freq():
+    vectorizer = NgramVectorizer(min_document_frequency=0.6)
+    count_matrix = vectorizer.fit_transform(text_token_data_permutation)
+    assert count_matrix.shape == (3, 2)
+    assert np.all(count_matrix.toarray() == np.array([[1, 1], [1, 0], [1, 1]]))
+
+
+def test_ngram_vectorizer_max_doc():
+    vectorizer = NgramVectorizer(max_document_occurrences=1)
+    count_matrix = vectorizer.fit_transform(text_token_data_permutation)
+    assert count_matrix.shape == (3, 2)
+    assert np.all(count_matrix.toarray() == np.array([[0, 0], [1, 0], [0, 1]]))
+
+
+def test_ngram_vectorizer_max_doc_freq():
+    vectorizer = NgramVectorizer(max_document_frequency=0.4)
+    count_matrix = vectorizer.fit_transform(text_token_data_permutation)
+    assert count_matrix.shape == (3, 2)
+    assert np.all(count_matrix.toarray() == np.array([[0, 0], [1, 0], [0, 1]]))
+
+
 def test_skipgram_vectorizer_basic():
     vectorizer = SkipgramVectorizer()
     result = vectorizer.fit_transform(token_data)
@@ -391,6 +472,20 @@ def test_skipgram_vectorizer_basic():
     transform_result = vectorizer.transform(token_data)
     assert np.all(transform_result.data == result.data)
     assert np.all(transform_result.tocoo().col == result.tocoo().col)
+
+
+def test_skipram_vectorizer_max_doc():
+    vectorizer = SkipgramVectorizer(max_document_occurrences=2)
+    count_matrix = vectorizer.fit_transform(text_token_data_permutation)
+    assert count_matrix.shape == (3, 1)
+    assert np.all(count_matrix.toarray() == np.array([[0], [0], [1]]))
+
+
+def test_skipram_vectorizer_min_doc():
+    vectorizer = SkipgramVectorizer(min_document_occurrences=2)
+    count_matrix = vectorizer.fit_transform(text_token_data_permutation)
+    assert count_matrix.shape == (3, 2)
+    assert np.all(count_matrix.toarray() == np.array([[0, 1], [0, 0], [1, 0]]))
 
 
 def test_skipgram_vectorizer_text():
