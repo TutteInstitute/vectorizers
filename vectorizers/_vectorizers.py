@@ -1535,7 +1535,7 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             self.column_label_dictionary_,
             self.column_index_dictionary_,
             self._token_frequencies_,
-        ) = preprocess_tree_sequences(X, flat_sequences, self.token_dictionary,)
+        ) = preprocess_tree_sequences(X, flat_sequences, self.column_label_dictionary_,)
 
         if callable(self.kernel_function):
             self._kernel_function = self.kernel_function

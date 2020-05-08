@@ -171,7 +171,7 @@ def test_equality_of_CooccurrenceVectorizers(
     window_orientation,
     kernel_function,
 ):
-    tree_model = LabeledTreeCooccurrenceVectorizer(
+    tree_model = LabelledTreeCooccurrenceVectorizer(
         window_radius=window_radius,
         window_orientation=window_orientation,
         kernel_function=kernel_function,
@@ -194,6 +194,10 @@ def test_equality_of_CooccurrenceVectorizers(
         seq_model.fit_transform(text_token_data_permutation).toarray(),
     )
 
+    assert np.allclose(
+        tree_model.fit_transform(seq_tree_sequence).toarray(),
+        tree_model.transform(seq_tree_sequence).toarray(),
+    )
 
 def test_build_tree_skip_grams_contract():
     (result_matrix, result_labels) = build_tree_skip_grams(
