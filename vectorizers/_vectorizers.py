@@ -413,7 +413,7 @@ def preprocess_tree_sequences(
 
         # Eliminate the zero row/columns and trim the label_sequence
 
-        label_in_dictionary = np.array([x in token_dictionary_ for x in label_sequence])
+        label_in_dictionary = np.array([x in token_dictionary for x in label_sequence])
         result_matrix = result_matrix.tocsr()[label_in_dictionary, :]
         result_matrix = result_matrix.T[label_in_dictionary, :].T.tocoo()
         result_labels = label_sequence[label_in_dictionary]

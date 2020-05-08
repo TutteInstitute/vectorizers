@@ -39,6 +39,9 @@ def sparse_collapse(matrix, labels, sparse=True):
     labels: array of length (unique_labels)
         This is the array of the labels of the rows and columns of our matrix.
     """
+    if len(labels) == 0:
+        return matrix, labels
+
     transformer = LabelBinarizer(sparse_output=sparse)
     trans = transformer.fit_transform(labels)
     if (trans.shape[1]) == 1:
