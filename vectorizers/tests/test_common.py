@@ -11,7 +11,7 @@ from vectorizers import SkipgramVectorizer
 from vectorizers import DistributionVectorizer
 from vectorizers import HistogramVectorizer
 from vectorizers import KDEVectorizer
-from vectorizers import LabeledTreeCooccurrenceVectorizer
+from vectorizers import LabelledTreeCooccurrenceVectorizer
 
 from vectorizers import SequentialDifferenceTransformer
 from vectorizers import Wasserstein1DHistogramTransformer
@@ -129,7 +129,7 @@ seq_tree_sequence = [
 
 
 def test_LabeledTreeCooccurrenceVectorizer():
-    model = LabeledTreeCooccurrenceVectorizer(
+    model = LabelledTreeCooccurrenceVectorizer(
         window_radius=2, window_orientation="after"
     )
     result = model.fit_transform(tree_sequence)
@@ -148,7 +148,7 @@ def test_LabeledTreeCooccurrenceVectorizer():
 
 
 def test_LabeledTreeCooccurrenceVectorizer_reduced_vocab():
-    model = LabeledTreeCooccurrenceVectorizer(
+    model = LabelledTreeCooccurrenceVectorizer(
         window_radius=2, window_orientation="after", token_dictionary=sub_dictionary,
     )
     result = model.fit_transform(tree_sequence)
