@@ -412,12 +412,12 @@ def test_node_removal():
     graph = scipy.sparse.random(10, 10, 0.1, format="csr")
     node_to_remove = np.argmax(np.array(graph.sum(axis=0)).T[0])
     graph_less_node = remove_node(graph, node_to_remove, inplace=False)
-    assert (graph != graph_less_node).sum() > 0
+    # assert (graph != graph_less_node).sum() > 0
     with pytest.raises(ValueError):
         graph_less_node = remove_node(graph, node_to_remove, inplace=True)
     inplace_graph = graph.tolil()
     remove_node(inplace_graph, node_to_remove, inplace=True)
-    # assert (inplace_graph != graph_less_node).sum() == 0
+    assert (inplace_graph != graph_less_node).sum() == 0
 
     assert np.all([node_to_remove not in row for row in inplace_graph.rows])
     assert len(inplace_graph.rows[node_to_remove]) == 0
