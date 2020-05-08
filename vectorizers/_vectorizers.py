@@ -589,6 +589,17 @@ def remove_node(adjacency_matrix, node, inplace=True):
     # Copy the row we want to kill
     row_to_remove = adj.rows[node].copy()
     data_to_remove = adj.data[node].copy()
+    # Ensure we ignore any self-loops in the row
+    try:
+        index_to_remove = row_to_remove.index(node)
+        row_to_remove = (
+            row_to_remove[:index_to_remove] + row_to_remove[index_to_remove + 1 :]
+        )
+        data_to_remove = (
+            data_to_remove[:index_to_remove] + data_to_remove[index_to_remove + 1 :]
+        )
+    except ValueError:
+        pass
     # Process all the rows making changes as required
     for i in range(adj.rows.shape[0]):
         if i == node:
