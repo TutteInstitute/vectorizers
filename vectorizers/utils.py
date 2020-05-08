@@ -1,6 +1,7 @@
 import numpy as np
 import numba
 import scipy.stats
+import scipy.sparse
 import itertools
 from collections.abc import Iterable
 from sklearn.mixture import GaussianMixture
@@ -41,12 +42,15 @@ def sparse_collapse(matrix, labels, sparse=True):
     transformer = LabelBinarizer(sparse_output=sparse)
     trans = transformer.fit_transform(labels)
     if (trans.shape[1]) == 1:
+        trans = trans.toarray()
         if len(transformer.classes_) == 1:
             trans ^= 1
         else:
             trans = np.hstack([trans ^ 1, trans])
+        trans = scipy.sparse.csr_matrix(trans, dtype=np.float32, shape=trans.shape)
     result = trans.T @ matrix @ trans
     return result, transformer.classes_
+
 
 def cast_tokens_to_strings(data):
     """Given token data (either an iterator of tokens, or an iterator of iterators
@@ -88,12 +92,15 @@ def validate_homogeneous_token_types(data):
     types = Counter([type(x) for x in flatten(data)])
     if len(types) > 1:
         warn(f"Non-homogeneous token types encountered. Token type counts are: {types}")
-        raise ValueError("Heterogeneous token types are not supported -- please cast "
-                         "your tokens to a single type. You can use "
-                         "\"X = vectorizers.cast_tokens_to_string(X)\" to achieve "
-                         "this.")
+        raise ValueError(
+            "Heterogeneous token types are not supported -- please cast "
+            "your tokens to a single type. You can use "
+            '"X = vectorizers.cast_tokens_to_string(X)" to achieve '
+            "this."
+        )
     else:
         return True
+
 
 def gmm_component_likelihood(
     component_mean: np.ndarray, component_covar: np.ndarray, diagram: np.ndarray

@@ -41,6 +41,33 @@ import vectorizers.distances as distances
 from ._window_kernels import _KERNEL_FUNCTIONS, _WINDOW_FUNCTIONS
 
 
+def construct_document_frequency(token_by_doc_sequence, token_dictionary):
+    """Returns the frequency of documents that each token appears in.
+
+    Parameters
+    ----------
+    token_by_doc_sequence: Iterable
+        A sequence of sequences of tokens
+
+    token_dictionary: dictionary
+        A fixed dictionary providing the mapping of tokens to indices
+
+    Returns
+    -------
+    document_frequency: np.array
+        The document frequency of tokens ordered by token_dictionary
+    """
+
+    n_tokens = len(token_dictionary)
+    doc_freq = np.zeros(n_tokens)
+    for doc in token_by_doc_sequence:
+        doc_freq += np.bincount(
+            [token_dictionary[token] for token in set(doc)], minlength=n_tokens
+        )
+
+    return doc_freq / len(token_by_doc_sequence)
+
+
 def construct_token_dictionary_and_frequency(token_sequence, token_dictionary=None):
     """Construct a dictionary mapping tokens to indices and a table of token
     frequencies (where the frequency of token 'x' is given by token_frequencies[
@@ -95,13 +122,19 @@ def select_tokens_by_regex(tokens, regex):
 def prune_token_dictionary(
     token_dictionary,
     token_frequencies,
+    token_doc_frequencies=np.array([]),
     ignored_tokens=None,
     excluded_token_regex=None,
     min_frequency=0.0,
     max_frequency=1.0,
     min_occurrences=None,
     max_occurrences=None,
+    min_document_frequency=0.0,
+    max_document_frequency=1.0,
+    min_document_occurrences=None,
+    max_document_occurrences=None,
     total_tokens=None,
+    total_documents=None,
 ):
     """Prune the token dictionary based on constraints of tokens to ignore and
     min and max allowable token frequencies. This will remove any tokens that should
@@ -115,6 +148,9 @@ def prune_token_dictionary(
 
     token_frequencies: array of shape (len(token_dictionary),)
         The frequency of occurrence of the tokens in the dictionary
+
+    token_doc_frequencies: array of shape (len(token_dictionary),)
+        The frequency of documents with occurrences of the tokens in the dictionary
 
     ignored_tokens: set or None (optional, default=None)
         A set of tokens that should be ignored, and thus removed from the
@@ -135,9 +171,27 @@ def prune_token_dictionary(
     max_occurrences: int or None (optional, default=None)
         A constraint on the maximum number of occurrences for a token to be considered
         valid. If None then no constraint will be applied.
+    min_document_occurrences: int or None (optional, default=None)
+        A constraint on the minimum number of documents with occurrences for a token to be considered
+        valid. If None then no constraint will be applied.
+
+    max_document_occurrences: int or None (optional, default=None)
+        A constraint on the maximum number of documents with occurrences for a token to be considered
+        valid. If None then no constraint will be applied.
+
+    min_document_frequency: float or None (optional, default=None)
+        A constraint on the minimum frequency of documents with occurrences for a token to be
+        considered valid. If None then no constraint will be applied.
+
+    max_document_frequency: float or None (optional, default=None)
+        A constraint on the minimum frequency of documents with occurrences for a token to be
+        considered valid. If None then no constraint will be applied.
 
     total_tokens: int or None (optional, default=None)
         Must be set if you pass in min_occurrence and max_occurrence.
+
+    total_documents: int or None (optional, default=None)
+        Must be set if you pass in min_document_occurrence and max_document_occurrence.
 
     Returns
     -------
@@ -167,6 +221,28 @@ def prune_token_dictionary(
         else:
             max_frequency = min(1.0, max_occurrences / total_tokens)
 
+    ## Prune by document frequency
+
+    if min_document_occurrences is None:
+        if min_document_frequency is None:
+            min_document_frequency = 0.0
+    else:
+        if min_document_frequency is not None:
+            assert min_document_occurrences / total_documents == min_document_frequency
+        else:
+            min_document_frequency = min_document_occurrences / total_documents
+
+    if max_document_occurrences is None:
+        if max_document_frequency is None:
+            max_document_frequency = 1.0
+    else:
+        if max_document_frequency is not None:
+            assert max_document_occurrences / total_documents == max_document_frequency
+        else:
+            max_document_frequency = min(
+                1.0, max_document_occurrences / total_documents
+            )
+
     if ignored_tokens is not None:
         tokens_to_prune = set(ignored_tokens)
     else:
@@ -174,11 +250,16 @@ def prune_token_dictionary(
 
     reverse_token_dictionary = {index: word for word, index in token_dictionary.items()}
 
-    infrequent_tokens = np.where(token_frequencies <= min_frequency)[0]
-    frequent_tokens = np.where(token_frequencies >= max_frequency)[0]
+    infrequent_tokens = np.where(token_frequencies < min_frequency)[0]
+    frequent_tokens = np.where(token_frequencies > max_frequency)[0]
+
+    infrequent_doc_tokens = np.where(token_doc_frequencies < min_document_frequency)[0]
+    frequent_doc_tokens = np.where(token_doc_frequencies > max_document_frequency)[0]
 
     tokens_to_prune.update({reverse_token_dictionary[i] for i in infrequent_tokens})
     tokens_to_prune.update({reverse_token_dictionary[i] for i in frequent_tokens})
+    tokens_to_prune.update({reverse_token_dictionary[i] for i in infrequent_doc_tokens})
+    tokens_to_prune.update({reverse_token_dictionary[i] for i in frequent_doc_tokens})
 
     if excluded_token_regex is not None:
         tokens_to_prune.update(
@@ -202,6 +283,10 @@ def preprocess_tree_sequences(
     max_occurrences=None,
     min_frequency=None,
     max_frequency=None,
+    min_tree_occurrences=None,
+    max_tree_occurrences=None,
+    min_tree_frequency=None,
+    max_tree_frequency=None,
     ignored_tokens=None,
     excluded_token_regex=None,
 ):
@@ -243,6 +328,22 @@ def preprocess_tree_sequences(
         A constraint on the minimum frequency of occurrence for a token to be
         considered valid. If None then no constraint will be applied.
 
+    min_tree_occurrences: int or None (optional, default=None)
+        A constraint on the minimum number of trees with occurrences for a token to be considered
+        valid. If None then no constraint will be applied.
+
+    max_tree_occurrences: int or None (optional, default=None)
+        A constraint on the maximum number of trees with occurrences for a token to be considered
+        valid. If None then no constraint will be applied.
+
+    min_tree_frequency: float or None (optional, default=None)
+        A constraint on the minimum frequency of trees with occurrences for a token to be
+        considered valid. If None then no constraint will be applied.
+
+    max_tree_frequency: float or None (optional, default=None)
+        A constraint on the minimum frequency of trees with occurrences for a token to be
+        considered valid. If None then no constraint will be applied.
+
     ignored_tokens: set or None (optional, default=None)
         A set of tokens that should be ignored. If None then no tokens will
         be ignored.
@@ -265,16 +366,34 @@ def preprocess_tree_sequences(
     ) = construct_token_dictionary_and_frequency(flat_sequence, token_dictionary)
 
     if token_dictionary is None:
+        if {
+            min_tree_frequency,
+            min_tree_occurrences,
+            max_tree_frequency,
+            max_tree_occurrences,
+        } != {None}:
+            token_doc_frequencies = construct_document_frequency(
+                [tree[1] for tree in tree_sequences], token_dictionary_
+            )
+        else:
+            token_doc_frequencies = np.array([])
+
         token_dictionary, token_frequencies = prune_token_dictionary(
             token_dictionary_,
             token_frequencies,
+            token_doc_frequencies=token_doc_frequencies,
             ignored_tokens=ignored_tokens,
             excluded_token_regex=excluded_token_regex,
             min_frequency=min_frequency,
             max_frequency=max_frequency,
             min_occurrences=min_occurrences,
             max_occurrences=max_occurrences,
+            min_document_frequency=min_tree_frequency,
+            max_document_frequency=max_tree_frequency,
+            min_document_occurrences=min_tree_occurrences,
+            max_document_occurrences=max_tree_occurrences,
             total_tokens=total_tokens,
+            total_documents=len(tree_sequences),
         )
 
     inverse_token_dictionary = {
@@ -286,21 +405,20 @@ def preprocess_tree_sequences(
     result_sequence = []
     for adj_matrix, label_sequence in tree_sequences:
         node_index_to_remove = [
-            i for i, x in enumerate(label_sequence) if x not in token_dictionary_
+            i for i, x in enumerate(label_sequence) if x not in token_dictionary
         ]
         result_matrix = adj_matrix.tolil().copy()
         for node_index in node_index_to_remove:
             remove_node(result_matrix, node_index)
-        # TODO: It is tempting to eliminate the zero row/columns and trim the label_sequence
-        # It's currently not necessary since we will never see values here but might make the code
-        # more robust.  It might look like the following:
-        # label_in_dictionary = np.array([x in token_dictionary_ for x in label_sequence])
-        # result_matrix = result_matrix.tocsr()[label_in_dictionary, :]
-        # result_matrix = result_matrix.T[label_in_dictionary, :].T.tocoo()
-        # result_sequence = label_sequence[label_in_dictionary]
-        # result_sequence.append((result_matrix, result_sequence))
 
-        result_sequence.append((result_matrix, label_sequence))
+        # Eliminate the zero row/columns and trim the label_sequence
+
+        label_in_dictionary = np.array([x in token_dictionary_ for x in label_sequence])
+        result_matrix = result_matrix.tocsr()[label_in_dictionary, :]
+        result_matrix = result_matrix.T[label_in_dictionary, :].T.tocoo()
+        result_labels = label_sequence[label_in_dictionary]
+
+        result_sequence.append((result_matrix, result_labels))
 
     return (
         result_sequence,
@@ -318,6 +436,10 @@ def preprocess_token_sequences(
     max_occurrences=None,
     min_frequency=None,
     max_frequency=None,
+    min_document_occurrences=None,
+    max_document_occurrences=None,
+    min_document_frequency=None,
+    max_document_frequency=None,
     ignored_tokens=None,
     excluded_token_regex=None,
 ):
@@ -358,6 +480,22 @@ def preprocess_token_sequences(
         A constraint on the minimum frequency of occurrence for a token to be
         considered valid. If None then no constraint will be applied.
 
+    min_document_occurrences: int or None (optional, default=None)
+        A constraint on the minimum number of documents with occurrences for a token to be considered
+        valid. If None then no constraint will be applied.
+
+    max_document_occurrences: int or None (optional, default=None)
+        A constraint on the maximum number of documents with occurrences for a token to be considered
+        valid. If None then no constraint will be applied.
+
+    min_document_frequency: float or None (optional, default=None)
+        A constraint on the minimum frequency of documents with occurrences for a token to be
+        considered valid. If None then no constraint will be applied.
+
+    max_document_frequency: float or None (optional, default=None)
+        A constraint on the minimum frequency of documents with occurrences for a token to be
+        considered valid. If None then no constraint will be applied.
+
     ignored_tokens: set or None (optional, default=None)
         A set of tokens that should be ignored. If None then no tokens will
         be ignored.
@@ -383,16 +521,34 @@ def preprocess_token_sequences(
     ) = construct_token_dictionary_and_frequency(flat_sequence, token_dictionary)
 
     if token_dictionary is None:
+        if {
+            min_document_frequency,
+            min_document_occurrences,
+            max_document_frequency,
+            max_document_occurrences,
+        } != {None}:
+            token_doc_frequencies = construct_document_frequency(
+                token_sequences, token_dictionary_
+            )
+        else:
+            token_doc_frequencies = np.array([])
+
         token_dictionary, token_frequencies = prune_token_dictionary(
             token_dictionary_,
             token_frequencies,
+            token_doc_frequencies=token_doc_frequencies,
             ignored_tokens=ignored_tokens,
             excluded_token_regex=excluded_token_regex,
             min_frequency=min_frequency,
             max_frequency=max_frequency,
             min_occurrences=min_occurrences,
             max_occurrences=max_occurrences,
+            min_document_frequency=min_document_frequency,
+            max_document_frequency=max_document_frequency,
+            min_document_occurrences=min_document_occurrences,
+            max_document_occurrences=max_document_occurrences,
             total_tokens=total_tokens,
+            total_documents=len(token_sequences),
         )
 
     inverse_token_dictionary = {
@@ -708,7 +864,6 @@ def sequence_tree_skip_grams(
     n_tokens = len(label_dictionary)
     global_counts = scipy.sparse.coo_matrix((n_tokens, n_tokens))
     for adj_matrix, token_sequence in tree_sequences:
-        # TODO: Remove vertices who's token is not contained in label_dictionary
         (count_matrix, unique_labels,) = build_tree_skip_grams(
             token_sequence=token_sequence,
             adjacency_matrix=adj_matrix,
@@ -951,12 +1106,32 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
     min_frequency: float or None (optional, default=None)
         The minimal frequency of occurrence of a token for it to be considered and
         counted. If None then there is no constraint, or the constraint is
-        determined by min_occurences.
+        determined by min_occurrences.
 
     max_frequency: float or None (optional, default=None)
         The maximal frequency of occurrence of a token for it to be considered and
         counted. If None then there is no constraint, or the constraint is
-        determined by max_occurences.
+        determined by max_occurrences.
+
+    min_document_occurrences: int or None (optional, default=None)
+        The minimal number of documents with an occurrences of a token for the token to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by min_document_frequency.
+
+    max_document_occurrences int or None (optional, default=None)
+        The maximal number of documents with an occurrences of a token for the token to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by max_document_frequency.
+
+    min_document_frequency: float or None (optional, default=None)
+        The minimal frequency of documents with an occurrences of a token for the token to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by min_document_occurrences.
+
+    max_document_frequency: float or None (optional, default=None)
+        The maximal frequency documents with an occurrences of a token for the token to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by max_document_occurrences.
 
     ignored_tokens: set or None (optional, default=None)
         A set of tokens that should be ignored entirely. If None then no tokens will
@@ -995,6 +1170,10 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         max_occurrences=None,
         min_frequency=None,
         max_frequency=None,
+        min_document_occurrences=None,
+        max_document_occurrences=None,
+        min_document_frequency=None,
+        max_document_frequency=None,
         ignored_tokens=None,
         excluded_token_regex=None,
         window_function="fixed",
@@ -1008,6 +1187,10 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self.min_frequency = min_frequency
         self.max_occurrences = max_occurrences
         self.max_frequency = max_frequency
+        self.min_document_occurrences = min_document_occurrences
+        self.min_document_frequency = min_document_frequency
+        self.max_document_occurrences = max_document_occurrences
+        self.max_document_frequency = max_document_frequency
         self.ignored_tokens = ignored_tokens
         self.excluded_token_regex = excluded_token_regex
 
@@ -1037,6 +1220,10 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             max_occurrences=self.max_occurrences,
             min_frequency=self.min_frequency,
             max_frequency=self.max_frequency,
+            min_document_occurrences=self.min_document_occurrences,
+            max_document_occurrences=self.max_document_occurrences,
+            min_document_frequency=self.min_document_frequency,
+            max_document_frequency=self.max_document_frequency,
             ignored_tokens=self.ignored_tokens,
             excluded_token_regex=self.excluded_token_regex,
         )
@@ -1110,15 +1297,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             column_index_dictionary,
             token_frequencies,
         ) = preprocess_token_sequences(
-            X,
-            flat_sequences,
-            self.column_label_dictionary_,
-            min_occurrences=self.min_occurrences,
-            max_occurrences=self.max_occurrences,
-            min_frequency=self.min_frequency,
-            max_frequency=self.max_frequency,
-            ignored_tokens=self.ignored_tokens,
-            excluded_token_regex=self.excluded_token_regex,
+            X, flat_sequences, self.column_label_dictionary_,
         )
 
         cooccurrences = token_cooccurence_matrix(
@@ -1161,12 +1340,32 @@ class LabeledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
     min_frequency: float or None (optional, default=None)
         The minimal frequency of occurrence of a token for it to be considered and
         counted. If None then there is no constraint, or the constraint is
-        determined by min_occurences.
+        determined by min_occurrences.
 
     max_frequency: float or None (optional, default=None)
         The maximal frequency of occurrence of a token for it to be considered and
         counted. If None then there is no constraint, or the constraint is
-        determined by max_occurences.
+        determined by max_occurrences.
+
+    min_tree_occurrences: int or None (optional, default=None)
+        The minimal number of trees with an occurrences of a token for the token to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by min_tree_frequency.
+
+    max_tree_occurrences int or None (optional, default=None)
+        The maximal number of trees with an occurrences of a token for the token to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by max_tree_frequency.
+
+    min_tree_frequency: float or None (optional, default=None)
+        The minimal frequency of trees with an occurrences of a token for the token to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by min_tree_occurrences.
+
+    max_tree_frequency: float or None (optional, default=None)
+        The maximal frequency trees with an occurrences of a token for the token to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by max_tree_occurrences.
 
     ignored_tokens: set or None (optional, default=None)
         A set of tokens that should be ignored entirely. If None then no tokens will
@@ -1200,6 +1399,10 @@ class LabeledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         max_occurrences=None,
         min_frequency=None,
         max_frequency=None,
+        min_tree_occurrences=None,
+        max_tree_occurrences=None,
+        min_tree_frequency=None,
+        max_tree_frequency=None,
         ignored_tokens=None,
         excluded_token_regex=None,
         # window_function="fixed",
@@ -1214,6 +1417,10 @@ class LabeledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self.min_frequency = min_frequency
         self.max_occurrences = max_occurrences
         self.max_frequency = max_frequency
+        self.min_tree_occurrences = min_tree_occurrences
+        self.min_tree_frequency = min_tree_frequency
+        self.max_tree_occurrences = max_tree_occurrences
+        self.max_tree_frequency = max_tree_frequency
         self.ignored_tokens = ignored_tokens
         self.excluded_token_regex = excluded_token_regex
 
@@ -1255,6 +1462,10 @@ class LabeledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             max_occurrences=self.max_occurrences,
             min_frequency=self.min_frequency,
             max_frequency=self.max_frequency,
+            min_tree_occurrences=self.min_tree_occurrences,
+            max_tree_occurrences=self.max_tree_occurrences,
+            min_tree_frequency=self.min_tree_frequency,
+            max_tree_frequency=self.max_tree_frequency,
             ignored_tokens=self.ignored_tokens,
             excluded_token_regex=self.excluded_token_regex,
         )
@@ -1298,6 +1509,56 @@ class LabeledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         """
         self.fit(X)
         return self.cooccurrences_
+
+    def transform(self, X):
+        """
+        Takes a sequence of labelled trees and returns the weighted co-occurence counts of the labels
+        given the label vocabulary learned in the fit.
+
+        Parameters
+        ----------
+        X: Iterable of tuples (nd.array | scipy.sparse.csr_matrix, label_sequence)
+        An iterable of tuples the with
+        first = adjacency matrices of the tree's that make up your corpus.
+        second = a sequence of labels of length first.shape[0] representing the labels of each vertex.
+
+        Returns
+        -------
+        co_occurence: scipy.sparse.csr_matrix
+            A weighted label co-occurence count matrix
+        """
+
+        raw_token_sequences = [label_sequence for adjacency, label_sequence in X]
+        flat_sequences = flatten(raw_token_sequences)
+        (
+            clean_tree_sequence,
+            self.column_label_dictionary_,
+            self.column_index_dictionary_,
+            self._token_frequencies_,
+        ) = preprocess_tree_sequences(X, flat_sequences, self.token_dictionary,)
+
+        if callable(self.kernel_function):
+            self._kernel_function = self.kernel_function
+        elif self.kernel_function in _KERNEL_FUNCTIONS:
+            self._kernel_function = _KERNEL_FUNCTIONS[self.kernel_function]
+        else:
+            raise ValueError(
+                f"Unrecognized kernel_function; should be callable or one of {_KERNEL_FUNCTIONS.keys()}"
+            )
+
+        self._window_size = self.window_radius
+
+        # build token_cooccurence_matrix()
+        cooccurrences = sequence_tree_skip_grams(
+            clean_tree_sequence,
+            kernel_function=self._kernel_function,
+            window_size=self._window_size,
+            label_dictionary=self.column_label_dictionary_,
+            window_orientation=self.window_orientation,
+        )
+        cooccurrences.eliminate_zeros()
+
+        return cooccurrences
 
 
 class DistributionVectorizer(BaseEstimator, TransformerMixin):
@@ -1643,12 +1904,32 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
     min_frequency: float or None (optional, default=None)
         The minimal frequency of occurrence of a token for it to be considered and
         counted. If None then there is no constraint, or the constraint is
-        determined by min_occurences.
+        determined by min_occurrences.
 
     max_frequency: float or None (optional, default=None)
         The maximal frequency of occurrence of a token for it to be considered and
         counted. If None then there is no constraint, or the constraint is
-        determined by max_occurences.
+        determined by max_occurrences.
+
+    min_document_occurrences: int or None (optional, default=None)
+        The minimal number of documents with an occurrences of a token for the token to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by min_document_frequency.
+
+    max_document_occurrences int or None (optional, default=None)
+        The maximal number of documents with an occurrences of a token for the token to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by max_document_frequency.
+
+    min_document_frequency: float or None (optional, default=None)
+        The minimal frequency of documents with an occurrences of a token for the token to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by min_document_occurrences.
+
+    max_document_frequency: float or None (optional, default=None)
+        The maximal frequency documents with an occurrences of a token for the token to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by max_document_occurrences.
 
     ignored_tokens: set or None (optional, default=None)
         A set of tokens that should be ignored entirely. If None then no tokens will
@@ -1687,6 +1968,10 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
         max_occurrences=None,
         min_frequency=None,
         max_frequency=None,
+        min_document_occurrences=None,
+        max_document_occurrences=None,
+        min_document_frequency=None,
+        max_document_frequency=None,
         ignored_tokens=None,
         excluded_token_regex=None,
         window_function="fixed",
@@ -1699,6 +1984,10 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
         self.min_frequency = min_frequency
         self.max_occurrences = max_occurrences
         self.max_frequency = max_frequency
+        self.min_document_occurrences = min_document_occurrences
+        self.min_document_frequency = min_document_frequency
+        self.max_document_occurrences = max_document_occurrences
+        self.max_document_frequency = max_document_frequency
         self.ignored_tokens = ignored_tokens
         self.excluded_token_regex = excluded_token_regex
 
@@ -1726,6 +2015,10 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
             max_occurrences=self.max_occurrences,
             min_frequency=self.min_frequency,
             max_frequency=self.max_frequency,
+            min_document_occurrences=self.min_document_occurrences,
+            max_document_occurrences=self.max_document_occurrences,
+            min_document_frequency=self.min_document_frequency,
+            max_document_frequency=self.max_document_frequency,
             ignored_tokens=self.ignored_tokens,
             excluded_token_regex=self.excluded_token_regex,
         )
@@ -1800,11 +2093,7 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
         check_is_fitted(self, ["_token_dictionary_", "_column_is_kept",])
         flat_sequence = flatten(X)
         (token_sequences, _, _, _) = preprocess_token_sequences(
-            X,
-            flat_sequence,
-            self._token_dictionary_,
-            ignored_tokens=self.ignored_tokens,
-            excluded_token_regex=self.excluded_token_regex,
+            X, flat_sequence, self._token_dictionary_,
         )
 
         n_unique_tokens = len(self._token_dictionary_)
@@ -1866,6 +2155,26 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         counted. If None then there is no constraint, or the constraint is
         determined by max_occurences.
 
+    min_document_occurrences: int or None (optional, default=None)
+        The minimal number of documents with an occurrences of a token for the token to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by min_document_frequency.
+
+    max_document_occurrences int or None (optional, default=None)
+        The maximal number of documents with an occurrences of a token for the token to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by max_document_frequency.
+
+    min_document_frequency: float or None (optional, default=None)
+        The minimal frequency of documents with an occurrences of a token for the token to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by min_document_occurrences.
+
+    max_document_frequency: float or None (optional, default=None)
+        The maximal frequency documents with an occurrences of a token for the token to be considered and
+        counted. If None then there is no constraint, or the constraint is
+        determined by max_document_occurrences.
+
     ignored_tokens: set or None (optional, default=None)
         A set of tokens that should be ignored entirely. If None then no tokens will
         be ignored in this fashion.
@@ -1890,6 +2199,10 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         max_occurrences=None,
         min_frequency=None,
         max_frequency=None,
+        min_document_occurrences=None,
+        max_document_occurrences=None,
+        min_document_frequency=None,
+        max_document_frequency=None,
         ignored_tokens=None,
         excluded_token_regex=None,
         validate_data=True,
@@ -1902,6 +2215,10 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         self.min_frequency = min_frequency
         self.max_occurrences = max_occurrences
         self.max_frequency = max_frequency
+        self.min_document_occurrences = min_document_occurrences
+        self.min_document_frequency = min_document_frequency
+        self.max_document_occurrences = max_document_occurrences
+        self.max_document_frequency = max_document_frequency
         self.ignored_tokens = ignored_tokens
         self.excluded_token_regex = excluded_token_regex
         self.validate_data = validate_data
@@ -1925,6 +2242,10 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
             max_occurrences=self.max_occurrences,
             min_frequency=self.min_frequency,
             max_frequency=self.max_frequency,
+            min_document_occurrences=self.min_document_occurrences,
+            max_document_occurrences=self.max_document_occurrences,
+            min_document_frequency=self.min_document_frequency,
+            max_document_frequency=self.max_document_frequency,
             ignored_tokens=self.ignored_tokens,
             excluded_token_regex=self.excluded_token_regex,
         )
@@ -2008,11 +2329,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         )
         flat_sequence = flatten(X)
         (token_sequences, _, _, _) = preprocess_token_sequences(
-            X,
-            flat_sequence,
-            self._token_dictionary_,
-            ignored_tokens=self.ignored_tokens,
-            excluded_token_regex=self.excluded_token_regex,
+            X, flat_sequence, self._token_dictionary_,
         )
 
         indptr = [0]
