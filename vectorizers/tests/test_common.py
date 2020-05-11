@@ -199,6 +199,7 @@ def test_equality_of_CooccurrenceVectorizers(
         seq_model.transform(text_token_data_permutation).toarray(),
     )
 
+
 def test_build_tree_skip_grams_contract():
     (result_matrix, result_labels) = build_tree_skip_grams(
         token_sequence=path_graph_labels,
@@ -312,6 +313,31 @@ def test_token_cooccurrence_vectorizer_basic():
     assert (result != transform).nnz == 0
     assert result[0, 2] == 8
     assert result[1, 0] == 6
+
+
+def test_token_cooccurrence_vectorizer_orientation():
+    vectorizer = TokenCooccurrenceVectorizer(
+        window_radius=1, window_orientation="directional"
+    )
+    result = vectorizer.fit_transform(text_token_data)
+    assert result.shape == (4, 8)
+    # Check the pok preceded by wer value is 1
+    row = vectorizer.token_label_dictionary_["pok"]
+    col = vectorizer.column_label_dictionary_["pre_wer"]
+    assert result[row, col] == 1
+    result_before = TokenCooccurrenceVectorizer(
+        window_orientation="before"
+    ).fit_transform(text_token_data)
+    result_after = TokenCooccurrenceVectorizer(
+        window_orientation="after"
+    ).fit_transform(text_token_data)
+    assert np.all(result_after.toarray() == (result_before.transpose()).toarray())
+    result_symmetric = TokenCooccurrenceVectorizer(
+        window_orientation="symmetric"
+    ).fit_transform(text_token_data)
+    assert np.all(
+        result_symmetric.toarray() == (result_before + result_after).toarray()
+    )
 
 
 def test_token_cooccurrence_vectorizer_column_order():
