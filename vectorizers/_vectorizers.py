@@ -942,9 +942,9 @@ def token_cooccurrence_matrix(
         A dictionary mapping tokens to indices
 
     window_orientation: string (['before', 'after', 'symmetric', 'directional'])
-        The orientation of the cooccurence window.  Whether to return all the tokens that
+        The orientation of the cooccurrence window.  Whether to return all the tokens that
         occurred within a window before, after on either side.
-        symmetric: counts tokens occuring before and after as the same tokens
+        symmetric: counts tokens occurring before and after as the same tokens
         directional: counts tokens before and after as different and returns both counts.
 
     Returns
@@ -1163,9 +1163,9 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         A dictionary mapping tokens to indices
 
     window_orientation: string (['before', 'after', 'symmetric', 'directional'])
-        The orientation of the cooccurence window.  Whether to return all the tokens that
+        The orientation of the cooccurrence window.  Whether to return all the tokens that
         occurred within a window before, after on either side.
-        symmetric: counts tokens occuring before and after as the same tokens
+        symmetric: counts tokens occurring before and after as the same tokens
         directional: counts tokens before and after as different and returns both counts.
 
     validate_data: bool (optional, default=True)
@@ -1340,7 +1340,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
 class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
     """
-    Takes a sequence of labelled trees and counts and produces a co-occurence count matrix
+    Takes a sequence of labelled trees and counts and produces a cooccurrence count matrix
     of their labels.
     For our purposes we take a labelled tree to be a tuple containing an adjacency matrix and an
     array of it's vertex labels.
@@ -1409,9 +1409,11 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
     token_dictionary: dictionary or None (optional, default=None)
         A dictionary mapping tokens to indices
 
-    window_orientation: string (['before', 'after', 'symmetric'])
+    window_orientation: string (['before', 'after', 'symmetric', 'directional'])
         The orientation of the cooccurrence window.  Whether to return all the tokens that
-        occurred within a window before, after or on either side.
+        occurred within a window before, after on either side.
+        symmetric: counts tokens occurring before and after as the same tokens
+        directional: counts tokens before and after as different and returns both counts.
 
     validate_data: bool (optional, default=True)
         Check whether the data is valid (e.g. of homogeneous token type).
@@ -1457,7 +1459,7 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
     def fit(self, X, y=None, **fit_params):
         """
-        Takes a sequence of labelled trees and learns the weighted co-occurence counts of the labels.
+        Takes a sequence of labelled trees and learns the weighted cooccurrence counts of the labels.
         Parameters
         ----------
         X: Iterable of tuples (nd.array | scipy.sparse.csr_matrix, label_sequence)
@@ -1470,7 +1472,7 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self
         """
         # Filter and process the raw token counts and build the token dictionaries.
-        # WARNING: We count isolated vertices as an occurence of a label.  It's a feature.
+        # WARNING: We count isolated vertices as an occurrence of a label.  It's a feature.
         raw_token_sequences = [label_sequence for adjacency, label_sequence in X]
         flat_sequences = flatten(raw_token_sequences)
         (
@@ -1518,7 +1520,7 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
     def fit_transform(self, X, y=None, **fit_params):
         """
-        Takes a sequence of labelled trees and learns the weighted co-occurence counts of the labels.
+        Takes a sequence of labelled trees and learns the weighted cooccurrence counts of the labels.
         Parameters
         ----------
         X: Iterable of tuples (nd.array | scipy.sparse.csr_matrix, label_sequence)
@@ -1528,15 +1530,15 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
         Returns
         -------
-        co_occurence: scipy.sparse.csr_matrix
-            A weighted label co-occurence count matrix
+        cooccurrence matrix: scipy.sparse.csr_matrix
+            A weighted label cooccurrence count matrix
         """
         self.fit(X)
         return self.cooccurrences_
 
     def transform(self, X):
         """
-        Takes a sequence of labelled trees and returns the weighted co-occurence counts of the labels
+        Takes a sequence of labelled trees and returns the weighted cooccurrence counts of the labels
         given the label vocabulary learned in the fit.
 
         Parameters
@@ -1548,8 +1550,8 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
         Returns
         -------
-        co_occurence: scipy.sparse.csr_matrix
-            A weighted label co-occurence count matrix
+        cooccurrence matrix: scipy.sparse.csr_matrix
+            A weighted label cooccurrence count matrix
         """
 
         raw_token_sequences = [label_sequence for adjacency, label_sequence in X]
@@ -1905,7 +1907,7 @@ class CyclicHistogramVectorizer(BaseEstimator, TransformerMixin):
 class SkipgramVectorizer(BaseEstimator, TransformerMixin):
     """Given a sequence, or list of sequences of tokens, produce a
     kernel weighted count matrix of ordered pairs of tokens occurring in a window.
-    If passed a single sequence of tokens it  will use windows to determine co-occurrence.
+    If passed a single sequence of tokens it  will use windows to determine cooccurrence.
     If passed a list of sequences of tokens it will use windows within each sequence in the list
     -- with windows not extending beyond the boundaries imposed by the individual sequences in the list.
 
