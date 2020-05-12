@@ -411,14 +411,15 @@ def preprocess_tree_sequences(
         for node_index in node_index_to_remove:
             remove_node(result_matrix, node_index)
 
-        # Eliminate the zero row/columns and trim the label_sequence
+        #  If we want to eliminate the zero row/columns and trim the label_sequence:
+        #
+        #  label_in_dictionary = np.array([x in token_dictionary for x in label_sequence])
+        #  result_matrix = result_matrix.tocsr()[label_in_dictionary, :]
+        #  result_matrix = result_matrix.T[label_in_dictionary, :].T.tocoo()
+        #  result_labels = label_sequence[label_in_dictionary]
+        #  result_sequence.append((result_matrix, result_labels))
 
-        label_in_dictionary = np.array([x in token_dictionary for x in label_sequence])
-        result_matrix = result_matrix.tocsr()[label_in_dictionary, :]
-        result_matrix = result_matrix.T[label_in_dictionary, :].T.tocoo()
-        result_labels = label_sequence[label_in_dictionary]
-
-        result_sequence.append((result_matrix, result_labels))
+        result_sequence.append((result_matrix, label_sequence))
 
     return (
         result_sequence,
@@ -589,6 +590,17 @@ def remove_node(adjacency_matrix, node, inplace=True):
     # Copy the row we want to kill
     row_to_remove = adj.rows[node].copy()
     data_to_remove = adj.data[node].copy()
+    # Ensure we ignore any self-loops in the row
+    try:
+        index_to_remove = row_to_remove.index(node)
+        row_to_remove = (
+            row_to_remove[:index_to_remove] + row_to_remove[index_to_remove + 1 :]
+        )
+        data_to_remove = (
+            data_to_remove[:index_to_remove] + data_to_remove[index_to_remove + 1 :]
+        )
+    except ValueError:
+        pass
     # Process all the rows making changes as required
     for i in range(adj.rows.shape[0]):
         if i == node:

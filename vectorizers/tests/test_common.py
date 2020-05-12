@@ -620,6 +620,12 @@ def test_wass1d_transfomer():
 
 def test_node_removal():
     graph = scipy.sparse.random(10, 10, 0.1, format="csr")
+    graph.data = np.ones_like(graph.data)
+    # # Remove self-loops
+    # for i in range(10):
+    #     if graph[i, i] != 0:
+    #         graph[i, i] = 0
+    # graph.eliminate_zeros()
     node_to_remove = np.argmax(np.array(graph.sum(axis=0)).T[0])
     graph_less_node = remove_node(graph, node_to_remove, inplace=False)
     # assert (graph != graph_less_node).sum() > 0
