@@ -1104,7 +1104,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
     Parameters
     ----------
     token_dictionary: dictionary or None (optional, default=None)
-        A fixed ditionary mapping tokens to indices, or None if the dictionary
+        A fixed dictionary mapping tokens to indices, or None if the dictionary
         should be learned from the training data.
 
     min_occurrences: int or None (optional, default=None)
