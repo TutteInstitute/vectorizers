@@ -224,13 +224,16 @@ def test_build_tree_skip_grams_no_contract():
     assert np.array_equal(unique_labels, result_labels)
 
 
-def test_sequence_tree_skip_grams():
+@pytest.mark.parametrize(
+    "window_orientation", ["before", "after", "symmetric", "directional"]
+)
+def test_sequence_tree_skip_grams(window_orientation):
     result = sequence_tree_skip_grams(
         tree_sequence,
         kernel_function=flat_kernel,
         window_size=2,
         label_dictionary=label_dictionary,
-        window_orientation="after",
+        window_orientation=window_orientation,
     )
     expected_result = scipy.sparse.csr_matrix(
         np.array(
@@ -243,7 +246,19 @@ def test_sequence_tree_skip_grams():
             ]
         )
     )
-    assert np.allclose(result.toarray(), expected_result.toarray())
+    if window_orientation == "before":
+        assert np.allclose(result.toarray(), expected_result.T.toarray())
+    elif window_orientation == "after":
+        assert np.allclose(result.toarray(), expected_result.toarray())
+    elif window_orientation == "symmetric":
+        assert np.allclose(
+            result.toarray(), (expected_result + expected_result.T).toarray()
+        )
+    elif window_orientation == "directional":
+        assert np.allclose(
+            result.toarray(),
+            scipy.sparse.hstack([expected_result.T, expected_result]).toarray(),
+        )
 
 
 def test_harmonic_kernel():
@@ -344,8 +359,8 @@ def test_token_cooccurrence_vectorizer_column_order():
     vectorizer = TokenCooccurrenceVectorizer().fit(text_token_data)
     vectorizer_permuted = TokenCooccurrenceVectorizer().fit(text_token_data_permutation)
     assert (
-        vectorizer.column_label_dictionary_
-        == vectorizer_permuted.column_label_dictionary_
+        vectorizer.token_label_dictionary_
+        == vectorizer_permuted.token_label_dictionary_
     )
 
 

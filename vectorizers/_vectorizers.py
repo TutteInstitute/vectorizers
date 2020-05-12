@@ -856,6 +856,11 @@ def sequence_tree_skip_grams(
         A dictionary mapping from your valid label set to indices.  This is used as the global
         alignment for your new label space.  All tokens still present in your tree sequences must
         exist within your label_dictionary.
+    window_orientation: string (['before', 'after', 'symmetric', 'directional'])
+        The orientation of the cooccurrence window.  Whether to return all the tokens that
+        occurred within a window before, after on either side.
+        symmetric: counts tokens occurring before and after as the same tokens
+        directional: counts tokens before and after as different and returns both counts.
 
     Returns
     -------
@@ -888,9 +893,11 @@ def sequence_tree_skip_grams(
         global_counts += global_counts.T
     elif window_orientation == "after":
         pass
+    elif window_orientation == 'directional':
+        global_counts = scipy.sparse.hstack([global_counts.T, global_counts])
     else:
         raise ValueError(
-            f"Sorry your window_orientation must be one of ['before', 'after', 'symmetric'].  "
+            f"Sorry your window_orientation must be one of ['before', 'after', 'symmetric', 'directional']. "
             f"You passed us {window_orientation}"
         )
 
@@ -1477,8 +1484,8 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         flat_sequences = flatten(raw_token_sequences)
         (
             clean_tree_sequence,
-            self.column_label_dictionary_,
-            self.column_index_dictionary_,
+            self.token_label_dictionary_,
+            self.token_index_dictionary_,
             self._token_frequencies_,
         ) = preprocess_tree_sequences(
             X,
@@ -1512,9 +1519,28 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             clean_tree_sequence,
             kernel_function=self._kernel_function,
             window_size=self._window_size,
-            label_dictionary=self.column_label_dictionary_,
+            label_dictionary=self.token_label_dictionary_,
             window_orientation=self.window_orientation,
         )
+
+        if self.window_orientation in ["before", "after", "symmetric"]:
+            self.column_label_dictionary_ = self.token_label_dictionary_
+            self.column_index_dictionary_ = self.token_index_dictionary_
+        elif self.window_orientation == "directional":
+            self.column_label_dictionary_ = {
+                "pre_" + token: index
+                for token, index in self.token_label_dictionary_.items()
+            }
+            self.column_label_dictionary_.update(
+                {
+                    "post_" + token: index + len(self.token_label_dictionary_)
+                    for token, index in self.token_label_dictionary_.items()
+                }
+            )
+            self.column_index_dictionary_ = {
+                item[1]: item[0] for item in self.column_label_dictionary_.items()
+            }
+        self.metric_ = distances.sparse_hellinger
 
         return self
 
@@ -1558,10 +1584,10 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         flat_sequences = flatten(raw_token_sequences)
         (
             clean_tree_sequence,
-            self.column_label_dictionary_,
-            self.column_index_dictionary_,
+            self.token_label_dictionary_,
+            self.token_index_dictionary_,
             self._token_frequencies_,
-        ) = preprocess_tree_sequences(X, flat_sequences, self.column_label_dictionary_,)
+        ) = preprocess_tree_sequences(X, flat_sequences, self.token_label_dictionary_, )
 
         if callable(self.kernel_function):
             self._kernel_function = self.kernel_function
@@ -1579,7 +1605,7 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             clean_tree_sequence,
             kernel_function=self._kernel_function,
             window_size=self._window_size,
-            label_dictionary=self.column_label_dictionary_,
+            label_dictionary=self.token_label_dictionary_,
             window_orientation=self.window_orientation,
         )
         cooccurrences.eliminate_zeros()
