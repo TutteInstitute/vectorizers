@@ -199,6 +199,7 @@ def test_equality_of_CooccurrenceVectorizers(
         seq_model.transform(text_token_data_permutation).toarray(),
     )
 
+
 def test_build_tree_skip_grams_contract():
     (result_matrix, result_labels) = build_tree_skip_grams(
         token_sequence=path_graph_labels,
@@ -223,13 +224,16 @@ def test_build_tree_skip_grams_no_contract():
     assert np.array_equal(unique_labels, result_labels)
 
 
-def test_sequence_tree_skip_grams():
+@pytest.mark.parametrize(
+    "window_orientation", ["before", "after", "symmetric", "directional"]
+)
+def test_sequence_tree_skip_grams(window_orientation):
     result = sequence_tree_skip_grams(
         tree_sequence,
         kernel_function=flat_kernel,
         window_size=2,
         label_dictionary=label_dictionary,
-        window_orientation="after",
+        window_orientation=window_orientation,
     )
     expected_result = scipy.sparse.csr_matrix(
         np.array(
@@ -242,7 +246,19 @@ def test_sequence_tree_skip_grams():
             ]
         )
     )
-    assert np.allclose(result.toarray(), expected_result.toarray())
+    if window_orientation == "before":
+        assert np.allclose(result.toarray(), expected_result.T.toarray())
+    elif window_orientation == "after":
+        assert np.allclose(result.toarray(), expected_result.toarray())
+    elif window_orientation == "symmetric":
+        assert np.allclose(
+            result.toarray(), (expected_result + expected_result.T).toarray()
+        )
+    elif window_orientation == "directional":
+        assert np.allclose(
+            result.toarray(),
+            scipy.sparse.hstack([expected_result.T, expected_result]).toarray(),
+        )
 
 
 def test_harmonic_kernel():
@@ -314,12 +330,37 @@ def test_token_cooccurrence_vectorizer_basic():
     assert result[1, 0] == 6
 
 
+def test_token_cooccurrence_vectorizer_orientation():
+    vectorizer = TokenCooccurrenceVectorizer(
+        window_radius=1, window_orientation="directional"
+    )
+    result = vectorizer.fit_transform(text_token_data)
+    assert result.shape == (4, 8)
+    # Check the pok preceded by wer value is 1
+    row = vectorizer.token_label_dictionary_["pok"]
+    col = vectorizer.column_label_dictionary_["pre_wer"]
+    assert result[row, col] == 1
+    result_before = TokenCooccurrenceVectorizer(
+        window_orientation="before"
+    ).fit_transform(text_token_data)
+    result_after = TokenCooccurrenceVectorizer(
+        window_orientation="after"
+    ).fit_transform(text_token_data)
+    assert np.all(result_after.toarray() == (result_before.transpose()).toarray())
+    result_symmetric = TokenCooccurrenceVectorizer(
+        window_orientation="symmetric"
+    ).fit_transform(text_token_data)
+    assert np.all(
+        result_symmetric.toarray() == (result_before + result_after).toarray()
+    )
+
+
 def test_token_cooccurrence_vectorizer_column_order():
     vectorizer = TokenCooccurrenceVectorizer().fit(text_token_data)
     vectorizer_permuted = TokenCooccurrenceVectorizer().fit(text_token_data_permutation)
     assert (
-        vectorizer.column_label_dictionary_
-        == vectorizer_permuted.column_label_dictionary_
+        vectorizer.token_label_dictionary_
+        == vectorizer_permuted.token_label_dictionary_
     )
 
 

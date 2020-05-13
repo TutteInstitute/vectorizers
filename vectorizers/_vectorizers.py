@@ -411,14 +411,15 @@ def preprocess_tree_sequences(
         for node_index in node_index_to_remove:
             remove_node(result_matrix, node_index)
 
-        # Eliminate the zero row/columns and trim the label_sequence
+        #  If we want to eliminate the zero row/columns and trim the label_sequence:
+        #
+        #  label_in_dictionary = np.array([x in token_dictionary for x in label_sequence])
+        #  result_matrix = result_matrix.tocsr()[label_in_dictionary, :]
+        #  result_matrix = result_matrix.T[label_in_dictionary, :].T.tocoo()
+        #  result_labels = label_sequence[label_in_dictionary]
+        #  result_sequence.append((result_matrix, result_labels))
 
-        label_in_dictionary = np.array([x in token_dictionary for x in label_sequence])
-        result_matrix = result_matrix.tocsr()[label_in_dictionary, :]
-        result_matrix = result_matrix.T[label_in_dictionary, :].T.tocoo()
-        result_labels = label_sequence[label_in_dictionary]
-
-        result_sequence.append((result_matrix, result_labels))
+        result_sequence.append((result_matrix, label_sequence))
 
     return (
         result_sequence,
@@ -865,7 +866,13 @@ def sequence_tree_skip_grams(
         The number of steps out to look in your tree skip gram
     label_dictionary: dict
         A dictionary mapping from your valid label set to indices.  This is used as the global
-        alignment for your new label space.
+        alignment for your new label space.  All tokens still present in your tree sequences must
+        exist within your label_dictionary.
+    window_orientation: string (['before', 'after', 'symmetric', 'directional'])
+        The orientation of the cooccurrence window.  Whether to return all the tokens that
+        occurred within a window before, after on either side.
+        symmetric: counts tokens occurring before and after as the same tokens
+        directional: counts tokens before and after as different and returns both counts.
 
     Returns
     -------
@@ -898,16 +905,18 @@ def sequence_tree_skip_grams(
         global_counts += global_counts.T
     elif window_orientation == "after":
         pass
+    elif window_orientation == 'directional':
+        global_counts = scipy.sparse.hstack([global_counts.T, global_counts])
     else:
         raise ValueError(
-            f"Sorry your window_orientation must be one of ['before', 'after', 'symmetric'].  "
+            f"Sorry your window_orientation must be one of ['before', 'after', 'symmetric', 'directional']. "
             f"You passed us {window_orientation}"
         )
 
     return global_counts
 
 
-def token_cooccurence_matrix(
+def token_cooccurrence_matrix(
     token_sequences,
     n_unique_tokens,
     window_function,
@@ -951,9 +960,11 @@ def token_cooccurence_matrix(
     token_dictionary: dictionary or None (optional, default=None)
         A dictionary mapping tokens to indices
 
-    window_orientation: string (['before', 'after', 'symmetric'])
-        The orientation of the cooccurence window.  Whether to return all the tokens that
-        occurred within a window before, after or on either side.
+    window_orientation: string (['before', 'after', 'symmetric', 'directional'])
+        The orientation of the cooccurrence window.  Whether to return all the tokens that
+        occurred within a window before, after on either side.
+        symmetric: counts tokens occurring before and after as the same tokens
+        directional: counts tokens before and after as different and returns both counts.
 
     Returns
     -------
@@ -982,9 +993,13 @@ def token_cooccurence_matrix(
         cooccurrence_matrix = cooccurrence_matrix
     elif window_orientation == "symmetric":
         cooccurrence_matrix = cooccurrence_matrix + cooccurrence_matrix.transpose()
+    elif window_orientation == "directional":
+        cooccurrence_matrix = scipy.sparse.hstack(
+            [cooccurrence_matrix.transpose(), cooccurrence_matrix]
+        )
     else:
         raise ValueError(
-            f'window_orientation must be one of the strings ["before", "after", "symmetric"]'
+            f'window_orientation must be one of the strings ["before", "after", "symmetric","directional"]'
         )
 
     return cooccurrence_matrix.tocsr()
@@ -1101,7 +1116,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
     Parameters
     ----------
     token_dictionary: dictionary or None (optional, default=None)
-        A fixed ditionary mapping tokens to indices, or None if the dictionary
+        A fixed dictionary mapping tokens to indices, or None if the dictionary
         should be learned from the training data.
 
     min_occurrences: int or None (optional, default=None)
@@ -1166,9 +1181,11 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
     token_dictionary: dictionary or None (optional, default=None)
         A dictionary mapping tokens to indices
 
-    window_orientation: string (['before', 'after', 'symmetric'])
-        The orientation of the cooccurence window.  Whether to return all the tokens that
-        occurred within a window before, after or on either side.
+    window_orientation: string (['before', 'after', 'symmetric', 'directional'])
+        The orientation of the cooccurrence window.  Whether to return all the tokens that
+        occurred within a window before, after on either side.
+        symmetric: counts tokens occurring before and after as the same tokens
+        directional: counts tokens before and after as different and returns both counts.
 
     validate_data: bool (optional, default=True)
         Check whether the data is valid (e.g. of homogeneous token type).
@@ -1220,8 +1237,8 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         flat_sequences = flatten(X)
         (
             token_sequences,
-            self.column_label_dictionary_,
-            self.column_index_dictionary_,
+            self.token_label_dictionary_,
+            self.token_index_dictionary_,
             self._token_frequencies_,
         ) = preprocess_token_sequences(
             X,
@@ -1266,9 +1283,9 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         else:
             self._window_size = self.window_radius
 
-        self.cooccurrences_ = token_cooccurence_matrix(
+        self.cooccurrences_ = token_cooccurrence_matrix(
             token_sequences,
-            len(self.column_label_dictionary_),
+            len(self.token_label_dictionary_),
             window_function=self._window_function,
             kernel_function=self._kernel_function,
             window_args=(self._window_size, self._token_frequencies_),
@@ -1277,6 +1294,23 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         )
         self.cooccurrences_.eliminate_zeros()
 
+        if self.window_orientation in ["before", "after", "symmetric"]:
+            self.column_label_dictionary_ = self.token_label_dictionary_
+            self.column_index_dictionary_ = self.token_index_dictionary_
+        elif self.window_orientation == "directional":
+            self.column_label_dictionary_ = {
+                "pre_" + token: index
+                for token, index in self.token_label_dictionary_.items()
+            }
+            self.column_label_dictionary_.update(
+                {
+                    "post_" + token: index + len(self.token_label_dictionary_)
+                    for token, index in self.token_label_dictionary_.items()
+                }
+            )
+            self.column_index_dictionary_ = {
+                item[1]: item[0] for item in self.column_label_dictionary_.items()
+            }
         self.metric_ = distances.sparse_hellinger
 
         return self.cooccurrences_
@@ -1287,7 +1321,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
     def transform(self, X):
         """
-        Build a token cooccurence matrix out of an established vocabulary learned during a previous fit.
+        Build a token cooccurrence matrix out of an established vocabulary learned during a previous fit.
         Parameters
         ----------
         X: sequence of sequences of tokens
@@ -1307,13 +1341,11 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             column_label_dictionary,
             column_index_dictionary,
             token_frequencies,
-        ) = preprocess_token_sequences(
-            X, flat_sequences, self.column_label_dictionary_,
-        )
+        ) = preprocess_token_sequences(X, flat_sequences, self.token_label_dictionary_,)
 
-        cooccurrences = token_cooccurence_matrix(
+        cooccurrences = token_cooccurrence_matrix(
             token_sequences,
-            len(self.column_label_dictionary_),
+            len(self.token_label_dictionary_),
             window_function=self._window_function,
             kernel_function=self._kernel_function,
             window_args=(self._window_size, self._token_frequencies_),
@@ -1327,7 +1359,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
 class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
     """
-    Takes a sequence of labelled trees and counts and produces a co-occurence count matrix
+    Takes a sequence of labelled trees and counts and produces a cooccurrence count matrix
     of their labels.
     For our purposes we take a labelled tree to be a tuple containing an adjacency matrix and an
     array of it's vertex labels.
@@ -1396,9 +1428,11 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
     token_dictionary: dictionary or None (optional, default=None)
         A dictionary mapping tokens to indices
 
-    window_orientation: string (['before', 'after', 'symmetric'])
-        The orientation of the cooccurence window.  Whether to return all the tokens that
-        occurred within a window before, after or on either side.
+    window_orientation: string (['before', 'after', 'symmetric', 'directional'])
+        The orientation of the cooccurrence window.  Whether to return all the tokens that
+        occurred within a window before, after on either side.
+        symmetric: counts tokens occurring before and after as the same tokens
+        directional: counts tokens before and after as different and returns both counts.
 
     validate_data: bool (optional, default=True)
         Check whether the data is valid (e.g. of homogeneous token type).
@@ -1444,7 +1478,7 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
     def fit(self, X, y=None, **fit_params):
         """
-        Takes a sequence of labelled trees and learns the weighted co-occurence counts of the labels.
+        Takes a sequence of labelled trees and learns the weighted cooccurrence counts of the labels.
         Parameters
         ----------
         X: Iterable of tuples (nd.array | scipy.sparse.csr_matrix, label_sequence)
@@ -1457,13 +1491,13 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self
         """
         # Filter and process the raw token counts and build the token dictionaries.
-        # WARNING: We count isolated vertices as an occurence of a label.  It's a feature.
+        # WARNING: We count isolated vertices as an occurrence of a label.  It's a feature.
         raw_token_sequences = [label_sequence for adjacency, label_sequence in X]
         flat_sequences = flatten(raw_token_sequences)
         (
             clean_tree_sequence,
-            self.column_label_dictionary_,
-            self.column_index_dictionary_,
+            self.token_label_dictionary_,
+            self.token_index_dictionary_,
             self._token_frequencies_,
         ) = preprocess_tree_sequences(
             X,
@@ -1492,20 +1526,39 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
         self._window_size = self.window_radius
 
-        # build token_cooccurence_matrix()
+        # build token_cooccurrence_matrix()
         self.cooccurrences_ = sequence_tree_skip_grams(
             clean_tree_sequence,
             kernel_function=self._kernel_function,
             window_size=self._window_size,
-            label_dictionary=self.column_label_dictionary_,
+            label_dictionary=self.token_label_dictionary_,
             window_orientation=self.window_orientation,
         )
+
+        if self.window_orientation in ["before", "after", "symmetric"]:
+            self.column_label_dictionary_ = self.token_label_dictionary_
+            self.column_index_dictionary_ = self.token_index_dictionary_
+        elif self.window_orientation == "directional":
+            self.column_label_dictionary_ = {
+                "pre_" + token: index
+                for token, index in self.token_label_dictionary_.items()
+            }
+            self.column_label_dictionary_.update(
+                {
+                    "post_" + token: index + len(self.token_label_dictionary_)
+                    for token, index in self.token_label_dictionary_.items()
+                }
+            )
+            self.column_index_dictionary_ = {
+                item[1]: item[0] for item in self.column_label_dictionary_.items()
+            }
+        self.metric_ = distances.sparse_hellinger
 
         return self
 
     def fit_transform(self, X, y=None, **fit_params):
         """
-        Takes a sequence of labelled trees and learns the weighted co-occurence counts of the labels.
+        Takes a sequence of labelled trees and learns the weighted cooccurrence counts of the labels.
         Parameters
         ----------
         X: Iterable of tuples (nd.array | scipy.sparse.csr_matrix, label_sequence)
@@ -1515,15 +1568,15 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
         Returns
         -------
-        co_occurence: scipy.sparse.csr_matrix
-            A weighted label co-occurence count matrix
+        cooccurrence matrix: scipy.sparse.csr_matrix
+            A weighted label cooccurrence count matrix
         """
         self.fit(X)
         return self.cooccurrences_
 
     def transform(self, X):
         """
-        Takes a sequence of labelled trees and returns the weighted co-occurence counts of the labels
+        Takes a sequence of labelled trees and returns the weighted cooccurrence counts of the labels
         given the label vocabulary learned in the fit.
 
         Parameters
@@ -1535,18 +1588,18 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
         Returns
         -------
-        co_occurence: scipy.sparse.csr_matrix
-            A weighted label co-occurence count matrix
+        cooccurrence matrix: scipy.sparse.csr_matrix
+            A weighted label cooccurrence count matrix
         """
 
         raw_token_sequences = [label_sequence for adjacency, label_sequence in X]
         flat_sequences = flatten(raw_token_sequences)
         (
             clean_tree_sequence,
-            self.column_label_dictionary_,
-            self.column_index_dictionary_,
+            self.token_label_dictionary_,
+            self.token_index_dictionary_,
             self._token_frequencies_,
-        ) = preprocess_tree_sequences(X, flat_sequences, self.column_label_dictionary_,)
+        ) = preprocess_tree_sequences(X, flat_sequences, self.token_label_dictionary_, )
 
         if callable(self.kernel_function):
             self._kernel_function = self.kernel_function
@@ -1559,12 +1612,12 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
         self._window_size = self.window_radius
 
-        # build token_cooccurence_matrix()
+        # build token_cooccurrence_matrix()
         cooccurrences = sequence_tree_skip_grams(
             clean_tree_sequence,
             kernel_function=self._kernel_function,
             window_size=self._window_size,
-            label_dictionary=self.column_label_dictionary_,
+            label_dictionary=self.token_label_dictionary_,
             window_orientation=self.window_orientation,
         )
         cooccurrences.eliminate_zeros()
@@ -1892,7 +1945,7 @@ class CyclicHistogramVectorizer(BaseEstimator, TransformerMixin):
 class SkipgramVectorizer(BaseEstimator, TransformerMixin):
     """Given a sequence, or list of sequences of tokens, produce a
     kernel weighted count matrix of ordered pairs of tokens occurring in a window.
-    If passed a single sequence of tokens it  will use windows to determine co-occurrence.
+    If passed a single sequence of tokens it  will use windows to determine cooccurrence.
     If passed a list of sequences of tokens it will use windows within each sequence in the list
     -- with windows not extending beyond the boundaries imposed by the individual sequences in the list.
 
@@ -1965,7 +2018,7 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
         A dictionary mapping tokens to indices
 
     window_orientation: string (['before', 'after', 'symmetric'])
-        The orientation of the cooccurence window.  Whether to return all the tokens that
+        The orientation of the cooccurrence window.  Whether to return all the tokens that
         occurred within a window before, after or on either side.
 
     validate_data: bool (optional, default=True)
