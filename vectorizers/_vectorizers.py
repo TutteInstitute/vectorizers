@@ -799,7 +799,7 @@ def skip_grams_matrix_coo_data(
     return np.asarray(result_row), np.asarray(result_col), np.asarray(result_data)
 
 
-@numba.njit(nogil=True, parallel=True)
+@numba.njit(nogil=True)
 def sequence_skip_grams(
     token_sequences, window_function, kernel_function, window_args, kernel_args
 ):
@@ -1163,7 +1163,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         A set of tokens that should be ignored entirely. If None then no tokens will
         be ignored in this fashion.
 
-    excluded_regex: str or None (optional, default=None)
+    excluded_token_regex: str or None (optional, default=None)
         The regular expression by which tokens are ignored if re.fullmatch returns True.
 
     window_function: numba.jitted callable or str (optional, default='fixed')
