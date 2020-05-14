@@ -1454,7 +1454,7 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         kernel_function="flat",
         window_radius=5,
         token_dictionary=None,
-        window_orientation="symmetric",
+        window_orientation="directional",
         validate_data=True,
     ):
         self.token_dictionary = token_dictionary

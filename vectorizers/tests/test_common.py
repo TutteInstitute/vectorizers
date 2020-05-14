@@ -159,7 +159,7 @@ def test_LabeledTreeCooccurrenceVectorizer_reduced_vocab():
 @pytest.mark.parametrize("max_token_occurrences", [None, 2])
 @pytest.mark.parametrize("min_document_occurrences", [None, 1])
 @pytest.mark.parametrize("max_document_frequency", [None, 0.7])
-@pytest.mark.parametrize("window_orientation", ["before", "after", "symmetric"])
+@pytest.mark.parametrize("window_orientation", ["before", "after", "symmetric", "directional"])
 @pytest.mark.parametrize("window_radius", [1, 2])
 @pytest.mark.parametrize("kernel_function", ["harmonic", "flat"])
 def test_equality_of_CooccurrenceVectorizers(
