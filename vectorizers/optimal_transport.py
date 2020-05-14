@@ -934,7 +934,7 @@ def kantorovich_distance(x, y, cost=dummy_cost, max_iter=100000):
 
     if not np.isclose(a_sum, b_sum):
         raise ValueError(
-            "Kantorovich distance inputs must be valid probability " "distributions."
+            "Kantorovich distance inputs must be valid probability distributions."
         )
 
     a /= a_sum
@@ -950,7 +950,7 @@ def kantorovich_distance(x, y, cost=dummy_cost, max_iter=100000):
     init_status = initialize_graph_structures(graph, node_arc_data, spanning_tree)
     if init_status == False:
         raise ValueError(
-            "Kantorovich distance inputs must be valid probability " "distributions."
+            "Kantorovich distance inputs must be valid probability distributions."
         )
     solve_status = network_simplex_core(node_arc_data, spanning_tree, graph, max_iter,)
     if solve_status == ProblemStatus.MAX_ITER_REACHED:
