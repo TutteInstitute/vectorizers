@@ -1,7 +1,7 @@
 import numba
 import numpy as np
 
-from vectorizers.optimal_transport import kantorovich_distance
+from vectorizers.optimal_transport import kantorovich_distance as kantorovich
 
 EPS = 1e-11
 

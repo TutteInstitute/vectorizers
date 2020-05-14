@@ -922,15 +922,35 @@ def network_simplex_core(
 
 @numba.njit()
 def kantorovich_distance(x, y, cost=dummy_cost, max_iter=100000):
+
+    row_mask = x != 0
+    col_mask = y != 0
+
+    a = x[row_mask].astype(np.float64)
+    b = y[col_mask].astype(np.float64)
+
+    a_sum = a.sum()
+    b_sum = b.sum()
+
+    if not np.isclose(a_sum, b_sum):
+        raise ValueError(
+            "Kantorovich distance inputs must be valid probability distributions."
+        )
+
+    a /= a_sum
+    b /= b_sum
+
+    sub_cost = cost[row_mask, :][:, col_mask]
+
     node_arc_data, spanning_tree, graph = allocate_graph_structures(
-        x.shape[0], y.shape[0], False,
+        a.shape[0], b.shape[0], False,
     )
-    initialize_supply(x, -y, graph, node_arc_data.supply)
-    initialize_cost(cost, graph, node_arc_data.cost)
+    initialize_supply(a, -b, graph, node_arc_data.supply)
+    initialize_cost(sub_cost, graph, node_arc_data.cost)
     init_status = initialize_graph_structures(graph, node_arc_data, spanning_tree)
     if init_status == False:
         raise ValueError(
-            "Kantorovich distance inputs must be valid probability " "distributions."
+            "Kantorovich distance inputs must be valid probability distributions."
         )
     solve_status = network_simplex_core(node_arc_data, spanning_tree, graph, max_iter,)
     if solve_status == ProblemStatus.MAX_ITER_REACHED:
