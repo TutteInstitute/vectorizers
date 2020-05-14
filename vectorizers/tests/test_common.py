@@ -315,7 +315,7 @@ def test_find_boundaries_all_dupes():
 
 
 def test_token_cooccurrence_vectorizer_basic():
-    vectorizer = TokenCooccurrenceVectorizer()
+    vectorizer = TokenCooccurrenceVectorizer(window_orientation='symmetric')
     result = vectorizer.fit_transform(token_data)
     transform = vectorizer.transform(token_data)
     assert (result != transform).nnz == 0
@@ -365,7 +365,7 @@ def test_token_cooccurrence_vectorizer_column_order():
 
 
 def test_token_cooccurrence_vectorizer_transform():
-    vectorizer = TokenCooccurrenceVectorizer()
+    vectorizer = TokenCooccurrenceVectorizer(window_orientation='symmetric')
     result = vectorizer.fit_transform(text_token_data_subset)
     transform = vectorizer.transform(text_token_data)
     assert result.shape == transform.shape
