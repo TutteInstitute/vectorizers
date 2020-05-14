@@ -964,3 +964,29 @@ def kantorovich_distance(x, y, cost=dummy_cost, max_iter=100000):
             "Optimal transport problem was UNBOUNDED. Please check " "inputs."
         )
     return total_cost(node_arc_data.flow, node_arc_data.cost)
+
+
+@numba.njit()
+def dummy_ground_metric(x, y):
+    return int(not x == y)
+
+
+def create_ground_metric(ground_vectors, metric):
+    @numba.njit()
+    def ground_metric(index1, index2):
+        return metric(ground_vectors[index1], ground_vectors[index2])
+
+    return ground_metric
+
+
+@numba.njit()
+def sparse_kantorovich_distance(
+    indices1, data1, indices2, data2, ground_metric=dummy_ground_metric
+):
+
+    cost_matrix = np.empty((indices1.shape[0], indices2.shape[0]))
+    for i in range(indices1.shape[0]):
+        for j in range(indices2.shape[0]):
+            cost_matrix[i, j] = ground_metric(indices1[i], indices2[j])
+
+    return kantorovich_distance(data1, data2, cost_matrix)
