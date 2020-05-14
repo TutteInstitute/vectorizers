@@ -972,6 +972,33 @@ def dummy_ground_metric(x, y):
 
 
 def create_ground_metric(ground_vectors, metric):
+    """Generate a "ground_metric" suitable for passing to a ``sparse_kantorovich``
+    distance function. This should be a metric that, given indices of the data,
+    should produce the ground distance between the corresponding vectors. This
+    allows the construction of a cost_matrix or ground_distance_matrix between
+    sparse samples on the fly -- without having to compute an all pairs distance.
+    This is particularly useful for things like word-mover-distance.
+
+    For example, to create a suitable ground_metric for word-mover distance one
+    would use:
+
+    ``wmd_ground_metric = create_ground_metric(word_vectors, cosine)``
+
+    Parameters
+    ----------
+    ground_vectors: array of shape (n_features, d)
+        The set of vectors between which ground_distances are measured. That is,
+        there should be a vector for each feature of the space one wishes to compute
+        Kantorovich distance over.
+
+    metric: callable (numba jitted)
+        The underlying metric used to cpmpute distances between feature vectors.
+
+    Returns
+    -------
+    ground_metric: callable (numba jitted)
+        A ground metric suitable for passing to ``sparse_kantorovich``.
+    """
     @numba.njit()
     def ground_metric(index1, index2):
         return metric(ground_vectors[index1], ground_vectors[index2])
