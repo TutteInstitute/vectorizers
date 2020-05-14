@@ -927,9 +927,18 @@ def kantorovich_distance(x, y, cost=dummy_cost, max_iter=100000):
     col_mask = y != 0
 
     a = x[row_mask].astype(np.float64)
-    a /= a.sum()
     b = y[col_mask].astype(np.float64)
-    b /= b.sum()
+
+    a_sum = a.sum()
+    b_sum = b.sum()
+
+    if not np.isclose(a_sum, b_sum):
+        raise ValueError(
+            "Kantorovich distance inputs must be valid probability " "distributions."
+        )
+
+    a /= a_sum
+    b /= b_sum
 
     sub_cost = cost[row_mask, :][:, col_mask]
 
