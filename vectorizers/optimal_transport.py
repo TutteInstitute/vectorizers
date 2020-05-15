@@ -111,6 +111,13 @@ LeavingArcData = namedtuple(
     "LeavingArcData", ["u_in", "u_out", "v_in", "delta", "change"]
 )
 
+# Just reproduce a simpler version of numpy isclose (not numba supported yet)
+@numba.njit()
+def isclose(a, b, rtol=1.e-5, atol=EPSILON):
+    diff = np.abs(a - b)
+    return diff <= (atol + rtol * np.abs(b))
+
+
 # locals: c, min, e, cnt, a
 # modifies _in_arc, _next_arc,
 @numba.njit(locals={"a": numba.uint32, "e": numba.uint32})
@@ -932,7 +939,7 @@ def kantorovich_distance(x, y, cost=dummy_cost, max_iter=100000):
     a_sum = a.sum()
     b_sum = b.sum()
 
-    if not np.isclose(a_sum, b_sum):
+    if not isclose(a_sum, b_sum):
         raise ValueError(
             "Kantorovich distance inputs must be valid probability distributions."
         )
