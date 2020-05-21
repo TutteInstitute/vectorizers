@@ -74,14 +74,6 @@ SpanningTree = namedtuple(
         "root",  # int
     ],
 )
-PivotBlock = namedtuple(
-    "PivotBlock",
-    [
-        "block_size",  # int
-        "next_arc",  # int array length 1 for updatability
-        "search_arc_num",  # int
-    ],
-)
 DiGraph = namedtuple(
     "DiGraph",
     [
@@ -113,7 +105,7 @@ LeavingArcData = namedtuple(
 
 # Just reproduce a simpler version of numpy isclose (not numba supported yet)
 @numba.njit()
-def isclose(a, b, rtol=1.e-5, atol=EPSILON):
+def isclose(a, b, rtol=1.0e-5, atol=EPSILON):
     diff = np.abs(a - b)
     return diff <= (atol + rtol * np.abs(b))
 
@@ -122,10 +114,15 @@ def isclose(a, b, rtol=1.e-5, atol=EPSILON):
 # modifies _in_arc, _next_arc,
 @numba.njit(locals={"a": numba.uint32, "e": numba.uint32})
 def find_entering_arc(
-    pivot_block, state_vector, node_arc_data, in_arc,
+    pivot_block_size,
+    pivot_next_arc,
+    search_arc_num,
+    state_vector,
+    node_arc_data,
+    in_arc,
 ):
     min = 0
-    cnt = pivot_block.block_size
+    cnt = pivot_block_size
 
     # Pull from tuple for quick reference
     cost = node_arc_data.cost
@@ -133,7 +130,7 @@ def find_entering_arc(
     source = node_arc_data.source
     target = node_arc_data.target
 
-    for e in range(pivot_block.next_arc[0], pivot_block.search_arc_num):
+    for e in range(pivot_next_arc, search_arc_num):
         c = state_vector[e] * (cost[e] + pi[source[e]] - pi[target[e]])
         if c < min:
             min = c
@@ -150,12 +147,12 @@ def find_entering_arc(
                 a = np.fabs(cost[in_arc])
 
             if min < -(EPSILON * a):
-                pivot_block.next_arc[0] = e
-                return in_arc
+                pivot_next_arc = e
+                return in_arc, pivot_next_arc
             else:
-                cnt = pivot_block.block_size
+                cnt = pivot_block_size
 
-    for e in range(pivot_block.next_arc[0]):
+    for e in range(pivot_next_arc):
         c = state_vector[e] * (cost[e] + pi[source[e]] - pi[target[e]])
         if c < min:
             min = c
@@ -172,10 +169,10 @@ def find_entering_arc(
                 a = np.fabs(cost[in_arc])
 
             if min < -(EPSILON * a):
-                pivot_block.next_arc[0] = e
-                return in_arc
+                pivot_next_arc = e
+                return in_arc, pivot_next_arc
             else:
-                cnt = pivot_block.block_size
+                cnt = pivot_block_size
 
     # assert(pivot_block.next_arc[0] == 0 or e == pivot_block.next_arc[0] - 1)
 
@@ -188,9 +185,9 @@ def find_entering_arc(
         a = np.fabs(cost[in_arc])
 
     if min >= -(EPSILON * a):
-        return -1
+        return -1, 0
 
-    return in_arc
+    return in_arc, pivot_next_arc
 
 
 # Find the join node
@@ -226,7 +223,7 @@ def find_join_node(source, target, succ_num, parent, in_arc):
         "second": numba.uint16,
         "result": numba.uint8,
         "in_arc": numba.uint32,
-    }
+    },
 )
 def find_leaving_arc(
     join, in_arc, node_arc_data, spanning_tree,
@@ -299,9 +296,7 @@ def find_leaving_arc(
 # Change _flow and _state vectors
 # locals: val, u
 # modifies: _state, _flow
-@numba.njit(
-    locals={"u": numba.uint16, "in_arc": numba.uint32, "val": numba.float64,}
-)
+@numba.njit(locals={"u": numba.uint16, "in_arc": numba.uint32, "val": numba.float64,},)
 def update_flow(
     join, leaving_arc_data, node_arc_data, spanning_tree, in_arc,
 ):
@@ -354,8 +349,8 @@ def update_flow(
 # modifies: _pred, _forward, _succ_num
 @numba.njit(
     locals={
-        "u": numba.uint16,
-        "w": numba.uint16,
+        "u": numba.int32,
+        "w": numba.int32,
         "u_in": numba.uint16,
         "u_out": numba.uint16,
         "v_in": numba.uint16,
@@ -364,7 +359,7 @@ def update_flow(
         "new_stem": numba.uint16,
         "par_stem": numba.uint16,
         "in_arc": numba.uint32,
-    }
+    },
 )
 def update_spanning_tree(
     spanning_tree, leaving_arc_data, join, in_arc, source,
@@ -536,7 +531,7 @@ def update_potential(leaving_arc_data, pi, cost, spanning_tree):
 
 # If we have mixed arcs (for better random access)
 # we need a more complicated function to get the ID of a given arc
-@numba.njit(inline="always")
+@numba.njit()
 def arc_id(arc, graph):
     k = graph.n_arcs - arc - 1
     if graph.use_arc_mixing:
@@ -633,7 +628,7 @@ def construct_initial_pivots(graph, node_arc_data, spanning_tree):
     in_arc = -1
     for i in range(len(arc_vector)):
         in_arc = arc_vector[i]
-        # l'erreur est probablement ici... ???
+        # Bad arcs
         if (
             state[in_arc] * (cost[in_arc] + pi[source[in_arc]] - pi[target[in_arc]])
             >= 0
@@ -821,7 +816,7 @@ def initialize_graph_structures(graph, node_arc_data, spanning_tree):
     return True
 
 
-@numba.njit(inline="always")
+@numba.njit()
 def initialize_supply(left_node_supply, right_node_supply, graph, supply):
     for n in range(graph.n_nodes):
         if n < graph.n:
@@ -850,16 +845,18 @@ def total_cost(flow, cost):
     return c
 
 
-@numba.njit(parallel=True)
+@numba.njit(nogil=True)
 def network_simplex_core(
     node_arc_data, spanning_tree, graph, max_iter,
 ):
 
-    pivot_block = PivotBlock(
-        max(np.int32(np.sqrt(graph.n_arcs)), 10),
-        np.zeros(1, dtype=np.int32),
-        graph.n_arcs,
-    )
+    # pivot_block = PivotBlock(
+    #     max(np.int32(np.sqrt(graph.n_arcs)), 10),
+    #     np.zeros(1, dtype=np.int32),
+    #     graph.n_arcs,
+    # )
+    pivot_block_size = max(np.int32(np.sqrt(graph.n_arcs)), 10)
+    search_arc_num = graph.n_arcs
     solution_status = ProblemStatus.OPTIMAL
 
     # Perform heuristic initial pivots
@@ -870,10 +867,12 @@ def network_simplex_core(
     iter_number = 0
     # pivot.setDantzig(true);
     # Execute the Network Simplex algorithm
-    in_arc = find_entering_arc(pivot_block, spanning_tree.state, node_arc_data, in_arc)
+    in_arc, pivot_next_arc = find_entering_arc(
+        pivot_block_size, 0, search_arc_num, spanning_tree.state, node_arc_data, in_arc
+    )
     while in_arc >= 0:
         iter_number += 1
-        if max_iter > 0 and iter_number >= max_iter and max_iter > 0:
+        if max_iter > 0 and iter_number >= max_iter:
             solution_status = ProblemStatus.MAX_ITER_REACHED
             break
 
@@ -898,8 +897,13 @@ def network_simplex_core(
                 leaving_arc_data, node_arc_data.pi, node_arc_data.cost, spanning_tree
             )
 
-        in_arc = find_entering_arc(
-            pivot_block, spanning_tree.state, node_arc_data, in_arc
+        in_arc, pivot_next_arc = find_entering_arc(
+            pivot_block_size,
+            pivot_next_arc,
+            search_arc_num,
+            spanning_tree.state,
+            node_arc_data,
+            in_arc,
         )
 
     flow = node_arc_data.flow
@@ -927,7 +931,7 @@ def network_simplex_core(
     return solution_status
 
 
-@numba.njit()
+@numba.njit(nogil=True)
 def kantorovich_distance(x, y, cost=dummy_cost, max_iter=100000):
 
     row_mask = x != 0
@@ -954,6 +958,7 @@ def kantorovich_distance(x, y, cost=dummy_cost, max_iter=100000):
     )
     initialize_supply(a, -b, graph, node_arc_data.supply)
     initialize_cost(sub_cost, graph, node_arc_data.cost)
+    # initialize_cost(cost, graph, node_arc_data.cost)
     init_status = initialize_graph_structures(graph, node_arc_data, spanning_tree)
     if init_status == False:
         raise ValueError(
@@ -970,7 +975,9 @@ def kantorovich_distance(x, y, cost=dummy_cost, max_iter=100000):
         raise ValueError(
             "Optimal transport problem was UNBOUNDED. Please check " "inputs."
         )
-    return total_cost(node_arc_data.flow, node_arc_data.cost)
+    result = total_cost(node_arc_data.flow, node_arc_data.cost)
+
+    return result
 
 
 @numba.njit()
@@ -1006,6 +1013,7 @@ def create_ground_metric(ground_vectors, metric):
     ground_metric: callable (numba jitted)
         A ground metric suitable for passing to ``sparse_kantorovich``.
     """
+
     @numba.njit()
     def ground_metric(index1, index2):
         return metric(ground_vectors[index1], ground_vectors[index2])
