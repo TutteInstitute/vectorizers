@@ -39,6 +39,7 @@ NET_SUPPLY_ERROR_TOLERANCE = 1e-8
 ## Defaults to double for everythig in POT
 INFINITY = np.finfo(np.float64).max
 MAX = np.finfo(np.float64).max
+FLOAT32_MAX = np.finfo(np.float32).max
 
 dummy_cost = np.zeros((2, 2), dtype=np.float64)
 
@@ -943,13 +944,20 @@ def kantorovich_distance(x, y, cost=dummy_cost, max_iter=100000):
     a_sum = a.sum()
     b_sum = b.sum()
 
-    if not isclose(a_sum, b_sum):
-        raise ValueError(
-            "Kantorovich distance inputs must be valid probability distributions."
-        )
+    # Handle all zero vectors more gracefully
+    if a_sum == 0.0 and b_sum == 0.0:
+        return 0.0
+    elif a_sum == 0.0 or b_sum == 0.0:
+        return FLOAT32_MAX
+
+    # if not isclose(a_sum, b_sum):
+    #     raise ValueError(
+    #         "Kantorovich distance inputs must be valid probability distributions."
+    #     )
 
     a /= a_sum
     b /= b_sum
+
 
     sub_cost = cost[row_mask, :][:, col_mask]
 
@@ -965,9 +973,9 @@ def kantorovich_distance(x, y, cost=dummy_cost, max_iter=100000):
             "Kantorovich distance inputs must be valid probability distributions."
         )
     solve_status = network_simplex_core(node_arc_data, spanning_tree, graph, max_iter,)
-    if solve_status == ProblemStatus.MAX_ITER_REACHED:
-        print("WARNING: RESULT MIGHT BE INACURATE\nMax number of iteration reached!")
-    elif solve_status == ProblemStatus.INFEASIBLE:
+    # if solve_status == ProblemStatus.MAX_ITER_REACHED:
+    #     print("WARNING: RESULT MIGHT BE INACCURATE\nMax number of iteration reached!")
+    if solve_status == ProblemStatus.INFEASIBLE:
         raise ValueError(
             "Optimal transport problem was INFEASIBLE. Please check " "inputs."
         )
