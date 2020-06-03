@@ -1207,7 +1207,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         window_function="fixed",
         kernel_function="flat",
         window_radius=5,
-        window_orientation="symmetric",
+        window_orientation="directional",
         validate_data=True,
     ):
         self.token_dictionary = token_dictionary
@@ -1299,12 +1299,12 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             self.column_index_dictionary_ = self.token_index_dictionary_
         elif self.window_orientation == "directional":
             self.column_label_dictionary_ = {
-                "pre_" + token: index
+                "pre_" + str(token): index
                 for token, index in self.token_label_dictionary_.items()
             }
             self.column_label_dictionary_.update(
                 {
-                    "post_" + token: index + len(self.token_label_dictionary_)
+                    "post_" + str(token): index + len(self.token_label_dictionary_)
                     for token, index in self.token_label_dictionary_.items()
                 }
             )
@@ -1454,7 +1454,7 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         kernel_function="flat",
         window_radius=5,
         token_dictionary=None,
-        window_orientation="symmetric",
+        window_orientation="directional",
         validate_data=True,
     ):
         self.token_dictionary = token_dictionary

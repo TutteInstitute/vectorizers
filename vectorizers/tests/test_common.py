@@ -159,7 +159,7 @@ def test_LabeledTreeCooccurrenceVectorizer_reduced_vocab():
 @pytest.mark.parametrize("max_token_occurrences", [None, 2])
 @pytest.mark.parametrize("min_document_occurrences", [None, 1])
 @pytest.mark.parametrize("max_document_frequency", [None, 0.7])
-@pytest.mark.parametrize("window_orientation", ["before", "after", "symmetric"])
+@pytest.mark.parametrize("window_orientation", ["before", "after", "symmetric", "directional"])
 @pytest.mark.parametrize("window_radius", [1, 2])
 @pytest.mark.parametrize("kernel_function", ["harmonic", "flat"])
 def test_equality_of_CooccurrenceVectorizers(
@@ -315,7 +315,7 @@ def test_find_boundaries_all_dupes():
 
 
 def test_token_cooccurrence_vectorizer_basic():
-    vectorizer = TokenCooccurrenceVectorizer()
+    vectorizer = TokenCooccurrenceVectorizer(window_orientation='symmetric')
     result = vectorizer.fit_transform(token_data)
     transform = vectorizer.transform(token_data)
     assert (result != transform).nnz == 0
@@ -365,7 +365,7 @@ def test_token_cooccurrence_vectorizer_column_order():
 
 
 def test_token_cooccurrence_vectorizer_transform():
-    vectorizer = TokenCooccurrenceVectorizer()
+    vectorizer = TokenCooccurrenceVectorizer(window_orientation='symmetric')
     result = vectorizer.fit_transform(text_token_data_subset)
     transform = vectorizer.transform(text_token_data)
     assert result.shape == transform.shape
