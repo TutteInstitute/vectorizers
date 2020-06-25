@@ -958,7 +958,6 @@ def kantorovich_distance(x, y, cost=dummy_cost, max_iter=100000):
     a /= a_sum
     b /= b_sum
 
-
     sub_cost = cost[row_mask, :][:, col_mask]
 
     node_arc_data, spanning_tree, graph = allocate_graph_structures(
