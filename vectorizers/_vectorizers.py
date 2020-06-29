@@ -905,7 +905,7 @@ def sequence_tree_skip_grams(
         global_counts += global_counts.T
     elif window_orientation == "after":
         pass
-    elif window_orientation == 'directional':
+    elif window_orientation == "directional":
         global_counts = scipy.sparse.hstack([global_counts.T, global_counts])
     else:
         raise ValueError(
@@ -924,6 +924,7 @@ def token_cooccurrence_matrix(
     window_args,
     kernel_args,
     window_orientation="symmetric",
+    chunk_size=1 << 20,
 ):
     """Generate a matrix of (weighted) counts of co-occurrences of tokens within
     windows in a set of sequences of tokens. Each sequence in the collection of
@@ -966,6 +967,11 @@ def token_cooccurrence_matrix(
         symmetric: counts tokens occurring before and after as the same tokens
         directional: counts tokens before and after as different and returns both counts.
 
+    chunk_size: int (optional, default=1048576)
+        When processing token sequences, break the list of sequences into
+        chunks of this size to stream the data through, rather than storing all
+        the results at once. This saves on peak memory usage.
+
     Returns
     -------
     cooccurrence_matrix: scipyr.sparse.csr_matrix
@@ -976,17 +982,35 @@ def token_cooccurrence_matrix(
     if n_unique_tokens == 0:
         raise ValueError("Token dictionary is empty; try using less extreme contraints")
 
-    raw_coo_data = sequence_skip_grams(
-        token_sequences, window_function, kernel_function, window_args, kernel_args
-    )
     cooccurrence_matrix = scipy.sparse.coo_matrix(
-        (
-            raw_coo_data.T[2],
-            (raw_coo_data.T[0].astype(np.int64), raw_coo_data.T[1].astype(np.int64)),
-        ),
-        shape=(n_unique_tokens, n_unique_tokens),
-        dtype=np.float32,
+        (n_unique_tokens, n_unique_tokens), dtype=np.float32
     )
+    n_chunks = (len(token_sequences) // chunk_size) + 1
+
+    for chunk_index in range(n_chunks):
+        chunk_start = chunk_index * chunk_size
+        chunk_end = min(len(token_sequences), chunk_start + chunk_size)
+
+        raw_coo_data = sequence_skip_grams(
+            token_sequences[chunk_start:chunk_end],
+            window_function,
+            kernel_function,
+            window_args,
+            kernel_args,
+        )
+        cooccurrence_matrix += scipy.sparse.coo_matrix(
+            (
+                raw_coo_data.T[2],
+                (
+                    raw_coo_data.T[0].astype(np.int64),
+                    raw_coo_data.T[1].astype(np.int64),
+                ),
+            ),
+            shape=(n_unique_tokens, n_unique_tokens),
+            dtype=np.float32,
+        )
+        cooccurrence_matrix.sum_duplicates()
+
     if window_orientation == "before":
         cooccurrence_matrix = cooccurrence_matrix.transpose()
     elif window_orientation == "after":
@@ -1187,6 +1211,11 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         symmetric: counts tokens occurring before and after as the same tokens
         directional: counts tokens before and after as different and returns both counts.
 
+    chunk_size: int (optional, default=1048576)
+        When processing token sequences, break the list of sequences into
+        chunks of this size to stream the data through, rather than storing all
+        the results at once. This saves on peak memory usage.
+
     validate_data: bool (optional, default=True)
         Check whether the data is valid (e.g. of homogeneous token type).
     """
@@ -1208,6 +1237,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         kernel_function="flat",
         window_radius=5,
         window_orientation="directional",
+        chunk_size=1<<20,
         validate_data=True,
     ):
         self.token_dictionary = token_dictionary
@@ -1227,6 +1257,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self.window_radius = window_radius
 
         self.window_orientation = window_orientation
+        self.chunk_size = chunk_size
         self.validate_data = validate_data
 
     def fit_transform(self, X, y=None, **fit_params):
@@ -1291,6 +1322,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             window_args=(self._window_size, self._token_frequencies_),
             kernel_args=(self.window_radius,),
             window_orientation=self.window_orientation,
+            chunk_size=self.chunk_size,
         )
         self.cooccurrences_.eliminate_zeros()
 
@@ -1599,7 +1631,7 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             self.token_label_dictionary_,
             self.token_index_dictionary_,
             self._token_frequencies_,
-        ) = preprocess_tree_sequences(X, flat_sequences, self.token_label_dictionary_, )
+        ) = preprocess_tree_sequences(X, flat_sequences, self.token_label_dictionary_,)
 
         if callable(self.kernel_function):
             self._kernel_function = self.kernel_function
