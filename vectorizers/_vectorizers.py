@@ -854,7 +854,7 @@ def sequence_skip_grams(
             kernel_function,
             window_args,
             kernel_args,
-            reverse=reverse,
+            reverse,
         )
         for token_sequence in token_sequences
     ]
