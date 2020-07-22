@@ -1075,8 +1075,9 @@ def token_cooccurrence_matrix(
         else:
             cooccurrence_matrix_reverse = cooccurrence_matrix.transpose()
 
-    if window_orientation == "before" and not reverse_required:
-        cooccurrence_matrix = cooccurrence_matrix.transpose()
+    if window_orientation == "before":
+        if not reverse_required:
+            cooccurrence_matrix = cooccurrence_matrix.transpose()
     elif window_orientation == "after":
         cooccurrence_matrix = cooccurrence_matrix
     elif window_orientation == "symmetric":
