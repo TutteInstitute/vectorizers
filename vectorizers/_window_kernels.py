@@ -47,11 +47,12 @@ def mass_conservation_window(
     token_sequence, window_size, token_frequency, reverse=False
 ):
     result = []
-    expected_mass = np.min(token_frequency) * 50.0
+
     for i in range(len(token_sequence)):
-        current_window_size = max(
-            1, np.uint8(expected_mass / token_frequency[token_sequence[i]])
-        )
+        float_window_size = window_size / token_frequency[token_sequence[i]]
+        current_window_size = np.uint16(np.round(float_window_size))
+        current_window_size = max(0, current_window_size)
+        current_window_size = min(50, current_window_size)
         if reverse:
             result.append(
                 token_sequence[i - 1 : max(0, i - current_window_size - 1) : -1]
