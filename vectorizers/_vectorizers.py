@@ -681,7 +681,9 @@ def build_skip_grams(
     if n_original_tokens < 2:
         return np.zeros((1, 3), dtype=np.float32)
 
-    windows = window_function(token_sequence, *window_args, reverse=reverse)
+    window_args = window_args + (reverse,)
+
+    windows = window_function(token_sequence, *window_args)
 
     new_tokens = np.empty(
         (np.sum(np.array([len(w) for w in windows])), 3), dtype=np.float32
