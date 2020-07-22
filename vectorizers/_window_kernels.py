@@ -12,7 +12,11 @@ def information_window(token_sequence, window_size, token_frequency, reverse=Fal
 
         if reverse:
             for j in range(i - 1, 0, -1):
-                current_entropy -= np.log(token_frequency[int(token_sequence[j])])
+                next_entropy = -np.log2(token_frequency[int(token_sequence[j])])
+                next_entropy = max(window_size / 3.0, next_entropy)
+                if next_entropy < 1.0e-2:
+                    next_entropy = 0.0
+                current_entropy += next_entropy
                 counter += 1
                 if current_entropy >= window_size:
                     break
@@ -20,7 +24,11 @@ def information_window(token_sequence, window_size, token_frequency, reverse=Fal
             result.append(token_sequence[i - 1 : max(0, i - counter - 1) : -1])
         else:
             for j in range(i + 1, len(token_sequence)):
-                current_entropy -= np.log(token_frequency[int(token_sequence[j])])
+                next_entropy = -np.log2(token_frequency[int(token_sequence[j])])
+                next_entropy = max(window_size / 3.0, next_entropy)
+                if next_entropy < 1.0e-2:
+                    next_entropy = 0.0
+                current_entropy += next_entropy
                 counter += 1
                 if current_entropy >= window_size:
                     break
@@ -50,7 +58,7 @@ def mass_conservation_window(
 
     for i in range(len(token_sequence)):
         float_window_size = window_size / token_frequency[token_sequence[i]]
-        current_window_size = np.uint16(2.0 * np.round(float_window_size))
+        current_window_size = np.uint16(np.round(float_window_size))
         current_window_size = max(1, current_window_size)
         current_window_size = min(50, current_window_size)
         if reverse:
@@ -89,6 +97,7 @@ _WINDOW_FUNCTIONS = {
 
 _SYMMETRIC_WINDOWS = {
     "fixed",
+    "information",
 }
 
 _KERNEL_FUNCTIONS = {
