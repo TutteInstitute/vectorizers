@@ -38,7 +38,7 @@ from .utils import (
 )
 import vectorizers.distances as distances
 
-from ._window_kernels import _KERNEL_FUNCTIONS, _WINDOW_FUNCTIONS
+from ._window_kernels import _KERNEL_FUNCTIONS, _WINDOW_FUNCTIONS, _SYMMETRIC_WINDOWS
 
 
 def construct_document_frequency(token_by_doc_sequence, token_dictionary):
@@ -630,7 +630,12 @@ def remove_node(adjacency_matrix, node, inplace=True):
 
 @numba.njit(nogil=True)
 def build_skip_grams(
-    token_sequence, window_function, kernel_function, window_args, kernel_args
+    token_sequence,
+    window_function,
+    kernel_function,
+    window_args,
+    kernel_args,
+    reverse=False,
 ):
     """Given a single token sequence produce an array of weighted skip-grams
     associated to each token in the original sequence. The resulting array has
@@ -660,6 +665,10 @@ def build_skip_grams(
     kernel_args: tuple
         Arguments to pass through to the kernel function
 
+    reverse: bool (optional, default False)
+        Whether windows follow the word (default) or are reversed and come
+        before the word.
+
     Returns
     -------
     skip_grams: array of shape (n_skip_grams, 3)
@@ -672,7 +681,7 @@ def build_skip_grams(
     if n_original_tokens < 2:
         return np.zeros((1, 3), dtype=np.float32)
 
-    windows = window_function(token_sequence, *window_args)
+    windows = window_function(token_sequence, *window_args, reverse=reverse)
 
     new_tokens = np.empty(
         (np.sum(np.array([len(w) for w in windows])), 3), dtype=np.float32
@@ -801,7 +810,12 @@ def skip_grams_matrix_coo_data(
 
 @numba.njit(nogil=True)
 def sequence_skip_grams(
-    token_sequences, window_function, kernel_function, window_args, kernel_args
+    token_sequences,
+    window_function,
+    kernel_function,
+    window_args,
+    kernel_args,
+    reverse=False,
 ):
     """Produce skip-gram data for a combined over a list of token sequences. In this
     case each token sequence represents a sequence with boundaries over which
@@ -824,6 +838,10 @@ def sequence_skip_grams(
     kernel_args: tuple
         Arguments to pass through to the kernel function
 
+    reverse: bool (optional, default False)
+        Whether windows follow the word (default) or are reversed and come
+        before the word.
+
     Returns
     -------
     skip_grams: array of shape (n_skip_grams, 3)
@@ -831,7 +849,12 @@ def sequence_skip_grams(
     """
     skip_grams_per_sequence = [
         build_skip_grams(
-            token_sequence, window_function, kernel_function, window_args, kernel_args
+            token_sequence,
+            window_function,
+            kernel_function,
+            window_args,
+            kernel_args,
+            reverse=reverse,
         )
         for token_sequence in token_sequences
     ]
@@ -987,6 +1010,11 @@ def token_cooccurrence_matrix(
     )
     n_chunks = (len(token_sequences) // chunk_size) + 1
 
+    if window_orientation == "after" or window_function in _SYMMETRIC_WINDOWS:
+        reverse_required = False
+    else:
+        reverse_required = True
+
     for chunk_index in range(n_chunks):
         chunk_start = chunk_index * chunk_size
         chunk_end = min(len(token_sequences), chunk_start + chunk_size)
@@ -997,6 +1025,7 @@ def token_cooccurrence_matrix(
             kernel_function,
             window_args,
             kernel_args,
+            reverse=reverse_required and window_orientation == "before",
         )
         cooccurrence_matrix += scipy.sparse.coo_matrix(
             (
@@ -1011,15 +1040,48 @@ def token_cooccurrence_matrix(
         )
         cooccurrence_matrix.sum_duplicates()
 
-    if window_orientation == "before":
+    if window_orientation in ("symmetric", "directional"):
+        if reverse_required:
+            cooccurrence_matrix_reverse = scipy.sparse.coo_matrix(
+                (n_unique_tokens, n_unique_tokens), dtype=np.float32
+            )
+
+            for chunk_index in range(n_chunks):
+                chunk_start = chunk_index * chunk_size
+                chunk_end = min(len(token_sequences), chunk_start + chunk_size)
+
+                raw_coo_data = sequence_skip_grams(
+                    token_sequences[chunk_start:chunk_end],
+                    window_function,
+                    kernel_function,
+                    window_args,
+                    kernel_args,
+                    reverse=True,
+                )
+                cooccurrence_matrix_reverse += scipy.sparse.coo_matrix(
+                    (
+                        raw_coo_data.T[2],
+                        (
+                            raw_coo_data.T[0].astype(np.int64),
+                            raw_coo_data.T[1].astype(np.int64),
+                        ),
+                    ),
+                    shape=(n_unique_tokens, n_unique_tokens),
+                    dtype=np.float32,
+                )
+                cooccurrence_matrix_reverse.sum_duplicates()
+        else:
+            cooccurrence_matrix_reverse = cooccurrence_matrix.transpose()
+
+    if window_orientation == "before" and not reverse_required:
         cooccurrence_matrix = cooccurrence_matrix.transpose()
     elif window_orientation == "after":
         cooccurrence_matrix = cooccurrence_matrix
     elif window_orientation == "symmetric":
-        cooccurrence_matrix = cooccurrence_matrix + cooccurrence_matrix.transpose()
+        cooccurrence_matrix = cooccurrence_matrix + cooccurrence_matrix_reverse
     elif window_orientation == "directional":
         cooccurrence_matrix = scipy.sparse.hstack(
-            [cooccurrence_matrix.transpose(), cooccurrence_matrix]
+            [cooccurrence_matrix_reverse, cooccurrence_matrix]
         )
     else:
         raise ValueError(
@@ -1237,7 +1299,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         kernel_function="flat",
         window_radius=5,
         window_orientation="directional",
-        chunk_size=1<<20,
+        chunk_size=1 << 20,
         validate_data=True,
     ):
         self.token_dictionary = token_dictionary

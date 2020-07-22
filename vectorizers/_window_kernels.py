@@ -3,29 +3,61 @@ import numba
 
 
 @numba.njit(nogil=True)
-def information_window(token_sequence, window_size, token_frequency):
+def information_window(token_sequence, window_size, token_frequency, reverse=False):
     result = []
 
     for i in range(len(token_sequence)):
         counter = 0
         current_entropy = 0.0
 
-        for j in range(i + 1, len(token_sequence)):
-            current_entropy -= np.log(token_frequency[int(token_sequence[j])])
-            counter += 1
-            if current_entropy >= window_size:
-                break
+        if reverse:
+            for j in range(i - 1, 0, -1):
+                current_entropy -= np.log(token_frequency[int(token_sequence[j])])
+                counter += 1
+                if current_entropy >= window_size:
+                    break
 
-        result.append(token_sequence[i + 1 : i + 1 + counter])
+            result.append(token_sequence[i - 1 : max(0, i - counter - 1) : -1])
+        else:
+            for j in range(i + 1, len(token_sequence)):
+                current_entropy -= np.log(token_frequency[int(token_sequence[j])])
+                counter += 1
+                if current_entropy >= window_size:
+                    break
+
+            result.append(token_sequence[i + 1 : i + 1 + counter])
 
     return result
 
 
 @numba.njit(nogil=True)
-def fixed_window(token_sequence, window_size, token_frequency):
+def fixed_window(token_sequence, window_size, token_frequency, reverse=False):
     result = []
     for i in range(len(token_sequence)):
-        result.append(token_sequence[i + 1 : i + window_size + 1])
+        if reverse:
+            result.append(token_sequence[i - 1 : max(0, i - window_size - 1) : -1])
+        else:
+            result.append(token_sequence[i + 1 : i + window_size + 1])
+
+    return result
+
+
+@numba.njit(nogil=True)
+def mass_conservation_window(
+    token_sequence, window_size, token_frequency, reverse=False
+):
+    result = []
+    expected_mass = np.min(token_frequency) * 50.0
+    for i in range(len(token_sequence)):
+        current_window_size = max(
+            1, np.uint8(expected_mass / token_frequency[token_sequence[i]])
+        )
+        if reverse:
+            result.append(
+                token_sequence[i - 1 : max(0, i - current_window_size - 1) : -1]
+            )
+        else:
+            result.append(token_sequence[i + 1 : i + current_window_size + 1])
 
     return result
 
@@ -48,7 +80,15 @@ def harmonic_kernel(window, window_size):
     return 1.0 / result
 
 
-_WINDOW_FUNCTIONS = {"information": information_window, "fixed": fixed_window}
+_WINDOW_FUNCTIONS = {
+    "information": information_window,
+    "fixed": fixed_window,
+    "mass_conservation": mass_conservation_window,
+}
+
+_SYMMETRIC_WINDOWS = {
+    "fixed",
+}
 
 _KERNEL_FUNCTIONS = {
     "flat": flat_kernel,
