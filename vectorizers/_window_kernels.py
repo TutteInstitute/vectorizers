@@ -50,8 +50,8 @@ def mass_conservation_window(
 
     for i in range(len(token_sequence)):
         float_window_size = window_size / token_frequency[token_sequence[i]]
-        current_window_size = np.uint16(np.round(float_window_size))
-        current_window_size = max(0, current_window_size)
+        current_window_size = np.uint16(2.0 * np.round(float_window_size))
+        current_window_size = max(1, current_window_size)
         current_window_size = min(50, current_window_size)
         if reverse:
             result.append(
