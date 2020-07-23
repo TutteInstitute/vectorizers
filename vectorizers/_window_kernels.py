@@ -66,7 +66,11 @@ def mass_conservation_window(
                 token_sequence[i - 1 : max(0, i - current_window_size - 1) : -1]
             )
         else:
-            result.append(token_sequence[i + 1 : i + current_window_size + 1])
+            result.append(
+                token_sequence[
+                    i + 1 : min(i + current_window_size + 1, len(token_sequence))
+                ]
+            )
 
     return result
 
