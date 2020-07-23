@@ -62,14 +62,15 @@ def mass_conservation_window(
         current_window_size = max(1, current_window_size)
         current_window_size = min(50, current_window_size)
         if reverse:
-            if i >= 1:
-                result.append(
-                    token_sequence[i - 1 : max(0, i - current_window_size - 1) : -1]
-                )
+            result.append(
+                token_sequence[max(0, i - 1) : max(0, i - current_window_size - 1) : -1]
+            )
         else:
             result.append(
                 token_sequence[
-                    i + 1 : min(i + current_window_size + 1, len(token_sequence))
+                    min(i + 1, len(token_sequence)) : min(
+                        i + current_window_size + 1, len(token_sequence)
+                    )
                 ]
             )
 
