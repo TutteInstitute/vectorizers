@@ -1377,7 +1377,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             )
             self._window_size = self.window_radius * entropy
         elif self.window_function == "mass_conservation":
-            median_frequency = np.max(self._token_frequencies_)
+            median_frequency = np.percentile(self._token_frequencies_, 98)
             self._window_size = self.window_radius * median_frequency
         else:
             self._window_size = self.window_radius
