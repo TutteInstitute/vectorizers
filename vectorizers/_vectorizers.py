@@ -443,6 +443,7 @@ def preprocess_token_sequences(
     max_document_frequency=None,
     ignored_tokens=None,
     excluded_token_regex=None,
+    unknown_token=None,
 ):
     """Perform a standard set of preprocessing for token sequences. This includes
     constructing a token dictionary and token frequencies, pruning the dictionary
@@ -552,22 +553,38 @@ def preprocess_token_sequences(
             total_documents=len(token_sequences),
         )
 
+    if unknown_token is not None:
+        token_dictionary[unknown_token] = len(token_dictionary)
+
     inverse_token_dictionary = {
         index: token for token, index in token_dictionary.items()
     }
 
     result_sequences = List()
-    for sequence in token_sequences:
-        result_sequences.append(
-            np.array(
-                [
-                    token_dictionary[token]
-                    for token in sequence
-                    if token in token_dictionary
-                ],
-                dtype=np.int64,
+    if unknown_token is None:
+        for sequence in token_sequences:
+            result_sequences.append(
+                np.array(
+                    [
+                        token_dictionary[token]
+                        for token in sequence
+                        if token in token_dictionary
+                    ],
+                    dtype=np.int64,
+                )
             )
-        )
+    else:
+        unknown_token_index = token_dictionary[unknown_token]
+        for sequence in token_sequences:
+            result_sequences.append(
+                np.array(
+                    [
+                        token_dictionary.get(token, unknown_token_index)
+                        for token in sequence
+                    ],
+                    dtype=np.int64,
+                )
+            )
 
     return (
         result_sequences,
@@ -1233,6 +1250,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         max_document_frequency=None,
         ignored_tokens=None,
         excluded_token_regex=None,
+        unknown_token=None,
         window_function="fixed",
         kernel_function="flat",
         window_radius=5,
@@ -1251,6 +1269,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self.max_document_frequency = max_document_frequency
         self.ignored_tokens = ignored_tokens
         self.excluded_token_regex = excluded_token_regex
+        self.unknown_token = unknown_token
 
         self.window_function = window_function
         self.kernel_function = kernel_function
@@ -1285,6 +1304,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             max_document_frequency=self.max_document_frequency,
             ignored_tokens=self.ignored_tokens,
             excluded_token_regex=self.excluded_token_regex,
+            unknown_token=self.unknown_token,
         )
 
         if callable(self.kernel_function):
