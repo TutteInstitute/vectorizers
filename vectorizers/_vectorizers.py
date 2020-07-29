@@ -422,6 +422,9 @@ def preprocess_tree_sequences(
             result_sequence.append((result_matrix, label_sequence))
     else:
         result_sequence = []
+        if MASK_STRING in token_dictionary:
+            _ = token_dictionary.pop(MASK_STRING)
+
         for adj_matrix, label_sequence in tree_sequences:
             new_labels = [
                 label if label in token_dictionary.keys() else MASK_STRING
@@ -429,7 +432,7 @@ def preprocess_tree_sequences(
             ]
             result_sequence.append((adj_matrix, new_labels))
         token_dictionary[MASK_STRING] = len(token_dictionary)
-        print()
+
     inverse_token_dictionary = {
         index: token for token, index in token_dictionary.items()
     }
@@ -456,6 +459,7 @@ def preprocess_token_sequences(
     max_document_frequency=None,
     ignored_tokens=None,
     excluded_token_regex=None,
+    masking=False,
 ):
     """Perform a standard set of preprocessing for token sequences. This includes
     constructing a token dictionary and token frequencies, pruning the dictionary
@@ -565,22 +569,41 @@ def preprocess_token_sequences(
             total_documents=len(token_sequences),
         )
 
+    if not masking:
+        result_sequences = List()
+        for sequence in token_sequences:
+            result_sequences.append(
+                np.array(
+                    [
+                        token_dictionary[token]
+                        for token in sequence
+                        if token in token_dictionary
+                    ],
+                    dtype=np.int64,
+                )
+            )
+    else:
+        result_sequences = List()
+        if MASK_STRING in token_dictionary:
+            _ = token_dictionary.pop(MASK_STRING)
+
+        for sequence in token_sequences:
+            result_sequences.append(
+                np.array(
+                    [
+                        len(token_dictionary)
+                        if not (token in token_dictionary)
+                        else token_dictionary[token]
+                        for token in sequence
+                    ],
+                    dtype=np.int64,
+                )
+            )
+        token_dictionary[MASK_STRING] = len(token_dictionary)
+
     inverse_token_dictionary = {
         index: token for token, index in token_dictionary.items()
     }
-
-    result_sequences = List()
-    for sequence in token_sequences:
-        result_sequences.append(
-            np.array(
-                [
-                    token_dictionary[token]
-                    for token in sequence
-                    if token in token_dictionary
-                ],
-                dtype=np.int64,
-            )
-        )
 
     return (
         result_sequences,
@@ -1252,6 +1275,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         window_orientation="directional",
         chunk_size=1 << 20,
         validate_data=True,
+        masking=False,
     ):
         self.token_dictionary = token_dictionary
         self.min_occurrences = min_occurrences
@@ -1272,6 +1296,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self.window_orientation = window_orientation
         self.chunk_size = chunk_size
         self.validate_data = validate_data
+        self.masking = masking
 
     def fit_transform(self, X, y=None, **fit_params):
 
@@ -1298,6 +1323,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             max_document_frequency=self.max_document_frequency,
             ignored_tokens=self.ignored_tokens,
             excluded_token_regex=self.excluded_token_regex,
+            masking=self.masking,
         )
 
         if callable(self.kernel_function):
@@ -1386,7 +1412,9 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             column_label_dictionary,
             column_index_dictionary,
             token_frequencies,
-        ) = preprocess_token_sequences(X, flat_sequences, self.token_label_dictionary_,)
+        ) = preprocess_token_sequences(
+            X, flat_sequences, self.token_label_dictionary_, masking=self.masking
+        )
 
         cooccurrences = token_cooccurrence_matrix(
             token_sequences,
