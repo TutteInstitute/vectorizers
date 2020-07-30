@@ -176,7 +176,7 @@ def test_LabeledTreeCooccurrenceVectorizer_reduced_vocab():
 @pytest.mark.parametrize("window_orientation", ["before", "after", "symmetric", "directional"])
 @pytest.mark.parametrize("window_radius", [1, 2])
 @pytest.mark.parametrize("kernel_function", ["harmonic", "flat"])
-@pytest.mark.parametrize("masking", [True, False])
+@pytest.mark.parametrize("mask_string", [None, "[MASK]"])
 def test_equality_of_CooccurrenceVectorizers(
     min_token_occurrences,
     max_token_occurrences,
@@ -185,7 +185,7 @@ def test_equality_of_CooccurrenceVectorizers(
     window_radius,
     window_orientation,
     kernel_function,
-    masking,
+    mask_string,
 ):
     tree_model = LabelledTreeCooccurrenceVectorizer(
         window_radius=window_radius,
@@ -195,7 +195,7 @@ def test_equality_of_CooccurrenceVectorizers(
         max_occurrences=max_token_occurrences,
         max_tree_frequency=max_document_frequency,
         min_tree_occurrences=min_document_occurrences,
-        masking = masking,
+        mask_string = mask_string,
     )
     seq_model = TokenCooccurrenceVectorizer(
         window_radius=window_radius,
@@ -205,7 +205,7 @@ def test_equality_of_CooccurrenceVectorizers(
         max_occurrences=max_token_occurrences,
         max_document_frequency=max_document_frequency,
         min_document_occurrences=min_document_occurrences,
-        masking=masking,
+        mask_string=mask_string,
     )
     assert np.allclose(
         tree_model.fit_transform(seq_tree_sequence).toarray(),
