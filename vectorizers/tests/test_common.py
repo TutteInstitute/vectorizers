@@ -146,6 +146,20 @@ def test_LabeledTreeCooccurrenceVectorizer():
     )
     assert np.allclose(result.toarray(), expected_result.toarray())
 
+    result = model.transform(tree_sequence)
+    expected_result = scipy.sparse.csr_matrix(
+        np.array(
+            [
+                [0, 1, 1, 0, 0],
+                [0, 0, 2, 2, 0],
+                [0, 0, 0, 2, 1],
+                [0, 0, 0, 0, 1],
+                [0, 0, 0, 0, 0],
+            ]
+        )
+    )
+    assert np.allclose(result.toarray(), expected_result.toarray())
+
 
 def test_LabeledTreeCooccurrenceVectorizer_reduced_vocab():
     model = LabelledTreeCooccurrenceVectorizer(
@@ -162,6 +176,7 @@ def test_LabeledTreeCooccurrenceVectorizer_reduced_vocab():
 @pytest.mark.parametrize("window_orientation", ["before", "after", "symmetric", "directional"])
 @pytest.mark.parametrize("window_radius", [1, 2])
 @pytest.mark.parametrize("kernel_function", ["harmonic", "flat"])
+@pytest.mark.parametrize("mask_string", [None, "[MASK]"])
 def test_equality_of_CooccurrenceVectorizers(
     min_token_occurrences,
     max_token_occurrences,
@@ -170,6 +185,7 @@ def test_equality_of_CooccurrenceVectorizers(
     window_radius,
     window_orientation,
     kernel_function,
+    mask_string,
 ):
     tree_model = LabelledTreeCooccurrenceVectorizer(
         window_radius=window_radius,
@@ -179,6 +195,7 @@ def test_equality_of_CooccurrenceVectorizers(
         max_occurrences=max_token_occurrences,
         max_tree_frequency=max_document_frequency,
         min_tree_occurrences=min_document_occurrences,
+        mask_string = mask_string,
     )
     seq_model = TokenCooccurrenceVectorizer(
         window_radius=window_radius,
@@ -188,12 +205,20 @@ def test_equality_of_CooccurrenceVectorizers(
         max_occurrences=max_token_occurrences,
         max_document_frequency=max_document_frequency,
         min_document_occurrences=min_document_occurrences,
+        mask_string=mask_string,
     )
     assert np.allclose(
         tree_model.fit_transform(seq_tree_sequence).toarray(),
         seq_model.fit_transform(text_token_data_permutation).toarray(),
     )
-
+    assert np.allclose(
+        tree_model.fit_transform(seq_tree_sequence).toarray(),
+        tree_model.transform(seq_tree_sequence).toarray(),
+    )
+    assert np.allclose(
+        seq_model.fit_transform(text_token_data_permutation).toarray(),
+        seq_model.transform(text_token_data_permutation).toarray(),
+    )
     assert np.allclose(
         tree_model.transform(seq_tree_sequence).toarray(),
         seq_model.transform(text_token_data_permutation).toarray(),

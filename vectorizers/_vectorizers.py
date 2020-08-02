@@ -40,7 +40,6 @@ import vectorizers.distances as distances
 
 from ._window_kernels import _KERNEL_FUNCTIONS, _WINDOW_FUNCTIONS
 
-
 def construct_document_frequency(token_by_doc_sequence, token_dictionary):
     """Returns the frequency of documents that each token appears in.
 
@@ -289,6 +288,7 @@ def preprocess_tree_sequences(
     max_tree_frequency=None,
     ignored_tokens=None,
     excluded_token_regex=None,
+    masking=None,
 ):
     """Perform a standard set of preprocessing for token sequences. This includes
     constructing a token dictionary and token frequencies, pruning the dictionary
@@ -348,6 +348,9 @@ def preprocess_tree_sequences(
         A set of tokens that should be ignored. If None then no tokens will
         be ignored.
 
+    masking: str (optional, default=None)
+        Prunes the filtered tokens when None, otherwise replaces them with the provided mask_string.
+
     Returns
     -------
     result_sequences: list of np.ndarray
@@ -396,30 +399,43 @@ def preprocess_tree_sequences(
             total_documents=len(tree_sequences),
         )
 
+    # We will prune the edges from any nodes who's labels are to be filtered and reconnect their parents with their children.
+    # This will remove them from our computation without having to alter the matrix size or label_sequence.
+    if masking is None:
+        result_sequence = []
+        for adj_matrix, label_sequence in tree_sequences:
+            node_index_to_remove = [
+                i for i, x in enumerate(label_sequence) if x not in token_dictionary
+            ]
+            result_matrix = adj_matrix.tolil().copy()
+            for node_index in node_index_to_remove:
+                remove_node(result_matrix, node_index)
+
+            #  If we want to eliminate the zero row/columns and trim the label_sequence:
+            #
+            #  label_in_dictionary = np.array([x in token_dictionary for x in label_sequence])
+            #  result_matrix = result_matrix.tocsr()[label_in_dictionary, :]
+            #  result_matrix = result_matrix.T[label_in_dictionary, :].T.tocoo()
+            #  result_labels = label_sequence[label_in_dictionary]
+            #  result_sequence.append((result_matrix, result_labels))
+
+            result_sequence.append((result_matrix, label_sequence))
+    else:
+        result_sequence = []
+        if masking in token_dictionary:
+            del token_dictionary[masking]
+
+        for adj_matrix, label_sequence in tree_sequences:
+            new_labels = [
+                label if label in token_dictionary else masking
+                for label in label_sequence
+            ]
+            result_sequence.append((adj_matrix, new_labels))
+        token_dictionary[masking] = len(token_dictionary)
+
     inverse_token_dictionary = {
         index: token for token, index in token_dictionary.items()
     }
-
-    # Wee will prune the edges from any nodes who's labels are to be filtered and reconnect their parents with their children.
-    # This will remove them from our computation without having to alter the matrix size or label_sequence.
-    result_sequence = []
-    for adj_matrix, label_sequence in tree_sequences:
-        node_index_to_remove = [
-            i for i, x in enumerate(label_sequence) if x not in token_dictionary
-        ]
-        result_matrix = adj_matrix.tolil().copy()
-        for node_index in node_index_to_remove:
-            remove_node(result_matrix, node_index)
-
-        #  If we want to eliminate the zero row/columns and trim the label_sequence:
-        #
-        #  label_in_dictionary = np.array([x in token_dictionary for x in label_sequence])
-        #  result_matrix = result_matrix.tocsr()[label_in_dictionary, :]
-        #  result_matrix = result_matrix.T[label_in_dictionary, :].T.tocoo()
-        #  result_labels = label_sequence[label_in_dictionary]
-        #  result_sequence.append((result_matrix, result_labels))
-
-        result_sequence.append((result_matrix, label_sequence))
 
     return (
         result_sequence,
@@ -443,6 +459,7 @@ def preprocess_token_sequences(
     max_document_frequency=None,
     ignored_tokens=None,
     excluded_token_regex=None,
+    masking=None,
 ):
     """Perform a standard set of preprocessing for token sequences. This includes
     constructing a token dictionary and token frequencies, pruning the dictionary
@@ -501,6 +518,9 @@ def preprocess_token_sequences(
         A set of tokens that should be ignored. If None then no tokens will
         be ignored.
 
+    masking: str (optional, default=None)
+        Prunes the filtered tokens when None, otherwise replaces them with the provided mask_string.
+
     Returns
     -------
     result_sequences: list of np.ndarray
@@ -552,22 +572,41 @@ def preprocess_token_sequences(
             total_documents=len(token_sequences),
         )
 
+    if masking is None:
+        result_sequences = List()
+        for sequence in token_sequences:
+            result_sequences.append(
+                np.array(
+                    [
+                        token_dictionary[token]
+                        for token in sequence
+                        if token in token_dictionary
+                    ],
+                    dtype=np.int64,
+                )
+            )
+    else:
+        result_sequences = List()
+        if masking in token_dictionary:
+            del token_dictionary[masking]
+
+        for sequence in token_sequences:
+            result_sequences.append(
+                np.array(
+                    [
+                        len(token_dictionary)
+                        if not (token in token_dictionary)
+                        else token_dictionary[token]
+                        for token in sequence
+                    ],
+                    dtype=np.int64,
+                )
+            )
+        token_dictionary[masking] = len(token_dictionary)
+
     inverse_token_dictionary = {
         index: token for token, index in token_dictionary.items()
     }
-
-    result_sequences = List()
-    for sequence in token_sequences:
-        result_sequences.append(
-            np.array(
-                [
-                    token_dictionary[token]
-                    for token in sequence
-                    if token in token_dictionary
-                ],
-                dtype=np.int64,
-            )
-        )
 
     return (
         result_sequences,
@@ -1218,6 +1257,9 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
     validate_data: bool (optional, default=True)
         Check whether the data is valid (e.g. of homogeneous token type).
+
+    mask_string: str (optional, default=None)
+        Prunes the filtered tokens when None, otherwise replaces them with the provided mask_string.
     """
 
     def __init__(
@@ -1237,8 +1279,9 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         kernel_function="flat",
         window_radius=5,
         window_orientation="directional",
-        chunk_size=1<<20,
+        chunk_size=1 << 20,
         validate_data=True,
+        mask_string=None,
     ):
         self.token_dictionary = token_dictionary
         self.min_occurrences = min_occurrences
@@ -1259,6 +1302,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self.window_orientation = window_orientation
         self.chunk_size = chunk_size
         self.validate_data = validate_data
+        self.mask_string = mask_string
 
     def fit_transform(self, X, y=None, **fit_params):
 
@@ -1285,6 +1329,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             max_document_frequency=self.max_document_frequency,
             ignored_tokens=self.ignored_tokens,
             excluded_token_regex=self.excluded_token_regex,
+            masking=self.mask_string,
         )
 
         if callable(self.kernel_function):
@@ -1373,7 +1418,9 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             column_label_dictionary,
             column_index_dictionary,
             token_frequencies,
-        ) = preprocess_token_sequences(X, flat_sequences, self.token_label_dictionary_,)
+        ) = preprocess_token_sequences(
+            X, flat_sequences, self.token_label_dictionary_, masking=self.mask_string
+        )
 
         cooccurrences = token_cooccurrence_matrix(
             token_sequences,
@@ -1468,6 +1515,9 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
     validate_data: bool (optional, default=True)
         Check whether the data is valid (e.g. of homogeneous token type).
+
+    mask_string: str (optional, default=None)
+        Prunes the filtered tokens when None, otherwise replaces them with the provided mask_string.
     """
 
     def __init__(
@@ -1488,6 +1538,7 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         token_dictionary=None,
         window_orientation="directional",
         validate_data=True,
+        mask_string=None,
     ):
         self.token_dictionary = token_dictionary
         self.min_occurrences = min_occurrences
@@ -1507,6 +1558,7 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
         self.window_orientation = window_orientation
         self.validate_data = validate_data
+        self.mask_string = mask_string
 
     def fit(self, X, y=None, **fit_params):
         """
@@ -1545,6 +1597,7 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             max_tree_frequency=self.max_tree_frequency,
             ignored_tokens=self.ignored_tokens,
             excluded_token_regex=self.excluded_token_regex,
+            masking=self.mask_string,
         )
 
         if callable(self.kernel_function):
@@ -1631,7 +1684,9 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             self.token_label_dictionary_,
             self.token_index_dictionary_,
             self._token_frequencies_,
-        ) = preprocess_tree_sequences(X, flat_sequences, self.token_label_dictionary_,)
+        ) = preprocess_tree_sequences(
+            X, flat_sequences, self.token_label_dictionary_, masking=self.mask_string
+        )
 
         if callable(self.kernel_function):
             self._kernel_function = self.kernel_function
