@@ -423,7 +423,7 @@ def preprocess_tree_sequences(
     else:
         result_sequence = []
         if masking in token_dictionary:
-            _ = token_dictionary.pop(masking)
+            del token_dictionary[masking]
 
         for adj_matrix, label_sequence in tree_sequences:
             new_labels = [
