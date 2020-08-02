@@ -588,7 +588,7 @@ def preprocess_token_sequences(
     else:
         result_sequences = List()
         if masking in token_dictionary:
-            _ = token_dictionary.pop(masking)
+            del token_dictionary[masking]
 
         for sequence in token_sequences:
             result_sequences.append(
