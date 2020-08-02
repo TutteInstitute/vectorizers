@@ -401,7 +401,7 @@ def preprocess_tree_sequences(
 
     # We will prune the edges from any nodes who's labels are to be filtered and reconnect their parents with their children.
     # This will remove them from our computation without having to alter the matrix size or label_sequence.
-    if masking == None:
+    if masking is None:
         result_sequence = []
         for adj_matrix, label_sequence in tree_sequences:
             node_index_to_remove = [
