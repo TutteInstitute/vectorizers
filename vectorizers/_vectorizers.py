@@ -427,7 +427,7 @@ def preprocess_tree_sequences(
 
         for adj_matrix, label_sequence in tree_sequences:
             new_labels = [
-                label if label in token_dictionary.keys() else masking
+                label if label in token_dictionary else masking
                 for label in label_sequence
             ]
             result_sequence.append((adj_matrix, new_labels))
