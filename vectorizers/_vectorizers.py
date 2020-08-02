@@ -572,7 +572,7 @@ def preprocess_token_sequences(
             total_documents=len(token_sequences),
         )
 
-    if masking == None:
+    if masking is None:
         result_sequences = List()
         for sequence in token_sequences:
             result_sequences.append(
