@@ -37,6 +37,7 @@ install:
       fi
   - conda install --yes pandas numba
   - pip install codecov
+  - pip install hypothesis
   - pip install coverage
   - pip install coveralls
   - pip install .

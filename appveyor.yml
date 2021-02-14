@@ -25,6 +25,7 @@ install:
   - "conda install --yes pip numpy==%NUMPY_VERSION% scipy==%SCIPY_VERSION% scikit-learn==%SKLEARN_VERSION% nose pytest pytest-cov"
   - conda install --yes numba pandas
   - pip install codecov
+  - pip install hypothesis
   - pip install .
 
 test_script:

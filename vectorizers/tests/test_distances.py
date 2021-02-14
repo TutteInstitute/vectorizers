@@ -1,4 +1,7 @@
 import pytest
+import hypothesis.extra.numpy as hyp_np
+from hypothesis import given, settings
+import hypothesis.strategies as st
 
 import numpy as np
 import scipy.sparse
@@ -9,6 +12,19 @@ from vectorizers.distances import total_variation, sparse_total_variation
 from vectorizers.distances import (
     jensen_shannon_divergence,
     sparse_jensen_shannon_divergence,
+)
+
+TestDataStrategy = hyp_np.arrays(
+    dtype=np.float,
+    elements=st.floats(min_value=0, max_value=1),
+    unique=True,
+    shape=(10, 50),
+)
+TestDataStrategy_100 = hyp_np.arrays(
+    dtype=np.float,
+    elements=st.floats(min_value=0, max_value=1),
+    unique=True,
+    shape=(10, 100),
 )
 
 
@@ -70,8 +86,9 @@ def test_sparse_hellinger():
 
 # Test using inequalities with Hellinger distance from Wikipedia
 # https://en.wikipedia.org/wiki/Hellinger_distance#Connection_with_the_statistical_distance
-def test_total_variation():
-    test_data = np.random.random(size=(10, 50))
+@given(TestDataStrategy)
+@settings(deadline=None)
+def test_total_variation(test_data):
     test_data = normalize(test_data, norm="l1")
     for i in range(test_data.shape[0]):
         for j in range(i + 1, test_data.shape[0]):
@@ -83,8 +100,9 @@ def test_total_variation():
 
 # Test using inequalities with Hellinger distance from Wikipedia
 # https://en.wikipedia.org/wiki/Hellinger_distance#Connection_with_the_statistical_distance
-def test_sparse_total_variation():
-    test_data = np.random.random(size=(10, 100))
+@given(TestDataStrategy_100)
+@settings(deadline=None)
+def test_sparse_total_variation(test_data):
     # sparsify
     test_data[test_data <= 0.5] = 0.0
     test_data = scipy.sparse.csr_matrix(test_data)
@@ -108,8 +126,9 @@ def test_sparse_total_variation():
             assert tvd <= np.sqrt(2) * hd
 
 
-def test_jensen_shannon():
-    test_data = np.random.random(size=(10, 50))
+@given(TestDataStrategy)
+@settings(deadline=None)
+def test_jensen_shannon(test_data):
     test_data = normalize(test_data, norm="l1")
     for i in range(test_data.shape[0]):
         for j in range(i + 1, test_data.shape[0]):
@@ -123,8 +142,9 @@ def test_jensen_shannon():
             assert np.isclose(d, jensen_shannon_divergence(p, q))
 
 
-def test_sparse_jensen_shannon():
-    test_data = np.random.random(size=(10, 100))
+@given(TestDataStrategy_100)
+@settings(deadline=None)
+def test_sparse_jensen_shannon(test_data):
     # sparsify
     test_data[test_data <= 0.5] = 0.0
     sparse_test_data = scipy.sparse.csr_matrix(test_data)

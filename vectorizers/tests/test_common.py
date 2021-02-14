@@ -1,4 +1,8 @@
 import pytest
+from hypothesis import given, example, note, settings
+import hypothesis.strategies as st
+from hypothesis.strategies import composite
+
 
 from sklearn.utils.estimator_checks import check_estimator
 
@@ -173,7 +177,9 @@ def test_LabeledTreeCooccurrenceVectorizer_reduced_vocab():
 @pytest.mark.parametrize("max_token_occurrences", [None, 2])
 @pytest.mark.parametrize("min_document_occurrences", [None, 1])
 @pytest.mark.parametrize("max_document_frequency", [None, 0.7])
-@pytest.mark.parametrize("window_orientation", ["before", "after", "symmetric", "directional"])
+@pytest.mark.parametrize(
+    "window_orientation", ["before", "after", "symmetric", "directional"]
+)
 @pytest.mark.parametrize("window_radius", [1, 2])
 @pytest.mark.parametrize("kernel_function", ["harmonic", "flat"])
 @pytest.mark.parametrize("mask_string", [None, "[MASK]"])
@@ -300,28 +306,39 @@ def test_triangle_kernel():
     assert kernel[1] == 3.0
 
 
-def test_flat_kernel():
-    kernel = flat_kernel([0] * np.random.randint(2, 10), 0.0)
+@given(st.integers(min_value=2, max_value=30))
+@settings(deadline=None)
+def test_flat_kernel(length):
+    kernel = flat_kernel([0] * length, 0.0)
     assert np.all(kernel == 1.0)
 
 
-def test_ngrams_of():
-    for ngram_size in (1, 2, 4):
-        tokens = np.random.randint(10, size=np.random.poisson(5 + ngram_size))
-        ngrams = ngrams_of(tokens, ngram_size)
-        if len(tokens) >= ngram_size:
-            assert len(ngrams) == len(tokens) - (ngram_size - 1)
-        else:
-            assert len(ngrams) == 0
-        assert np.all(
-            [ngrams[i][0] == tokens[i] for i in range(len(tokens) - (ngram_size - 1))]
+@given(ngram_size=st.integers(min_value=1, max_value=6), data=st.data())
+@settings(deadline=None)
+def test_ngrams_of(ngram_size, data):
+    tokens = np.array(
+        data.draw(
+            st.lists(
+                st.integers(min_value=0, max_value=10),
+                min_size=3 + ngram_size,
+                max_size=10 + ngram_size,
+            )
         )
-        assert np.all(
-            [
-                ngrams[i][-1] == tokens[i + (ngram_size - 1)]
-                for i in range(len(tokens) - (ngram_size - 1))
-            ]
-        )
+    )
+    ngrams = ngrams_of(tokens, ngram_size)
+    if len(tokens) >= ngram_size:
+        assert len(ngrams) == len(tokens) - (ngram_size - 1)
+    else:
+        assert len(ngrams) == 0
+    assert np.all(
+        [ngrams[i][0] == tokens[i] for i in range(len(tokens) - (ngram_size - 1))]
+    )
+    assert np.all(
+        [
+            ngrams[i][-1] == tokens[i + (ngram_size - 1)]
+            for i in range(len(tokens) - (ngram_size - 1))
+        ]
+    )
 
 
 def test_find_bin_boundaries_min():
@@ -340,7 +357,7 @@ def test_find_boundaries_all_dupes():
 
 
 def test_token_cooccurrence_vectorizer_basic():
-    vectorizer = TokenCooccurrenceVectorizer(window_orientation='symmetric')
+    vectorizer = TokenCooccurrenceVectorizer(window_orientation="symmetric")
     result = vectorizer.fit_transform(token_data)
     transform = vectorizer.transform(token_data)
     assert (result != transform).nnz == 0
@@ -390,7 +407,7 @@ def test_token_cooccurrence_vectorizer_column_order():
 
 
 def test_token_cooccurrence_vectorizer_transform():
-    vectorizer = TokenCooccurrenceVectorizer(window_orientation='symmetric')
+    vectorizer = TokenCooccurrenceVectorizer(window_orientation="symmetric")
     result = vectorizer.fit_transform(text_token_data_subset)
     transform = vectorizer.transform(text_token_data)
     assert result.shape == transform.shape
