@@ -43,7 +43,7 @@ def triangle_kernel(window, window_size, token_frequency):
 
 
 @numba.njit(nogil=True)
-def harmonic_kernel(window, window_size, token_frequency)):
+def harmonic_kernel(window, window_size, token_frequency):
     result = np.arange(1, len(window) + 1).astype(np.float32)
     return 1.0 / result
 
