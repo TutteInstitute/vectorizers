@@ -1365,7 +1365,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             window_function=self._window_function,
             kernel_function=self._kernel_function,
             window_args=(self._window_size, self._token_frequencies_),
-            kernel_args=(self.window_radius,),
+            kernel_args=(self.window_radius,  self._token_frequencies_),
             window_orientation=self.window_orientation,
             chunk_size=self.chunk_size,
         )
