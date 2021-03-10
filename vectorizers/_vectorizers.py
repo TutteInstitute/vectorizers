@@ -40,6 +40,21 @@ import vectorizers.distances as distances
 
 from ._window_kernels import _KERNEL_FUNCTIONS, _WINDOW_FUNCTIONS, _SYMMETRIC_WINDOWS
 
+from numba.np.unsafe.ndarray import to_fixed_tuple
+MOCK_DICT = numba.typed.Dict()
+MOCK_DICT[(-1, -1)] = -1
+
+@numba.njit(nogil=True)
+def pair_to_tuple(pair):
+    return to_fixed_tuple(pair, 2)
+
+def make_tuple_converter(tuple_size):
+    @numba.njit(nogil=True)
+    def tuple_converter(to_convert):
+        return to_fixed_tuple(to_convert, tuple_size)
+
+    return tuple_converter
+
 def construct_document_frequency(token_by_doc_sequence, token_dictionary):
     """Returns the frequency of documents that each token appears in.
 
@@ -742,6 +757,90 @@ def build_skip_grams(
 
     return new_tokens
 
+@numba.njit(nogil=True)
+def build_skip_ngrams(
+    token_sequence,
+    window_function,
+    kernel_function,
+    window_args,
+    kernel_args,
+    ngram_dictionary,
+    ngram_size=2,
+    array_to_tuple=pair_to_tuple,
+    reverse=False,
+):
+    """Given a single token sequence produce an array of weighted skip-grams
+    associated to each token in the original sequence. The resulting array has
+    shape (n_skip_grams, 3) where each skip_gram is a vector giving the
+    head (or skip) token index, the tail token index, and the associated weight of the
+    skip-gram. The weights for skip-gramming are given by the kernel_function
+    that is applied to the window. Options for kernel functions include a fixed
+    kernel (giving a weight of 1 to each item), a triangular kernel (giving a
+    linear decaying weight depending on the distance from the skip token), and a
+    harmonic kernel (giving a weight that decays inversely proportional to the
+    distance from the skip_token).
+
+    Parameters
+    ----------
+    token_sequence: Iterable
+        The sequence of tokens to build skip-grams for.
+
+    window_function: numba.jitted callable
+        A function producing a sequence of windows given a source sequence
+
+    kernel_function: numba.jitted callable
+        A function producing weights given a window of tokens
+
+    window_args: tuple
+        Arguments to pass through to the window function
+
+    kernel_args: tuple
+        Arguments to pass through to the kernel function
+
+    reverse: bool (optional, default False)
+        Whether windows follow the word (default) or are reversed and come
+        before the word.
+
+    Returns
+    -------
+    skip_grams: array of shape (n_skip_grams, 3)
+        Each skip_gram is a vector giving the head (or skip) token index, the
+        tail token index, and the associated weight of the skip-gram.
+    """
+    original_tokens = token_sequence
+    n_original_tokens = len(original_tokens)
+
+    if n_original_tokens <= ngram_size:
+        return np.zeros((1, 3), dtype=np.float32)
+
+    window_args = window_args + (reverse,)
+
+    windows = window_function(token_sequence, *window_args)
+
+    new_tokens = np.zeros(
+        (np.sum(np.array([len(w) for w in windows])), 3), dtype=np.float32
+    )
+    new_token_count = 0
+
+    for i in range(ngram_size - 1, n_original_tokens):
+        if reverse:
+            ngram = array_to_tuple(original_tokens[i:i + ngram_size])
+        else:
+            ngram = array_to_tuple(original_tokens[i - ngram_size:i])
+
+        if ngram in ngram_dictionary:
+            head_token = ngram_dictionary[ngram]
+            window = windows[i]
+            weights = kernel_function(window, *kernel_args)
+
+            for j in range(len(window)):
+                new_tokens[new_token_count, 0] = np.float32(head_token)
+                new_tokens[new_token_count, 1] = np.float32(window[j])
+                new_tokens[new_token_count, 2] = weights[j]
+                new_token_count += 1
+
+    return new_tokens
+
 
 def build_tree_skip_grams(
     token_sequence, adjacency_matrix, kernel_function, window_size
@@ -856,6 +955,9 @@ def sequence_skip_grams(
     kernel_function,
     window_args,
     kernel_args,
+    ngram_dictionary=MOCK_DICT,
+    ngram_size=1,
+    array_to_tuple=pair_to_tuple,
     reverse=False,
 ):
     """Produce skip-gram data for a combined over a list of token sequences. In this
@@ -888,17 +990,34 @@ def sequence_skip_grams(
     skip_grams: array of shape (n_skip_grams, 3)
         The skip grams for the combined set of sequences.
     """
-    skip_grams_per_sequence = [
-        build_skip_grams(
-            token_sequence,
-            window_function,
-            kernel_function,
-            window_args,
-            kernel_args,
-            reverse,
-        )
-        for token_sequence in token_sequences
-    ]
+    if ngram_size == 1 or len(ngram_dictionary) <= 1:
+        skip_grams_per_sequence = [
+            build_skip_grams(
+                token_sequence,
+                window_function,
+                kernel_function,
+                window_args,
+                kernel_args,
+                reverse,
+            )
+            for token_sequence in token_sequences
+        ]
+    else:
+        skip_grams_per_sequence = [
+            build_skip_ngrams(
+                token_sequence,
+                window_function,
+                kernel_function,
+                window_args,
+                kernel_args,
+                ngram_dictionary,
+                ngram_size,
+                array_to_tuple,
+                reverse,
+            )
+            for token_sequence in token_sequences
+        ]
+
     total_n_skip_grams = 0
     for arr in skip_grams_per_sequence:
         total_n_skip_grams += arr.shape[0]
@@ -988,6 +1107,8 @@ def token_cooccurrence_matrix(
     window_args,
     kernel_args,
     window_orientation="symmetric",
+    ngram_dictionary=MOCK_DICT,
+    ngram_size=1,
     chunk_size=1 << 20,
 ):
     """Generate a matrix of (weighted) counts of co-occurrences of tokens within
@@ -1046,12 +1167,19 @@ def token_cooccurrence_matrix(
     if n_unique_tokens == 0:
         raise ValueError("Token dictionary is empty; try using less extreme contraints")
 
+    if len(ngram_dictionary) == 1 or ngram_size == 1:
+        n_rows = n_unique_tokens
+        array_to_tuple = pair_to_tuple # Mock function for this case; unused
+    else:
+        n_rows = len(ngram_dictionary)
+        array_to_tuple = make_tuple_converter(ngram_size)
+
     cooccurrence_matrix = scipy.sparse.coo_matrix(
-        (n_unique_tokens, n_unique_tokens), dtype=np.float32
+        (n_rows, n_unique_tokens), dtype=np.float32
     )
     n_chunks = (len(token_sequences) // chunk_size) + 1
 
-    if window_orientation == "after" or window_function in _SYMMETRIC_WINDOWS:
+    if window_orientation == "after": # or window_function in _SYMMETRIC_WINDOWS:
         reverse_required = False
     else:
         reverse_required = True
@@ -1066,6 +1194,9 @@ def token_cooccurrence_matrix(
             kernel_function,
             window_args,
             kernel_args,
+            ngram_dictionary=ngram_dictionary,
+            ngram_size=ngram_size,
+            array_to_tuple=array_to_tuple,
             reverse=reverse_required and window_orientation == "before",
         )
         cooccurrence_matrix += scipy.sparse.coo_matrix(
@@ -1076,7 +1207,7 @@ def token_cooccurrence_matrix(
                     raw_coo_data.T[1].astype(np.int64),
                 ),
             ),
-            shape=(n_unique_tokens, n_unique_tokens),
+            shape=(n_rows, n_unique_tokens),
             dtype=np.float32,
         )
         cooccurrence_matrix.sum_duplicates()
@@ -1097,6 +1228,9 @@ def token_cooccurrence_matrix(
                     kernel_function,
                     window_args,
                     kernel_args,
+                    ngram_dictionary=ngram_dictionary,
+                    ngram_size=ngram_size,
+                    array_to_tuple=array_to_tuple,
                     reverse=True,
                 )
                 cooccurrence_matrix_reverse += scipy.sparse.coo_matrix(
@@ -1315,6 +1449,11 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         symmetric: counts tokens occurring before and after as the same tokens
         directional: counts tokens before and after as different and returns both counts.
 
+    skip_ngram_size: int (optional, default=1)
+        Size, in number of tokens, of a target word at the center of a skipgram.
+        By default this is one, and simply means regular skipgrams, but this can
+        be increased allowing embeddings of bigrams or trigrams instead.
+
     chunk_size: int (optional, default=1048576)
         When processing token sequences, break the list of sequences into
         chunks of this size to stream the data through, rather than storing all
@@ -1346,6 +1485,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         window_radius=5,
         window_orientation="directional",
         chunk_size=1 << 20,
+        skip_ngram_size=1,
         validate_data=True,
         mask_string=None,
     ):
@@ -1366,6 +1506,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self.kernel_function = kernel_function
         self.window_radius = window_radius
 
+        self.skip_ngram_size = skip_ngram_size
         self.window_orientation = window_orientation
         self.chunk_size = chunk_size
         self.validate_data = validate_data
@@ -1398,6 +1539,58 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             excluded_token_regex=self.excluded_token_regex,
             masking=self.mask_string,
         )
+
+        if self.skip_ngram_size > 1:
+            ngrams = [list(map(tuple, ngrams_of(sequence, self.skip_ngram_size,
+                                                "exact"))) for sequence in
+                      token_sequences]
+            (
+                raw_ngram_dictionary,
+                ngram_frequencies,
+                total_ngrams,
+            ) = construct_token_dictionary_and_frequency(flatten(ngrams),
+                                                         token_dictionary=None)
+
+            if {
+                self.min_document_frequency,
+                self.min_document_occurrences,
+                self.max_document_frequency,
+                self.max_document_occurrences,
+            } != {None}:
+                ngram_doc_frequencies = construct_document_frequency(
+                    ngrams, raw_ngram_dictionary
+                )
+            else:
+                ngram_doc_frequencies = np.array([])
+
+            raw_ngram_dictionary, ngram_frequencies = prune_token_dictionary(
+                raw_ngram_dictionary,
+                ngram_frequencies,
+                token_doc_frequencies=ngram_doc_frequencies,
+                min_frequency=self.min_frequency,
+                max_frequency=self.max_frequency,
+                min_occurrences=self.min_occurrences,
+                max_occurrences=self.max_occurrences,
+                min_document_frequency=self.min_document_frequency,
+                max_document_frequency=self.max_document_frequency,
+                min_document_occurrences=self.min_document_occurrences,
+                max_document_occurrences=self.max_document_occurrences,
+                total_tokens=total_ngrams,
+                total_documents=len(X),
+            )
+            self._raw_ngram_dictionary_ = numba.typed.Dict()
+            self._raw_ngram_dictionary_.update(raw_ngram_dictionary)
+
+            def joined_tokens(ngram, token_index_dictionary):
+                return "_".join([token_index_dictionary[index] for index in ngram])
+
+            self.ngram_label_dictionary_ = {
+                joined_tokens(key, self.token_index_dictionary_):value
+                for key, value in raw_ngram_dictionary.items()
+            }
+        else:
+            self._raw_ngram_dictionary_ = MOCK_DICT
+
 
         if callable(self.kernel_function):
             self._kernel_function = self.kernel_function
@@ -1437,6 +1630,8 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             window_args=(self._window_size, self._token_frequencies_),
             kernel_args=(self.window_radius,),
             window_orientation=self.window_orientation,
+            ngram_dictionary=self._raw_ngram_dictionary_,
+            ngram_size=self.skip_ngram_size,
             chunk_size=self.chunk_size,
         )
         self.cooccurrences_.eliminate_zeros()
