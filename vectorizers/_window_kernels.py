@@ -36,7 +36,7 @@ def flat_kernel(window, window_size, token_frequency):
 
 
 @numba.njit(nogil=True)
-def triangle_kernel(window, window_size, token_frequency)):
+def triangle_kernel(window, window_size, token_frequency):
     start = max(window_size, len(window))
     stop = window_size - len(window)
     return np.arange(start, stop, -1).astype(np.float32)
