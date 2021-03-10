@@ -31,7 +31,7 @@ def fixed_window(token_sequence, window_size, token_frequency):
 
 
 @numba.njit(nogil=True)
-def flat_kernel(window, window_size, token_frequency)):
+def flat_kernel(window, window_size, token_frequency):
     return np.ones(len(window), dtype=np.float32)
 
 
