@@ -40,6 +40,7 @@ import vectorizers.distances as distances
 
 from ._window_kernels import _KERNEL_FUNCTIONS, _WINDOW_FUNCTIONS
 
+
 def construct_document_frequency(token_by_doc_sequence, token_dictionary):
     """Returns the frequency of documents that each token appears in.
 
@@ -733,7 +734,7 @@ def build_skip_grams(
 
 
 def build_tree_skip_grams(
-    token_sequence, adjacency_matrix, kernel_function, window_size
+    token_sequence, adjacency_matrix, kernel_function, window_size, token_frequency
 ):
     """
     Takes and adjacency matrix counts the co-occurrence of each token within a window_size
@@ -757,7 +758,7 @@ def build_tree_skip_grams(
     labels: array of length (unique_labels)
         This is the array of the labels of the rows and columns of our matrix.
     """
-    weights = kernel_function(np.arange(window_size), window_size)
+    weights = kernel_function(np.arange(window_size), window_size, token_frequency)
     count_matrix = adjacency_matrix * weights[0]
     walk = adjacency_matrix
     for i in range(1, window_size):
@@ -886,7 +887,12 @@ def sequence_skip_grams(
 
 
 def sequence_tree_skip_grams(
-    tree_sequences, kernel_function, window_size, label_dictionary, window_orientation,
+    tree_sequences,
+    kernel_function,
+    window_size,
+    label_dictionary,
+    window_orientation,
+    token_frequency,
 ):
     """
     Takes a sequence of labelled trees and counts the weighted skip grams of their labels.
@@ -926,6 +932,7 @@ def sequence_tree_skip_grams(
             adjacency_matrix=adj_matrix,
             kernel_function=kernel_function,
             window_size=window_size,
+            token_frequency=token_frequency,
         )
         # Reorder these based on the label_dictionary
         count_matrix = count_matrix.tocoo()
@@ -1365,7 +1372,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             window_function=self._window_function,
             kernel_function=self._kernel_function,
             window_args=(self._window_size, self._token_frequencies_),
-            kernel_args=(self.window_radius,),
+            kernel_args=(self.window_radius, self._token_frequencies_),
             window_orientation=self.window_orientation,
             chunk_size=self.chunk_size,
         )
@@ -1428,7 +1435,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             window_function=self._window_function,
             kernel_function=self._kernel_function,
             window_args=(self._window_size, self._token_frequencies_),
-            kernel_args=(self.window_radius,),
+            kernel_args=(self.window_radius, self._token_frequencies_),
             window_orientation=self.window_orientation,
         )
         cooccurrences.eliminate_zeros()
@@ -1618,6 +1625,7 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             window_size=self._window_size,
             label_dictionary=self.token_label_dictionary_,
             window_orientation=self.window_orientation,
+            token_frequency=self._token_frequencies_,
         )
 
         if self.window_orientation in ["before", "after", "symmetric"]:
@@ -1706,6 +1714,7 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             window_size=self._window_size,
             label_dictionary=self.token_label_dictionary_,
             window_orientation=self.window_orientation,
+            token_frequency=self._token_frequencies_,
         )
         cooccurrences.eliminate_zeros()
 
@@ -2211,7 +2220,7 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
             self._window_function,
             self._kernel_function,
             (self._window_size, self._token_frequencies_),
-            tuple([self.window_radius]),
+            (self.window_radius, self._token_frequencies_),
             self._token_dictionary_,
         )
 
@@ -2254,7 +2263,7 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
             self._window_function,
             self._kernel_function,
             (self._window_size, self._token_frequencies_),
-            tuple([self.window_radius]),
+            (self.window_radius, self._token_frequencies_),
             self._token_dictionary_,
         )
 

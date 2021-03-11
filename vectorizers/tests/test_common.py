@@ -231,6 +231,7 @@ def test_build_tree_skip_grams_contract():
         adjacency_matrix=path_graph,
         kernel_function=flat_kernel,
         window_size=2,
+        token_frequency=np.array([])
     )
     expected_result = scipy.sparse.csr_matrix(
         [[1.0, 1.0, 1.0], [1.0, 0.0, 1.0], [0.0, 0.0, 0.0]]
@@ -244,6 +245,7 @@ def test_build_tree_skip_grams_no_contract():
         adjacency_matrix=path_graph,
         kernel_function=flat_kernel,
         window_size=2,
+        token_frequency=np.array([])
     )
     assert np.allclose(result_matrix.toarray(), path_graph_two_out.toarray())
     assert np.array_equal(unique_labels, result_labels)
@@ -259,6 +261,7 @@ def test_sequence_tree_skip_grams(window_orientation):
         window_size=2,
         label_dictionary=label_dictionary,
         window_orientation=window_orientation,
+        token_frequency=np.array([])
     )
     expected_result = scipy.sparse.csr_matrix(
         np.array(
@@ -287,21 +290,21 @@ def test_sequence_tree_skip_grams(window_orientation):
 
 
 def test_harmonic_kernel():
-    kernel = harmonic_kernel([0, 0, 0, 0], 4.0)
+    kernel = harmonic_kernel([0, 0, 0, 0], 4.0, np.array([]))
     assert kernel[0] == 1.0
     assert kernel[-1] == 1.0 / 4.0
     assert kernel[1] == 1.0 / 2.0
 
 
 def test_triangle_kernel():
-    kernel = triangle_kernel([0, 0, 0, 0], 4.0)
+    kernel = triangle_kernel([0, 0, 0, 0], 4.0, np.array([]))
     assert kernel[0] == 4.0
     assert kernel[-1] == 1.0
     assert kernel[1] == 3.0
 
 
 def test_flat_kernel():
-    kernel = flat_kernel([0] * np.random.randint(2, 10), 0.0)
+    kernel = flat_kernel([0] * np.random.randint(2, 10), 0.0, np.array([]))
     assert np.all(kernel == 1.0)
 
 

@@ -31,19 +31,19 @@ def fixed_window(token_sequence, window_size, token_frequency):
 
 
 @numba.njit(nogil=True)
-def flat_kernel(window, window_size):
+def flat_kernel(window, window_size, token_frequency):
     return np.ones(len(window), dtype=np.float32)
 
 
 @numba.njit(nogil=True)
-def triangle_kernel(window, window_size):
+def triangle_kernel(window, window_size, token_frequency):
     start = max(window_size, len(window))
     stop = window_size - len(window)
     return np.arange(start, stop, -1).astype(np.float32)
 
 
 @numba.njit(nogil=True)
-def harmonic_kernel(window, window_size):
+def harmonic_kernel(window, window_size, token_frequency):
     result = np.arange(1, len(window) + 1).astype(np.float32)
     return 1.0 / result
 
