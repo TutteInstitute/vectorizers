@@ -47,6 +47,12 @@ def harmonic_kernel(window, window_size, token_frequency):
     result = np.arange(1, len(window) + 1).astype(np.float32)
     return 1.0 / result
 
+@numba.njit(nogil=True)
+def negative_binomial_kernel(window, window_size):
+    p = 1/np.sqrt(2)
+    result = np.arange(0, len(window)).astype(np.float32)
+    return (1-p)*(p**result)
+
 
 _WINDOW_FUNCTIONS = {"information": information_window, "fixed": fixed_window}
 

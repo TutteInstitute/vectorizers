@@ -163,7 +163,9 @@ def test_LabeledTreeCooccurrenceVectorizer():
 
 def test_LabeledTreeCooccurrenceVectorizer_reduced_vocab():
     model = LabelledTreeCooccurrenceVectorizer(
-        window_radius=2, window_orientation="after", token_dictionary=sub_dictionary,
+        window_radius=2,
+        window_orientation="after",
+        token_dictionary=sub_dictionary,
     )
     result = model.fit_transform(tree_sequence)
     assert result.shape == (3, 3)
@@ -173,7 +175,9 @@ def test_LabeledTreeCooccurrenceVectorizer_reduced_vocab():
 @pytest.mark.parametrize("max_token_occurrences", [None, 2])
 @pytest.mark.parametrize("min_document_occurrences", [None, 1])
 @pytest.mark.parametrize("max_document_frequency", [None, 0.7])
-@pytest.mark.parametrize("window_orientation", ["before", "after", "symmetric", "directional"])
+@pytest.mark.parametrize(
+    "window_orientation", ["before", "after", "symmetric", "directional"]
+)
 @pytest.mark.parametrize("window_radius", [1, 2])
 @pytest.mark.parametrize("kernel_function", ["harmonic", "flat"])
 @pytest.mark.parametrize("mask_string", [None, "[MASK]"])
@@ -195,7 +199,7 @@ def test_equality_of_CooccurrenceVectorizers(
         max_occurrences=max_token_occurrences,
         max_tree_frequency=max_document_frequency,
         min_tree_occurrences=min_document_occurrences,
-        mask_string = mask_string,
+        mask_string=mask_string,
     )
     seq_model = TokenCooccurrenceVectorizer(
         window_radius=window_radius,
@@ -343,7 +347,7 @@ def test_find_boundaries_all_dupes():
 
 
 def test_token_cooccurrence_vectorizer_basic():
-    vectorizer = TokenCooccurrenceVectorizer(window_orientation='symmetric')
+    vectorizer = TokenCooccurrenceVectorizer(window_orientation="symmetric")
     result = vectorizer.fit_transform(token_data)
     transform = vectorizer.transform(token_data)
     assert (result != transform).nnz == 0
@@ -393,7 +397,7 @@ def test_token_cooccurrence_vectorizer_column_order():
 
 
 def test_token_cooccurrence_vectorizer_transform():
-    vectorizer = TokenCooccurrenceVectorizer(window_orientation='symmetric')
+    vectorizer = TokenCooccurrenceVectorizer(window_orientation="symmetric")
     result = vectorizer.fit_transform(text_token_data_subset)
     transform = vectorizer.transform(text_token_data)
     assert result.shape == transform.shape
@@ -596,7 +600,18 @@ def test_distribution_vectorizer_bad_params():
         )
     vectorizer = DistributionVectorizer()
     with pytest.raises(ValueError):
-        vectorizer.fit([[[1, 2, 3], [1, 2], [1, 2, 3, 4]], [[1, 2], [1,], [1, 2, 3]]])
+        vectorizer.fit(
+            [
+                [[1, 2, 3], [1, 2], [1, 2, 3, 4]],
+                [
+                    [1, 2],
+                    [
+                        1,
+                    ],
+                    [1, 2, 3],
+                ],
+            ]
+        )
 
 
 def test_histogram_vectorizer_basic():

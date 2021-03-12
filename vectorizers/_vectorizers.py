@@ -800,8 +800,6 @@ def skip_grams_matrix_coo_data(
     kernel_args: tuple
         Arguments to pass through to the kernel function
 
-    n_unique_tokens: int
-        The total number of unique tokens across all the sequences
 
     Returns
     -------
@@ -1723,7 +1721,9 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
 class DistributionVectorizer(BaseEstimator, TransformerMixin):
     def __init__(
-        self, n_components=20, random_state=None,
+        self,
+        n_components=20,
+        random_state=None,
     ):
         self.n_components = n_components
         self.random_state = random_state
@@ -1771,7 +1771,8 @@ class DistributionVectorizer(BaseEstimator, TransformerMixin):
         )
         self.mixture_model_.fit(combined_data)
         self.ground_distance_ = pairwise_gaussian_ground_distance(
-            self.mixture_model_.means_, self.mixture_model_.covariances_,
+            self.mixture_model_.means_,
+            self.mixture_model_.covariances_,
         )
         self.metric_ = distances.hellinger
 
@@ -2014,12 +2015,12 @@ def temporal_cyclic_transform(datetime_series, periodicity=None):
 
 
 class CyclicHistogramVectorizer(BaseEstimator, TransformerMixin):
-    """
-
-    """
+    """"""
 
     def __init__(
-        self, periodicity="week", resolution="day",
+        self,
+        periodicity="week",
+        resolution="day",
     ):
         self.periodicity = periodicity
         self.resolution = resolution
@@ -2250,10 +2251,18 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
         return self._train_matrix
 
     def transform(self, X):
-        check_is_fitted(self, ["_token_dictionary_", "_column_is_kept",])
+        check_is_fitted(
+            self,
+            [
+                "_token_dictionary_",
+                "_column_is_kept",
+            ],
+        )
         flat_sequence = flatten(X)
         (token_sequences, _, _, _) = preprocess_token_sequences(
-            X, flat_sequence, self._token_dictionary_,
+            X,
+            flat_sequence,
+            self._token_dictionary_,
         )
 
         n_unique_tokens = len(self._token_dictionary_)
@@ -2489,7 +2498,9 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         )
         flat_sequence = flatten(X)
         (token_sequences, _, _, _) = preprocess_token_sequences(
-            X, flat_sequence, self._token_dictionary_,
+            X,
+            flat_sequence,
+            self._token_dictionary_,
         )
 
         indptr = [0]
