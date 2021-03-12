@@ -179,7 +179,7 @@ def test_LabeledTreeCooccurrenceVectorizer_reduced_vocab():
     "window_orientation", ["before", "after", "symmetric", "directional"]
 )
 @pytest.mark.parametrize("window_radius", [1, 2])
-@pytest.mark.parametrize("kernel_function", ["harmonic", "flat"])
+@pytest.mark.parametrize("kernel_function", ["harmonic", "flat", "negative binomial"])
 @pytest.mark.parametrize("mask_string", [None, "[MASK]"])
 def test_equality_of_CooccurrenceVectorizers(
     min_token_occurrences,
@@ -234,8 +234,9 @@ def test_build_tree_skip_grams_contract():
         token_sequence=path_graph_labels,
         adjacency_matrix=path_graph,
         kernel_function=flat_kernel,
+        kernel_args=dict(),
         window_size=2,
-        token_frequency=np.array([])
+        token_frequency=np.array([]),
     )
     expected_result = scipy.sparse.csr_matrix(
         [[1.0, 1.0, 1.0], [1.0, 0.0, 1.0], [0.0, 0.0, 0.0]]
@@ -248,8 +249,9 @@ def test_build_tree_skip_grams_no_contract():
         token_sequence=unique_labels,
         adjacency_matrix=path_graph,
         kernel_function=flat_kernel,
+        kernel_args=dict([]),
         window_size=2,
-        token_frequency=np.array([])
+        token_frequency=np.array([]),
     )
     assert np.allclose(result_matrix.toarray(), path_graph_two_out.toarray())
     assert np.array_equal(unique_labels, result_labels)
@@ -262,10 +264,11 @@ def test_sequence_tree_skip_grams(window_orientation):
     result = sequence_tree_skip_grams(
         tree_sequence,
         kernel_function=flat_kernel,
+        kernel_args=dict(),
         window_size=2,
         label_dictionary=label_dictionary,
         window_orientation=window_orientation,
-        token_frequency=np.array([])
+        token_frequency=np.array([]),
     )
     expected_result = scipy.sparse.csr_matrix(
         np.array(
@@ -360,6 +363,30 @@ def test_token_cooccurrence_vectorizer_basic():
     assert (result != transform).nnz == 0
     assert result[0, 2] == 8
     assert result[1, 0] == 6
+
+
+def test_token_cooccurrence_vectorizer_window_args():
+    vectorizer_a = TokenCooccurrenceVectorizer(window_function="variable")
+    vectorizer_b = TokenCooccurrenceVectorizer(
+        window_function="variable", window_args={"power": 0.25}
+    )
+    assert (
+        vectorizer_a.fit_transform(token_data) != vectorizer_b.fit_transform(token_data)
+    ).nnz == 0
+
+
+def test_token_cooccurrence_vectorizer_kernel_args():
+    vectorizer_a = TokenCooccurrenceVectorizer(
+        kernel_function="masked negative binomial", mask_string="MASK"
+    )
+    vectorizer_b = TokenCooccurrenceVectorizer(
+        kernel_function="masked negative binomial",
+        kernel_args={"p": 0.9},
+        mask_string="MASK",
+    )
+    assert (
+        vectorizer_a.fit_transform(token_data) != vectorizer_b.fit_transform(token_data)
+    ).nnz == 0
 
 
 def test_token_cooccurrence_vectorizer_orientation():

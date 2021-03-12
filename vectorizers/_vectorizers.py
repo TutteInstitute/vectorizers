@@ -734,7 +734,12 @@ def build_skip_grams(
 
 
 def build_tree_skip_grams(
-    token_sequence, adjacency_matrix, kernel_function, window_size, token_frequency
+    token_sequence,
+    adjacency_matrix,
+    kernel_function,
+    kernel_args,
+    window_size,
+    token_frequency,
 ):
     """
     Takes and adjacency matrix counts the co-occurrence of each token within a window_size
@@ -758,7 +763,9 @@ def build_tree_skip_grams(
     labels: array of length (unique_labels)
         This is the array of the labels of the rows and columns of our matrix.
     """
-    weights = kernel_function(np.arange(window_size), window_size, token_frequency)
+    weights = kernel_function(
+        np.arange(window_size), window_size, token_frequency, *kernel_args.values()
+    )
     count_matrix = adjacency_matrix * weights[0]
     walk = adjacency_matrix
     for i in range(1, window_size):
@@ -887,6 +894,7 @@ def sequence_skip_grams(
 def sequence_tree_skip_grams(
     tree_sequences,
     kernel_function,
+    kernel_args,
     window_size,
     label_dictionary,
     window_orientation,
@@ -929,6 +937,7 @@ def sequence_tree_skip_grams(
             token_sequence=token_sequence,
             adjacency_matrix=adj_matrix,
             kernel_function=kernel_function,
+            kernel_args=kernel_args,
             window_size=window_size,
             token_frequency=token_frequency,
         )
@@ -1246,6 +1255,12 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         Argument to pass through to the window function.  Outside of boundary cases, this is the expected width
         of the (directed) windows produced by the window function.
 
+    window_args: dict (optional, default = None)
+        Optional arguments for the window function
+
+    kernel_args: dict (optional, default = None)
+        Optional arguments for the kernel function
+
     token_dictionary: dictionary or None (optional, default=None)
         A dictionary mapping tokens to indices
 
@@ -1282,6 +1297,8 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         excluded_token_regex=None,
         window_function="fixed",
         kernel_function="flat",
+        window_args=dict(),
+        kernel_args=dict(),
         window_radius=5,
         window_orientation="directional",
         chunk_size=1 << 20,
@@ -1302,6 +1319,9 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
         self.window_function = window_function
         self.kernel_function = kernel_function
+        self.window_args = window_args
+        self.kernel_args = kernel_args
+
         self.window_radius = window_radius
 
         self.window_orientation = window_orientation
@@ -1369,8 +1389,16 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             len(self.token_label_dictionary_),
             window_function=self._window_function,
             kernel_function=self._kernel_function,
-            window_args=(self._window_size, self._token_frequencies_),
-            kernel_args=(self.window_radius, self._token_frequencies_),
+            window_args=(
+                self._window_size,
+                self._token_frequencies_,
+                *self.window_args.values(),
+            ),
+            kernel_args=(
+                self._window_size,
+                self._token_frequencies_,
+                *self.kernel_args.values(),
+            ),
             window_orientation=self.window_orientation,
             chunk_size=self.chunk_size,
         )
@@ -1432,8 +1460,16 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             len(self.token_label_dictionary_),
             window_function=self._window_function,
             kernel_function=self._kernel_function,
-            window_args=(self._window_size, self._token_frequencies_),
-            kernel_args=(self.window_radius, self._token_frequencies_),
+            window_args=(
+                self._window_size,
+                self._token_frequencies_,
+                *self.window_args.values(),
+            ),
+            kernel_args=(
+                self.window_radius,
+                self._token_frequencies_,
+                *self.kernel_args.values(),
+            ),
             window_orientation=self.window_orientation,
         )
         cooccurrences.eliminate_zeros()
@@ -1505,6 +1541,9 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         A function producing weights given a window of tokens and a window_radius.
         The string options are ['flat', 'triangular', 'harmonic'] for using pre-defined functions.
 
+    kernel_args: dict (optional, default = None)
+        Optional arguments to pass the kernel function
+
     window_radius: int (optional, default=5)
         Argument to pass through to the window function.  Outside of boundary cases, this is the expected width
         of the (directed) windows produced by the window function.
@@ -1537,7 +1576,7 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         max_tree_frequency=None,
         ignored_tokens=None,
         excluded_token_regex=None,
-        # window_function="fixed",
+        kernel_args=dict(),
         kernel_function="flat",
         window_radius=5,
         token_dictionary=None,
@@ -1557,7 +1596,7 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self.ignored_tokens = ignored_tokens
         self.excluded_token_regex = excluded_token_regex
 
-        # self.window_function = window_function
+        self.kernel_args = kernel_args
         self.kernel_function = kernel_function
         self.window_radius = window_radius
 
@@ -1620,6 +1659,7 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self.cooccurrences_ = sequence_tree_skip_grams(
             clean_tree_sequence,
             kernel_function=self._kernel_function,
+            kernel_args=self.kernel_args,
             window_size=self._window_size,
             label_dictionary=self.token_label_dictionary_,
             window_orientation=self.window_orientation,
@@ -1709,6 +1749,7 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         cooccurrences = sequence_tree_skip_grams(
             clean_tree_sequence,
             kernel_function=self._kernel_function,
+            kernel_args=self.kernel_args,
             window_size=self._window_size,
             label_dictionary=self.token_label_dictionary_,
             window_orientation=self.window_orientation,
@@ -2107,6 +2148,12 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
         A function producing weights given a window of tokens and a window_radius.
         The string options are ['flat', 'triangular', 'harmonic'] for using pre-defined functions.
 
+    window_args: dict (optional, default = None)
+        Optional arguments for the window function
+
+    kernel_args: dict (optional, default = None)
+        Optional arguments for the kernel function
+
     window_radius: int (optional, default=5)
         Argument to pass through to the window function.  Outside of boundary cases, this is the expected width
         of the (directed) windows produced by the window function.
@@ -2137,6 +2184,8 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
         excluded_token_regex=None,
         window_function="fixed",
         kernel_function="flat",
+        window_args=dict(),
+        kernel_args=dict(),
         window_radius=5,
         validate_data=True,
     ):
@@ -2154,6 +2203,8 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
 
         self.window_function = window_function
         self.kernel_function = kernel_function
+        self.kernel_args = kernel_args
+        self.window_args = window_args
         self.window_radius = window_radius
         self.validate_data = validate_data
 
@@ -2220,8 +2271,8 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
             token_sequences,
             self._window_function,
             self._kernel_function,
-            (self._window_size, self._token_frequencies_),
-            (self.window_radius, self._token_frequencies_),
+            (self._window_size, self._token_frequencies_, *self.window_args.values()),
+            (self.window_radius, self._token_frequencies_, *self.kernel_args.values()),
             self._token_dictionary_,
         )
 
@@ -2271,8 +2322,8 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
             token_sequences,
             self._window_function,
             self._kernel_function,
-            (self._window_size, self._token_frequencies_),
-            (self.window_radius, self._token_frequencies_),
+            (self._window_size, self._token_frequencies_, *self.window_args.values()),
+            (self.window_radius, self._token_frequencies_, *self.kernel_args.values()),
             self._token_dictionary_,
         )
 
