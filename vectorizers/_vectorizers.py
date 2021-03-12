@@ -1261,9 +1261,6 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
     kernel_args: dict (optional, default = None)
         Optional arguments for the kernel function
 
-    token_dictionary: dictionary or None (optional, default=None)
-        A dictionary mapping tokens to indices
-
     window_orientation: string (['before', 'after', 'symmetric', 'directional'])
         The orientation of the cooccurrence window.  Whether to return all the tokens that
         occurred within a window before, after on either side.
