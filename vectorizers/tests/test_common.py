@@ -225,6 +225,33 @@ def test_equality_of_CooccurrenceVectorizers(
     )
 
 
+def test_reverse_cooccurrence_vectorizer():
+    seq_model1 = TokenCooccurrenceVectorizer(
+        window_radius=2,
+        window_orientation="after",
+        kernel_function="harmonic",
+        min_occurrences=None,
+        max_occurrences=None,
+        max_document_frequency=None,
+        min_document_occurrences=None,
+        mask_string=None,
+    )
+    seq_model2 = TokenCooccurrenceVectorizer(
+        window_radius=2,
+        window_orientation="before",
+        kernel_function="harmonic",
+        min_occurrences=None,
+        max_occurrences=None,
+        max_document_frequency=None,
+        min_document_occurrences=None,
+        mask_string=None,
+    )
+    reversed_after = seq_model1.fit_transform(text_token_data).toarray().T,
+    before = seq_model2.fit_transform(text_token_data).toarray(),
+    assert np.allclose(
+        reversed_after, before
+    )
+
 def test_build_tree_skip_grams_contract():
     (result_matrix, result_labels) = build_tree_skip_grams(
         token_sequence=path_graph_labels,
