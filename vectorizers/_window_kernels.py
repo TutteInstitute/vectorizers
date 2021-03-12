@@ -41,13 +41,16 @@ def information_window(token_sequence, window_size, token_frequency, reverse=Fal
 @numba.njit(nogil=True)
 def fixed_window(token_sequence, window_size, token_frequency, reverse=False):
     result = []
-    for i in range(len(token_sequence)):
-        if reverse:
-            result.append(token_sequence[i - 1 : max(0, i - window_size - 1) : -1])
-        else:
-            result.append(token_sequence[i + 1 : i + window_size + 1])
+    if reverse:
+        token_sequence = token_sequence[::-1]
 
-    return result
+    for i in range(len(token_sequence)):
+        result.append(token_sequence[i + 1 : i + window_size + 1])
+
+    if reverse:
+        return result[::-1]
+    else:
+        return result
 
 
 @numba.njit(nogil=True)
