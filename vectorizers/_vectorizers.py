@@ -35,18 +35,26 @@ from .utils import (
     pairwise_gaussian_ground_distance,
     validate_homogeneous_token_types,
     sparse_collapse,
+    sum_coo_entries,
 )
 import vectorizers.distances as distances
 
-from ._window_kernels import _KERNEL_FUNCTIONS, _WINDOW_FUNCTIONS, _SYMMETRIC_WINDOWS
+from ._window_kernels import (
+    _KERNEL_FUNCTIONS,
+    _WINDOW_FUNCTIONS,
+    window_at_index,
+)
 
 from numba.np.unsafe.ndarray import to_fixed_tuple
+
 MOCK_DICT = numba.typed.Dict()
 MOCK_DICT[(-1, -1)] = -1
+
 
 @numba.njit(nogil=True)
 def pair_to_tuple(pair):
     return to_fixed_tuple(pair, 2)
+
 
 def make_tuple_converter(tuple_size):
     @numba.njit(nogil=True)
@@ -686,9 +694,8 @@ def remove_node(adjacency_matrix, node, inplace=True):
 @numba.njit(nogil=True)
 def build_skip_grams(
     token_sequence,
-    window_function,
+    window_sizes,
     kernel_function,
-    window_args,
     kernel_args,
     reverse=False,
 ):
@@ -708,14 +715,11 @@ def build_skip_grams(
     token_sequence: Iterable
         The sequence of tokens to build skip-grams for.
 
-    window_function: numba.jitted callable
-        A function producing a sequence of windows given a source sequence
+    window_sizes: Iterable
+        A collection of window sizes per vocabulary index
 
     kernel_function: numba.jitted callable
         A function producing weights given a window of tokens
-
-    window_args: tuple
-        Arguments to pass through to the window function
 
     kernel_args: tuple
         Arguments to pass through to the kernel function
@@ -730,40 +734,28 @@ def build_skip_grams(
         Each skip_gram is a vector giving the head (or skip) token index, the
         tail token index, and the associated weight of the skip-gram.
     """
-    original_tokens = token_sequence
-    n_original_tokens = len(original_tokens)
 
-    if n_original_tokens < 2:
-        return np.zeros((1, 3), dtype=np.float32)
+    coo_tuples = [(np.float32(0.0), np.float32(0.0), np.float32(0.0))]
 
-    window_args = window_args + (reverse,)
+    for i, head_token in enumerate(token_sequence):
+        window = window_at_index(token_sequence, window_sizes[head_token], i, reverse)
+        weights = kernel_function(window, window_sizes[head_token], *kernel_args)
 
-    windows = window_function(token_sequence, *window_args)
+        coo_tuples.extend(
+            [
+                (np.float32(head_token), np.float32(window[j]), weights[j])
+                for j in range(len(window))
+            ]
+        )
 
-    new_tokens = np.empty(
-        (np.sum(np.array([len(w) for w in windows])), 3), dtype=np.float32
-    )
-    new_token_count = 0
+    return sum_coo_entries(coo_tuples)
 
-    for i in range(n_original_tokens):
-        head_token = original_tokens[i]
-        window = windows[i]
-        weights = kernel_function(window, *kernel_args)
-
-        for j in range(len(window)):
-            new_tokens[new_token_count, 0] = np.float32(head_token)
-            new_tokens[new_token_count, 1] = np.float32(window[j])
-            new_tokens[new_token_count, 2] = weights[j]
-            new_token_count += 1
-
-    return new_tokens
 
 @numba.njit(nogil=True)
 def build_skip_ngrams(
     token_sequence,
-    window_function,
+    window_sizes,
     kernel_function,
-    window_args,
     kernel_args,
     ngram_dictionary,
     ngram_size=2,
@@ -786,14 +778,11 @@ def build_skip_ngrams(
     token_sequence: Iterable
         The sequence of tokens to build skip-grams for.
 
-    window_function: numba.jitted callable
-        A function producing a sequence of windows given a source sequence
+    window_sizes: Iterable
+        A collection of window sizes per vocabulary index
 
     kernel_function: numba.jitted callable
         A function producing weights given a window of tokens
-
-    window_args: tuple
-        Arguments to pass through to the window function
 
     kernel_args: tuple
         Arguments to pass through to the kernel function
@@ -808,43 +797,37 @@ def build_skip_ngrams(
         Each skip_gram is a vector giving the head (or skip) token index, the
         tail token index, and the associated weight of the skip-gram.
     """
-    original_tokens = token_sequence
-    n_original_tokens = len(original_tokens)
+    coo_tuples = [(np.float32(0.0), np.float32(0.0), np.float32(0.0))]
 
-    if n_original_tokens <= ngram_size:
-        return np.zeros((1, 3), dtype=np.float32)
-
-    window_args = window_args + (reverse,)
-
-    windows = window_function(token_sequence, *window_args)
-
-    new_tokens = np.zeros(
-        (np.sum(np.array([len(w) for w in windows])), 3), dtype=np.float32
-    )
-    new_token_count = 0
-
-    for i in range(ngram_size - 1, n_original_tokens):
+    for i in range(ngram_size - 1, len(token_sequence)):
         if reverse:
-            ngram = array_to_tuple(original_tokens[i:i + ngram_size])
+            ngram = array_to_tuple(token_sequence[i : i + ngram_size])
         else:
-            ngram = array_to_tuple(original_tokens[i - ngram_size:i])
+            ngram = array_to_tuple(token_sequence[i - ngram_size : i])
 
         if ngram in ngram_dictionary:
             head_token = ngram_dictionary[ngram]
-            window = windows[i]
-            weights = kernel_function(window, *kernel_args)
+            window = window_at_index(
+                token_sequence, window_sizes[head_token], i, reverse
+            )
+            weights = kernel_function(window, window_sizes[head_token], *kernel_args)
 
-            for j in range(len(window)):
-                new_tokens[new_token_count, 0] = np.float32(head_token)
-                new_tokens[new_token_count, 1] = np.float32(window[j])
-                new_tokens[new_token_count, 2] = weights[j]
-                new_token_count += 1
+            coo_tuples.extend(
+                [
+                    (np.float32(head_token), np.float32(window[j]), weights[j])
+                    for j in range(len(window))
+                ]
+            )
 
-    return new_tokens
+    return sum_coo_entries(coo_tuples)
 
 
 def build_tree_skip_grams(
-    token_sequence, adjacency_matrix, kernel_function, window_size, token_frequency
+    token_sequence,
+    adjacency_matrix,
+    kernel_function,
+    kernel_args,
+    window_size,
 ):
     """
     Takes and adjacency matrix counts the co-occurrence of each token within a window_size
@@ -868,7 +851,7 @@ def build_tree_skip_grams(
     labels: array of length (unique_labels)
         This is the array of the labels of the rows and columns of our matrix.
     """
-    weights = kernel_function(np.arange(window_size), window_size, token_frequency)
+    weights = kernel_function(np.arange(window_size), window_size, *kernel_args)
     count_matrix = adjacency_matrix * weights[0]
     walk = adjacency_matrix
     for i in range(1, window_size):
@@ -883,11 +866,9 @@ def build_tree_skip_grams(
 
 def skip_grams_matrix_coo_data(
     list_of_token_sequences,
-    window_function,
+    window_sizes,
     kernel_function,
-    window_args,
     kernel_args,
-    token_dictionary,
 ):
     """Given a list of token sequences construct the relevant data for a sparse
     matrix representation with a row for each token sequence and a column for each
@@ -898,20 +879,15 @@ def skip_grams_matrix_coo_data(
     list_of_token_sequences: Iterable of Iterables
         The token sequences to construct skip-gram based representations of.
 
-    window_function: numba.jitted callable
-        A function producing a sequence of windows given a source sequence
+    window_sizes: Iterable
+        A collection of window sizes per vocabulary index
 
     kernel_function: numba.jitted callable
         A function producing weights given a window of tokens
 
-    window_args: tuple
-        Arguments to pass through to the window function
-
     kernel_args: tuple
         Arguments to pass through to the kernel function
 
-    n_unique_tokens: int
-        The total number of unique tokens across all the sequences
 
     Returns
     -------
@@ -928,18 +904,16 @@ def skip_grams_matrix_coo_data(
     result_col = []
     result_data = []
 
-    n_unique_tokens = len(token_dictionary)
+    n_unique_tokens = len(window_sizes) - 1
 
     for row_idx in range(len(list_of_token_sequences)):
         skip_gram_data = build_skip_grams(
             list_of_token_sequences[row_idx],
-            window_function,
+            window_sizes,
             kernel_function,
-            window_args,
             kernel_args,
         )
-        for i in range(skip_gram_data.shape[0]):
-            skip_gram = skip_gram_data[i]
+        for i, skip_gram in enumerate(skip_gram_data):
             result_row.append(row_idx)
             result_col.append(
                 np.int32(skip_gram[0]) * n_unique_tokens + np.int32(skip_gram[1])
@@ -952,9 +926,8 @@ def skip_grams_matrix_coo_data(
 @numba.njit(nogil=True)
 def sequence_skip_grams(
     token_sequences,
-    window_function,
+    window_sizes,
     kernel_function,
-    window_args,
     kernel_args,
     ngram_dictionary=MOCK_DICT,
     ngram_size=1,
@@ -970,14 +943,11 @@ def sequence_skip_grams(
     token_sequences: Iterable of Iterables
         The token sequences to produce skip-gram data for
 
-    window_function: numba.jitted callable
-        A function producing a sequence of windows given a source sequence
+    window_sizes: Iterable
+        A collection of window sizes per vocabulary index
 
     kernel_function: numba.jitted callable
         A function producing weights given a window of tokens
-
-    window_args: tuple
-        Arguments to pass through to the window function
 
     kernel_args: tuple
         Arguments to pass through to the kernel function
@@ -991,52 +961,43 @@ def sequence_skip_grams(
     skip_grams: array of shape (n_skip_grams, 3)
         The skip grams for the combined set of sequences.
     """
+    skip_grams = [(np.float32(0), np.float32(0), np.float32(0))]
     if ngram_size == 1 or len(ngram_dictionary) <= 1:
-        skip_grams_per_sequence = [
-            build_skip_grams(
-                token_sequence,
-                window_function,
-                kernel_function,
-                window_args,
-                kernel_args,
-                reverse,
+        for i, token_sequence in enumerate(token_sequences):
+            skip_grams.extend(
+                build_skip_grams(
+                    token_sequence,
+                    window_sizes,
+                    kernel_function,
+                    kernel_args,
+                    reverse,
+                )
             )
-            for token_sequence in token_sequences
-        ]
     else:
-        skip_grams_per_sequence = [
-            build_skip_ngrams(
-                token_sequence,
-                window_function,
-                kernel_function,
-                window_args,
-                kernel_args,
-                ngram_dictionary,
-                ngram_size,
-                array_to_tuple,
-                reverse,
+        for token_sequence in token_sequences:
+            skip_grams.extend(
+                build_skip_ngrams(
+                    token_sequence,
+                    window_sizes,
+                    kernel_function,
+                    kernel_args,
+                    ngram_dictionary,
+                    ngram_size,
+                    array_to_tuple,
+                    reverse,
+                )
             )
-            for token_sequence in token_sequences
-        ]
 
-    total_n_skip_grams = 0
-    for arr in skip_grams_per_sequence:
-        total_n_skip_grams += arr.shape[0]
-    result = np.empty((total_n_skip_grams, 3), dtype=np.float32)
-    count = 0
-    for arr in skip_grams_per_sequence:
-        result[count : count + arr.shape[0]] = arr
-        count += arr.shape[0]
-    return result
+    return np.array(sum_coo_entries(skip_grams))
 
 
 def sequence_tree_skip_grams(
     tree_sequences,
     kernel_function,
+    kernel_args,
     window_size,
     label_dictionary,
     window_orientation,
-    token_frequency,
 ):
     """
     Takes a sequence of labelled trees and counts the weighted skip grams of their labels.
@@ -1048,15 +1009,22 @@ def sequence_tree_skip_grams(
         Each tuple in this sequence represents a labelled tree.
         The first element is a sparse adjacency matrix
         The second element is an array of node labels
+
     kernel_function: numba.jitted callable
         A function producing weights given a window of tokens
         Currently this needs to take a window_size parameter.
+
+    kernel_args: tuple
+        Arguments to pass through to the kernel function
+
     window_size: int
         The number of steps out to look in your tree skip gram
+
     label_dictionary: dict
         A dictionary mapping from your valid label set to indices.  This is used as the global
         alignment for your new label space.  All tokens still present in your tree sequences must
         exist within your label_dictionary.
+
     window_orientation: string (['before', 'after', 'symmetric', 'directional'])
         The orientation of the cooccurrence window.  Whether to return all the tokens that
         occurred within a window before, after on either side.
@@ -1075,8 +1043,8 @@ def sequence_tree_skip_grams(
             token_sequence=token_sequence,
             adjacency_matrix=adj_matrix,
             kernel_function=kernel_function,
+            kernel_args=kernel_args,
             window_size=window_size,
-            token_frequency=token_frequency,
         )
         # Reorder these based on the label_dictionary
         count_matrix = count_matrix.tocoo()
@@ -1109,10 +1077,9 @@ def sequence_tree_skip_grams(
 def token_cooccurrence_matrix(
     token_sequences,
     n_unique_tokens,
-    window_function,
     kernel_function,
-    window_args,
     kernel_args,
+    window_sizes,
     window_orientation="symmetric",
     ngram_dictionary=MOCK_DICT,
     ngram_size=1,
@@ -1138,20 +1105,14 @@ def token_cooccurrence_matrix(
     n_unique_tokens: int
         The number of unique tokens in the token_dictionary.
 
-    window_function: numba.jitted callable (optional, default=fixed_window)
-        A function producing a sequence of windows given a source sequence
+    window_sizes: Iterable
+        A collection of window sizes per vocabulary index
 
     kernel_function: numba.jitted callable (optional, default=flat_kernel)
         A function producing weights given a window of tokens
 
-    window_args: tuple (optional, default=(5,)
-        Arguments to pass through to the window function
-
     kernel_args: tuple (optional, default=())
         Arguments to pass through to the kernel function
-
-    token_dictionary: dictionary or None (optional, default=None)
-        A dictionary mapping tokens to indices
 
     window_orientation: string (['before', 'after', 'symmetric', 'directional'])
         The orientation of the cooccurrence window.  Whether to return all the tokens that
@@ -1176,7 +1137,7 @@ def token_cooccurrence_matrix(
 
     if len(ngram_dictionary) == 1 or ngram_size == 1:
         n_rows = n_unique_tokens
-        array_to_tuple = pair_to_tuple # Mock function for this case; unused
+        array_to_tuple = pair_to_tuple  # Mock function for this case; unused
     else:
         n_rows = len(ngram_dictionary)
         array_to_tuple = make_tuple_converter(ngram_size)
@@ -1186,7 +1147,7 @@ def token_cooccurrence_matrix(
     )
     n_chunks = (len(token_sequences) // chunk_size) + 1
 
-    if window_orientation == "after": # or window_function in _SYMMETRIC_WINDOWS:
+    if window_orientation == "after":
         reverse_required = False
     else:
         reverse_required = True
@@ -1194,13 +1155,11 @@ def token_cooccurrence_matrix(
     for chunk_index in range(n_chunks):
         chunk_start = chunk_index * chunk_size
         chunk_end = min(len(token_sequences), chunk_start + chunk_size)
-
         raw_coo_data = sequence_skip_grams(
-            token_sequences[chunk_start:chunk_end],
-            window_function,
-            kernel_function,
-            window_args,
-            kernel_args,
+            token_sequences=token_sequences[chunk_start:chunk_end],
+            window_sizes=window_sizes,
+            kernel_function=kernel_function,
+            kernel_args=kernel_args,
             ngram_dictionary=ngram_dictionary,
             ngram_size=ngram_size,
             array_to_tuple=array_to_tuple,
@@ -1231,9 +1190,8 @@ def token_cooccurrence_matrix(
 
                 raw_coo_data = sequence_skip_grams(
                     token_sequences[chunk_start:chunk_end],
-                    window_function,
+                    window_sizes,
                     kernel_function,
-                    window_args,
                     kernel_args,
                     ngram_dictionary=ngram_dictionary,
                     ngram_size=ngram_size,
@@ -1436,19 +1394,22 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         The regular expression by which tokens are ignored if re.fullmatch returns True.
 
     window_function: numba.jitted callable or str (optional, default='fixed')
-        A function producing a sequence of windows given a source sequence and a window_radius and term frequencies.
-        The string options are ['fixed', 'information'] for using pre-defined functions.
+        A function producing a sequence of window radii given a window_radius parameter and term frequencies.
+        The string options are ['fixed', 'variable'] for using pre-defined functions.
 
     kernel_function: numba.jitted callable or str (optional, default='flat')
         A function producing weights given a window of tokens and a window_radius.
-        The string options are ['flat', 'triangular', 'harmonic'] for using pre-defined functions.
+        The string options are ['flat', 'triangular', 'harmonic', 'negative_binomial'] for using pre-defined functions.
 
     window_radius: int (optional, default=5)
         Argument to pass through to the window function.  Outside of boundary cases, this is the expected width
         of the (directed) windows produced by the window function.
 
-    token_dictionary: dictionary or None (optional, default=None)
-        A dictionary mapping tokens to indices
+    window_args: dict (optional, default = None)
+        Optional arguments for the window function
+
+    kernel_args: dict (optional, default = None)
+        Optional arguments for the kernel function
 
     window_orientation: string (['before', 'after', 'symmetric', 'directional'])
         The orientation of the cooccurrence window.  Whether to return all the tokens that
@@ -1471,6 +1432,9 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
     mask_string: str (optional, default=None)
         Prunes the filtered tokens when None, otherwise replaces them with the provided mask_string.
+
+    nullify_mask: bool (optional, default=False)
+        Sets all cooccurrences with the mask_string equal to zero by skipping over them during processing.
     """
 
     def __init__(
@@ -1489,12 +1453,15 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         unknown_token=None,
         window_function="fixed",
         kernel_function="flat",
+        window_args={},
+        kernel_args={},
         window_radius=5,
         window_orientation="directional",
         chunk_size=1 << 20,
         skip_ngram_size=1,
         validate_data=True,
         mask_string=None,
+        nullify_mask=False,
     ):
         self.token_dictionary = token_dictionary
         self.min_occurrences = min_occurrences
@@ -1511,6 +1478,9 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
         self.window_function = window_function
         self.kernel_function = kernel_function
+        self.window_args = window_args
+        self.kernel_args = kernel_args
+
         self.window_radius = window_radius
 
         self.skip_ngram_size = skip_ngram_size
@@ -1518,6 +1488,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self.chunk_size = chunk_size
         self.validate_data = validate_data
         self.mask_string = mask_string
+        self.nullify_mask = nullify_mask
 
     def fit_transform(self, X, y=None, **fit_params):
 
@@ -1548,15 +1519,17 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         )
 
         if self.skip_ngram_size > 1:
-            ngrams = [list(map(tuple, ngrams_of(sequence, self.skip_ngram_size,
-                                                "exact"))) for sequence in
-                      token_sequences]
+            ngrams = [
+                list(map(tuple, ngrams_of(sequence, self.skip_ngram_size, "exact")))
+                for sequence in token_sequences
+            ]
             (
                 raw_ngram_dictionary,
                 ngram_frequencies,
                 total_ngrams,
-            ) = construct_token_dictionary_and_frequency(flatten(ngrams),
-                                                         token_dictionary=None)
+            ) = construct_token_dictionary_and_frequency(
+                flatten(ngrams), token_dictionary=None
+            )
 
             if {
                 self.min_document_frequency,
@@ -1592,12 +1565,11 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
                 return "_".join([token_index_dictionary[index] for index in ngram])
 
             self.ngram_label_dictionary_ = {
-                joined_tokens(key, self.token_index_dictionary_):value
+                joined_tokens(key, self.token_index_dictionary_): value
                 for key, value in raw_ngram_dictionary.items()
             }
         else:
             self._raw_ngram_dictionary_ = MOCK_DICT
-
 
         if callable(self.kernel_function):
             self._kernel_function = self.kernel_function
@@ -1617,25 +1589,30 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
                 f"Unrecognized window_function; should be callable or one of {_WINDOW_FUNCTIONS.keys()}"
             )
 
-            ## Adjust the window size for the info window
-        if self.window_function == "information":
-            entropy = np.dot(
-                self._token_frequencies_, np.log2(self._token_frequencies_)
-            )
-            self._window_size = self.window_radius * entropy
-        elif self.window_function == "mass_conservation":
-            median_frequency = np.percentile(self._token_frequencies_, 98)
-            self._window_size = self.window_radius * median_frequency
+        if self.nullify_mask:
+            if self.mask_string is None:
+                raise ValueError(f"Cannot nullify mask with mask_string = None")
+            mask_index = len(self._token_frequencies_)
         else:
-            self._window_size = self.window_radius
+            mask_index = None
+
+        self._kernel_args = {"mask_index": mask_index, "normalized": False}
+        self._kernel_args.update(self.kernel_args)
+        self._kernel_args = tuple(self._kernel_args.values())
+
+        self._window_sizes = self._window_function(
+            self.window_radius,
+            self._token_frequencies_,
+            mask_index,
+            *self.window_args.values(),
+        )
 
         self.cooccurrences_ = token_cooccurrence_matrix(
             token_sequences,
             len(self.token_label_dictionary_),
-            window_function=self._window_function,
             kernel_function=self._kernel_function,
-            window_args=(self._window_size, self._token_frequencies_),
-            kernel_args=(self.window_radius, self._token_frequencies_),
+            kernel_args=self._kernel_args,
+            window_sizes=self._window_sizes,
             window_orientation=self.window_orientation,
             ngram_dictionary=self._raw_ngram_dictionary_,
             ngram_size=self.skip_ngram_size,
@@ -1697,11 +1674,13 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         cooccurrences = token_cooccurrence_matrix(
             token_sequences,
             len(self.token_label_dictionary_),
-            window_function=self._window_function,
             kernel_function=self._kernel_function,
-            window_args=(self._window_size, self._token_frequencies_),
-            kernel_args=(self.window_radius, self._token_frequencies_),
+            kernel_args=self._kernel_args,
+            window_sizes=self._window_sizes,
             window_orientation=self.window_orientation,
+            ngram_dictionary=self._raw_ngram_dictionary_,
+            ngram_size=self.skip_ngram_size,
+            chunk_size=self.chunk_size,
         )
         cooccurrences.eliminate_zeros()
 
@@ -1714,12 +1693,9 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
     of their labels.
     For our purposes we take a labelled tree to be a tuple containing an adjacency matrix and an
     array of it's vertex labels.
+
     Parameters
     ----------
-    tree_sequences: sequence of tuples (sparse matrix of size (n,n), array of size (n))
-        Each tuple in this sequence represents a labelled tree.
-        The first element is a sparse adjacency matrix
-        The second element is an array of node labels
 
     min_occurrences: int or None (optional, default=None)
         The minimal number of occurrences of a token for it to be considered and
@@ -1765,12 +1741,15 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         A set of tokens that should be ignored entirely. If None then no tokens will
         be ignored in this fashion.
 
-    excluded_regex: str or None (optional, default=None)
+    excluded_token_regex: str or None (optional, default=None)
         The regular expression by which tokens are ignored if re.fullmatch returns True.
 
     kernel_function: numba.jitted callable or str (optional, default='flat')
         A function producing weights given a window of tokens and a window_radius.
         The string options are ['flat', 'triangular', 'harmonic'] for using pre-defined functions.
+
+    kernel_args: dict (optional, default = None)
+        Optional arguments to pass the kernel function
 
     window_radius: int (optional, default=5)
         Argument to pass through to the window function.  Outside of boundary cases, this is the expected width
@@ -1804,7 +1783,7 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         max_tree_frequency=None,
         ignored_tokens=None,
         excluded_token_regex=None,
-        # window_function="fixed",
+        kernel_args=(),
         kernel_function="flat",
         window_radius=5,
         token_dictionary=None,
@@ -1824,7 +1803,7 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self.ignored_tokens = ignored_tokens
         self.excluded_token_regex = excluded_token_regex
 
-        # self.window_function = window_function
+        self.kernel_args = kernel_args
         self.kernel_function = kernel_function
         self.window_radius = window_radius
 
@@ -1835,12 +1814,13 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
     def fit(self, X, y=None, **fit_params):
         """
         Takes a sequence of labelled trees and learns the weighted cooccurrence counts of the labels.
+
         Parameters
         ----------
         X: Iterable of tuples (nd.array | scipy.sparse.csr_matrix, label_sequence)
-        An iterable of tuples the with
-        first = adjacency matrices of the tree's that make up your corpus.
-        second = a sequence of labels of length first.shape[0] representing the labels of each vertex.
+            Each tuple in this sequence represents a labelled tree.
+            The first element is a (sparse) adjacency matrix
+            The second element is an array of node labels
 
         Returns
         -------
@@ -1887,10 +1867,10 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self.cooccurrences_ = sequence_tree_skip_grams(
             clean_tree_sequence,
             kernel_function=self._kernel_function,
+            kernel_args=self.kernel_args,
             window_size=self._window_size,
             label_dictionary=self.token_label_dictionary_,
             window_orientation=self.window_orientation,
-            token_frequency=self._token_frequencies_,
         )
 
         if self.window_orientation in ["before", "after", "symmetric"]:
@@ -1920,9 +1900,9 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         Parameters
         ----------
         X: Iterable of tuples (nd.array | scipy.sparse.csr_matrix, label_sequence)
-        An iterable of tuples the with
-        first = adjacency matrices of the tree's that make up your corpus.
-        second = a sequence of labels of length first.shape[0] representing the labels of each vertex.
+            Each tuple in this sequence represents a labelled tree.
+            The first element is a (sparse) adjacency matrix
+            The second element is an array of node labels
 
         Returns
         -------
@@ -1940,9 +1920,10 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         Parameters
         ----------
         X: Iterable of tuples (nd.array | scipy.sparse.csr_matrix, label_sequence)
-        An iterable of tuples the with
-        first = adjacency matrices of the tree's that make up your corpus.
-        second = a sequence of labels of length first.shape[0] representing the labels of each vertex.
+            Each tuple in this sequence represents a labelled tree.
+            The first element is a (sparse) adjacency matrix
+            The second element is an array of node labels
+
 
         Returns
         -------
@@ -1976,10 +1957,10 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         cooccurrences = sequence_tree_skip_grams(
             clean_tree_sequence,
             kernel_function=self._kernel_function,
+            kernel_args=self.kernel_args,
             window_size=self._window_size,
             label_dictionary=self.token_label_dictionary_,
             window_orientation=self.window_orientation,
-            token_frequency=self._token_frequencies_,
         )
         cooccurrences.eliminate_zeros()
 
@@ -1988,7 +1969,9 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
 class DistributionVectorizer(BaseEstimator, TransformerMixin):
     def __init__(
-        self, n_components=20, random_state=None,
+        self,
+        n_components=20,
+        random_state=None,
     ):
         self.n_components = n_components
         self.random_state = random_state
@@ -2036,7 +2019,8 @@ class DistributionVectorizer(BaseEstimator, TransformerMixin):
         )
         self.mixture_model_.fit(combined_data)
         self.ground_distance_ = pairwise_gaussian_ground_distance(
-            self.mixture_model_.means_, self.mixture_model_.covariances_,
+            self.mixture_model_.means_,
+            self.mixture_model_.covariances_,
         )
         self.metric_ = distances.hellinger
 
@@ -2279,12 +2263,12 @@ def temporal_cyclic_transform(datetime_series, periodicity=None):
 
 
 class CyclicHistogramVectorizer(BaseEstimator, TransformerMixin):
-    """
-
-    """
+    """"""
 
     def __init__(
-        self, periodicity="week", resolution="day",
+        self,
+        periodicity="week",
+        resolution="day",
     ):
         self.periodicity = periodicity
         self.resolution = resolution
@@ -2364,12 +2348,18 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
         The regular expression by which tokens are ignored if re.fullmatch returns True.
 
     window_function: numba.jitted callable or str (optional, default='fixed')
-        A function producing a sequence of windows given a source sequence and a window_radius and term frequencies.
-        The string options are ['fixed', 'information'] for using pre-defined functions.
+        A function producing a sequence of window radii given a window_radius parameter and term frequencies.
+        The string options are ['fixed', 'variable'] for using pre-defined functions.
 
     kernel_function: numba.jitted callable or str (optional, default='flat')
         A function producing weights given a window of tokens and a window_radius.
         The string options are ['flat', 'triangular', 'harmonic'] for using pre-defined functions.
+
+    window_args: dict (optional, default = None)
+        Optional arguments for the window function
+
+    kernel_args: dict (optional, default = None)
+        Optional arguments for the kernel function
 
     window_radius: int (optional, default=5)
         Argument to pass through to the window function.  Outside of boundary cases, this is the expected width
@@ -2378,12 +2368,14 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
     token_dictionary: dictionary or None (optional, default=None)
         A dictionary mapping tokens to indices
 
-    window_orientation: string (['before', 'after', 'symmetric'])
-        The orientation of the cooccurrence window.  Whether to return all the tokens that
-        occurred within a window before, after or on either side.
-
     validate_data: bool (optional, default=True)
         Check whether the data is valid (e.g. of homogeneous token type).
+
+    mask_string: str (optional, default=None)
+        Prunes the filtered tokens when None, otherwise replaces them with the provided mask_string.
+
+    nullify_mask: bool (optional, default=False)
+        Sets all cooccurrences with the mask_string equal to zero by skipping over them during processing.
     """
 
     def __init__(
@@ -2401,8 +2393,12 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
         excluded_token_regex=None,
         window_function="fixed",
         kernel_function="flat",
+        window_args=dict(),
+        kernel_args=dict(),
         window_radius=5,
         validate_data=True,
+        mask_string=None,
+        nullify_mask=False,
     ):
         self.token_dictionary = token_dictionary
         self.min_occurrences = min_occurrences
@@ -2418,8 +2414,12 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
 
         self.window_function = window_function
         self.kernel_function = kernel_function
+        self.kernel_args = kernel_args
+        self.window_args = window_args
         self.window_radius = window_radius
         self.validate_data = validate_data
+        self.mask_string = (mask_string,)
+        self.nullify_mask = (nullify_mask,)
 
     def fit(self, X, y=None, **fit_params):
 
@@ -2448,10 +2448,6 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
             excluded_token_regex=self.excluded_token_regex,
         )
 
-        n_unique_tokens = len(self._token_dictionary_)
-
-        # Set the kernel and window functions
-
         if callable(self.kernel_function):
             self._kernel_function = self.kernel_function
         elif self.kernel_function in _KERNEL_FUNCTIONS:
@@ -2470,23 +2466,33 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
                 f"Unrecognized window_function; should be callable or one of {_WINDOW_FUNCTIONS.keys()}"
             )
 
-        #  Adjust the window size for the info window
-        if self.window_function == "information":
-            entropy = np.dot(
-                self._token_frequencies_, np.log2(self._token_frequencies_)
-            )
-            self._window_size = self.window_radius * entropy
+            # Update kernel and window args
+        if self.nullify_mask:
+            if self.mask_string is None:
+                raise ValueError(f"Cannot suppress mask with mask_string = None")
+            mask_index = len(self._token_frequencies_)
+            self._kernel_args = {"mask_index": mask_index, "normalized": False}
+            self._kernel_args.update(self.kernel_args)
         else:
-            self._window_size = self.window_radius
+            mask_index = None
+
+        self._kernel_args = {"mask_index": mask_index, "normalized": False}
+        self._kernel_args.update(self.kernel_args)
+        self._kernel_args = tuple(self._kernel_args.values())
+
+        self._window_sizes = self._window_function(
+            self.window_radius,
+            self._token_frequencies_,
+            mask_index,
+            *self.window_args.values(),
+        )
 
         # Build the matrix
         row, col, data = skip_grams_matrix_coo_data(
             token_sequences,
-            self._window_function,
+            self._window_sizes,
             self._kernel_function,
-            (self._window_size, self._token_frequencies_),
-            (self.window_radius, self._token_frequencies_),
-            self._token_dictionary_,
+            tuple(*self.kernel_args.values()),
         )
 
         base_matrix = scipy.sparse.coo_matrix((data, (row, col)))
@@ -2497,8 +2503,12 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
         self.column_label_dictionary_ = {}
         for i in range(self._kept_columns.shape[0]):
             raw_val = self._kept_columns[i]
-            first_token = self._inverse_token_dictionary_[raw_val // n_unique_tokens]
-            second_token = self._inverse_token_dictionary_[raw_val % n_unique_tokens]
+            first_token = self._inverse_token_dictionary_[
+                raw_val // len(self._token_dictionary_)
+            ]
+            second_token = self._inverse_token_dictionary_[
+                raw_val % len(self._token_dictionary_)
+            ]
             self.column_label_dictionary_[(first_token, second_token)] = i
 
         self.column_index_dictionary_ = {
@@ -2515,21 +2525,27 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
         return self._train_matrix
 
     def transform(self, X):
-        check_is_fitted(self, ["_token_dictionary_", "_column_is_kept",])
+        check_is_fitted(
+            self,
+            [
+                "_token_dictionary_",
+                "_column_is_kept",
+            ],
+        )
         flat_sequence = flatten(X)
         (token_sequences, _, _, _) = preprocess_token_sequences(
-            X, flat_sequence, self._token_dictionary_,
+            X,
+            flat_sequence,
+            self._token_dictionary_,
         )
 
         n_unique_tokens = len(self._token_dictionary_)
 
         row, col, data = skip_grams_matrix_coo_data(
             token_sequences,
-            self._window_function,
+            self._window_sizes,
             self._kernel_function,
-            (self._window_size, self._token_frequencies_),
-            (self.window_radius, self._token_frequencies_),
-            self._token_dictionary_,
+            tuple(*self.kernel_args.values()),
         )
 
         base_matrix = scipy.sparse.coo_matrix((data, (row, col)))
@@ -2754,7 +2770,9 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         )
         flat_sequence = flatten(X)
         (token_sequences, _, _, _) = preprocess_token_sequences(
-            X, flat_sequence, self._token_dictionary_,
+            X,
+            flat_sequence,
+            self._token_dictionary_,
         )
 
         indptr = [0]

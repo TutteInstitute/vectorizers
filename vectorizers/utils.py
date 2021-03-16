@@ -20,6 +20,25 @@ def flatten(list_of_seq):
         return list_of_seq
 
 
+@numba.njit(nogil=True, inline="always")
+def sum_coo_entries(seq):
+    seq.sort()
+    this_coord = (seq[0][0], seq[0][1])
+    this_sum = np.float32(0)
+    reduced_data = []
+    for entry in seq:
+        if (entry[0], entry[1]) == this_coord:
+            this_sum += entry[2]
+        else:
+            reduced_data.append((this_coord[0], this_coord[1], this_sum))
+            this_sum = entry[2]
+            this_coord = (entry[0], entry[1])
+
+    reduced_data.append((this_coord[0], this_coord[1], this_sum))
+
+    return reduced_data
+
+
 def sparse_collapse(matrix, labels, sparse=True):
     """
     Groups the rows and columns of a matrix by the the labels array.
@@ -130,7 +149,9 @@ def gmm_component_likelihood(
         under the provided Gaussian
     """
     return scipy.stats.multivariate_normal.pdf(
-        diagram, mean=component_mean, cov=component_covar,
+        diagram,
+        mean=component_mean,
+        cov=component_covar,
     )
 
 
