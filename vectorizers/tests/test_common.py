@@ -411,6 +411,39 @@ def test_token_cooccurrence_vectorizer_kernel_args():
     ).nnz == 0
 
 
+@pytest.mark.parametrize("kernel_function", ["harmonic", "flat", "negative_binomial"])
+def test_token_cooccurrence_vectorizer_offset(kernel_function):
+    vectorizer_a = TokenCooccurrenceVectorizer(
+        kernel_function=kernel_function, window_radius=1
+    )
+    vectorizer_b = TokenCooccurrenceVectorizer(
+        kernel_function=kernel_function, window_radius=2
+    )
+    vectorizer_c = TokenCooccurrenceVectorizer(
+        window_radius=2,
+        kernel_function=kernel_function,
+        kernel_args={"offset": 1},
+    )
+    mat1 = (
+        vectorizer_a.fit_transform(token_data) + vectorizer_c.fit_transform(token_data)
+    ).toarray()
+    mat2 = vectorizer_b.fit_transform(token_data).toarray()
+    assert np.allclose(mat1, mat2)
+
+
+def test_token_cooccurrence_vectorizer_nullify_mask():
+    vectorizer_a = TokenCooccurrenceVectorizer(mask_string="MASK", nullify_mask=True)
+    vectorizer_b = TokenCooccurrenceVectorizer(
+        mask_string="MASK",
+    )
+    assert np.allclose(
+        vectorizer_a.fit_transform(token_data).toarray()[:-1, :-1],
+        vectorizer_b.fit_transform(token_data).toarray()[:-1, :-1],
+    )
+    assert vectorizer_a.fit_transform(token_data).getrow(-1).nnz == 0
+    assert vectorizer_a.fit_transform(token_data).getcol(-1).nnz == 0
+
+
 def test_token_cooccurrence_vectorizer_nullify_mask():
     vectorizer_a = TokenCooccurrenceVectorizer(mask_string="MASK", nullify_mask=True)
     vectorizer_b = TokenCooccurrenceVectorizer(

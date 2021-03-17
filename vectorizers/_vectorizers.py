@@ -1596,7 +1596,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         else:
             mask_index = None
 
-        self._kernel_args = {"mask_index": mask_index, "normalized": False}
+        self._kernel_args = {"mask_index": mask_index, "normalize": False, "offset": 0}
         self._kernel_args.update(self.kernel_args)
         self._kernel_args = tuple(self._kernel_args.values())
 
@@ -1783,7 +1783,7 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         max_tree_frequency=None,
         ignored_tokens=None,
         excluded_token_regex=None,
-        kernel_args=(),
+        kernel_args={},
         kernel_function="flat",
         window_radius=5,
         token_dictionary=None,
@@ -1860,6 +1860,10 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             raise ValueError(
                 f"Unrecognized kernel_function; should be callable or one of {_KERNEL_FUNCTIONS.keys()}"
             )
+
+        self._kernel_args = {"mask_index": None, "normalize": False, "offset": 0}
+        self._kernel_args.update(self.kernel_args)
+        self._kernel_args = tuple(self._kernel_args.values())
 
         self._window_size = self.window_radius
 
@@ -2471,12 +2475,10 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
             if self.mask_string is None:
                 raise ValueError(f"Cannot suppress mask with mask_string = None")
             mask_index = len(self._token_frequencies_)
-            self._kernel_args = {"mask_index": mask_index, "normalized": False}
-            self._kernel_args.update(self.kernel_args)
         else:
             mask_index = None
 
-        self._kernel_args = {"mask_index": mask_index, "normalized": False}
+        self._kernel_args = {"mask_index": mask_index, "normalize": False, "offset": 0}
         self._kernel_args.update(self.kernel_args)
         self._kernel_args = tuple(self._kernel_args.values())
 
