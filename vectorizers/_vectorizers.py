@@ -1147,11 +1147,6 @@ def token_cooccurrence_matrix(
     )
     n_chunks = (len(token_sequences) // chunk_size) + 1
 
-    if window_orientation == "after":
-        reverse_required = False
-    else:
-        reverse_required = True
-
     for chunk_index in range(n_chunks):
         chunk_start = chunk_index * chunk_size
         chunk_end = min(len(token_sequences), chunk_start + chunk_size)
@@ -1163,7 +1158,7 @@ def token_cooccurrence_matrix(
             ngram_dictionary=ngram_dictionary,
             ngram_size=ngram_size,
             array_to_tuple=array_to_tuple,
-            reverse=reverse_required and window_orientation == "before",
+            reverse=window_orientation == "before",
         )
         cooccurrence_matrix += scipy.sparse.coo_matrix(
             (
@@ -1179,7 +1174,8 @@ def token_cooccurrence_matrix(
         cooccurrence_matrix.sum_duplicates()
 
     if window_orientation in ("symmetric", "directional"):
-        if reverse_required:
+        # Only fixed window matrices (with or without mask nullity) can be transposed to compute the reverse
+        if np.sum(np.unique(window_sizes) != 0) > 1:
             cooccurrence_matrix_reverse = scipy.sparse.coo_matrix(
                 (n_unique_tokens, n_unique_tokens), dtype=np.float32
             )
@@ -1213,21 +1209,12 @@ def token_cooccurrence_matrix(
         else:
             cooccurrence_matrix_reverse = cooccurrence_matrix.transpose()
 
-    if window_orientation == "before":
-        if not reverse_required:
-            cooccurrence_matrix = cooccurrence_matrix.transpose()
-    elif window_orientation == "after":
-        cooccurrence_matrix = cooccurrence_matrix
-    elif window_orientation == "symmetric":
-        cooccurrence_matrix = cooccurrence_matrix + cooccurrence_matrix_reverse
-    elif window_orientation == "directional":
-        cooccurrence_matrix = scipy.sparse.hstack(
-            [cooccurrence_matrix_reverse, cooccurrence_matrix]
-        )
-    else:
-        raise ValueError(
-            f'window_orientation must be one of the strings ["before", "after", "symmetric","directional"]'
-        )
+        if window_orientation == "symmetric":
+            cooccurrence_matrix = cooccurrence_matrix + cooccurrence_matrix_reverse
+        elif window_orientation == "directional":
+            cooccurrence_matrix = scipy.sparse.hstack(
+                [cooccurrence_matrix_reverse, cooccurrence_matrix]
+            )
 
     return cooccurrence_matrix.tocsr()
 
@@ -1596,7 +1583,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         else:
             mask_index = None
 
-        self._kernel_args = {"mask_index": mask_index, "normalized": False}
+        self._kernel_args = {"mask_index": mask_index, "normalize": False, "offset": 0}
         self._kernel_args.update(self.kernel_args)
         self._kernel_args = tuple(self._kernel_args.values())
 
@@ -1783,7 +1770,7 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         max_tree_frequency=None,
         ignored_tokens=None,
         excluded_token_regex=None,
-        kernel_args=(),
+        kernel_args={},
         kernel_function="flat",
         window_radius=5,
         token_dictionary=None,
@@ -1860,6 +1847,10 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             raise ValueError(
                 f"Unrecognized kernel_function; should be callable or one of {_KERNEL_FUNCTIONS.keys()}"
             )
+
+        self._kernel_args = {"mask_index": None, "normalize": False, "offset": 0}
+        self._kernel_args.update(self.kernel_args)
+        self._kernel_args = tuple(self._kernel_args.values())
 
         self._window_size = self.window_radius
 
@@ -2471,12 +2462,10 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
             if self.mask_string is None:
                 raise ValueError(f"Cannot suppress mask with mask_string = None")
             mask_index = len(self._token_frequencies_)
-            self._kernel_args = {"mask_index": mask_index, "normalized": False}
-            self._kernel_args.update(self.kernel_args)
         else:
             mask_index = None
 
-        self._kernel_args = {"mask_index": mask_index, "normalized": False}
+        self._kernel_args = {"mask_index": mask_index, "normalize": False, "offset": 0}
         self._kernel_args.update(self.kernel_args)
         self._kernel_args = tuple(self._kernel_args.values())
 

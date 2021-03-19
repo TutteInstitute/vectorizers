@@ -41,11 +41,12 @@ def fixed_window_radii(window_size, token_frequency, mask_index=None):
 
 
 @numba.njit(nogil=True)
-def flat_kernel(window, window_size, mask_index=None, normalized=False):
+def flat_kernel(window, window_size, mask_index=None, normalize=False, offset=0):
     result = np.ones(len(window), dtype=np.float32)
     if mask_index is not None:
         result[window == mask_index] = 0.0
-    if normalized:
+    result[0 : min(offset, len(result))] = 0
+    if normalize:
         temp = result.sum()
         if temp > 0:
             result /= temp
@@ -58,10 +59,12 @@ def triangle_kernel(
     window_size,
     mask_index=None,
     normalized=False,
+    offset=0,
 ):
     start = max(window_size, len(window))
     stop = window_size - len(window)
     result = np.arange(start, stop, -1).astype(np.float32)
+    result[0 : min(offset, len(result))] = 0
     if mask_index is not None:
         result[window == mask_index] = 0.0
     if normalized:
@@ -72,11 +75,12 @@ def triangle_kernel(
 
 
 @numba.njit(nogil=True)
-def harmonic_kernel(window, window_size, mask_index=None, normalized=False):
+def harmonic_kernel(window, window_size, mask_index=None, normalize=False, offset=0):
     result = 1.0 / np.arange(1, len(window) + 1).astype(np.float32)
     if mask_index is not None:
         result[window == mask_index] = 0.0
-    if normalized:
+    result[0 : min(offset, len(result))] = 0
+    if normalize:
         temp = result.sum()
         if temp > 0:
             result /= temp
@@ -88,13 +92,33 @@ def negative_binomial_kernel(
     window,
     window_size,
     mask_index=None,
-    normalized=False,
+    normalize=False,
+    offset=0,
     power=0.9,
 ):
     result = (1 - power) * (power ** np.arange(0, len(window), dtype=np.float32))
+
     if mask_index is not None:
         result[window == mask_index] = 0.0
-    if normalized:
+    result[0 : min(offset, len(result))] = 0
+    if normalize:
+        temp = result.sum()
+        if temp > 0:
+            result /= temp
+    return result.astype(np.float32)
+
+
+@numba.njit(nogil=True)
+def update_kernel(
+    window,
+    kernel,
+    mask_index=None,
+    normalize=False,
+):
+    result = kernel[: len(window)]
+    if mask_index is not None:
+        result[window == mask_index] = 0
+    if normalize:
         temp = result.sum()
         if temp > 0:
             result /= temp
