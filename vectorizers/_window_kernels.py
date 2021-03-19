@@ -97,9 +97,27 @@ def negative_binomial_kernel(
     power=0.9,
 ):
     result = (1 - power) * (power ** np.arange(0, len(window), dtype=np.float32))
+
     if mask_index is not None:
         result[window == mask_index] = 0.0
     result[0 : min(offset, len(result))] = 0
+    if normalize:
+        temp = result.sum()
+        if temp > 0:
+            result /= temp
+    return result.astype(np.float32)
+
+
+@numba.njit(nogil=True)
+def update_kernel(
+    window,
+    kernel,
+    mask_index=None,
+    normalize=False,
+):
+    result = kernel[: len(window)]
+    if mask_index is not None:
+        result[window == mask_index] = 0
     if normalize:
         temp = result.sum()
         if temp > 0:

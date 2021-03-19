@@ -16,6 +16,7 @@ from ._window_kernels import (
     _KERNEL_FUNCTIONS,
     _WINDOW_FUNCTIONS,
     window_at_index,
+    update_kernel,
 )
 
 
@@ -23,7 +24,7 @@ from ._window_kernels import (
 def em_cooccurrence_iteration(
     token_sequences,
     window_size_array,
-    kernel_function_array,
+    kernel_array,
     kernel_args_array,
     mix_weights,
     prior_indices,
@@ -43,14 +44,14 @@ def em_cooccurrence_iteration(
     token_sequences: Iterable of Iterables
         The collection of token sequences to generate skip-gram data for.
 
-    window_size_array : numpy.ndarray of shape(n, n_rows)
+    window_size_array : numpy.ndarray of shape(n, n_vocab)
         The collection of window sizes per token per directed cooccurrence
 
-    kernel_function_array: tuple(kernel_functions)
-        The n-tuple of kernel functions per directed cooccurrence
+    kernel_array: numpy.ndarray of shape(n, max(window_size_array))
+        The n-tuple of evaluated kernel functions of maximal length
 
     kernel_args_array: tuple(tuples)
-        The n-tuple of kernel args per kernel function
+        The n-tuple of update_kernel args per kernel function
 
     mix_weights: tuple
         The n-tuple of mix weights to apply to the kernel functions
@@ -76,9 +77,11 @@ def em_cooccurrence_iteration(
     posterior_data = np.zeros_like(prior_data)
 
     for seq_ind in range(len(token_sequences)):
-        for w_i in range(len(token_sequences[seq_ind])):
 
-            #  Partial E_step - Compute the new expectation per context for the windows
+        for w_i in range(len(token_sequences[seq_ind])):
+            #
+            #  Partial E_step - Compute the new expectation per context for this window
+            #
 
             target_word = token_sequences[seq_ind][w_i]
             windows = []
@@ -98,13 +101,14 @@ def em_cooccurrence_iteration(
                         ),
                     ]
                 )
+
                 kernels.extend(
                     [
-                        kernel_function_array[i](
-                            windows[-2], these_sizes[target_word], *kernel_args_array[i]
+                        update_kernel(
+                            windows[-2], kernel_array[i], *kernel_args_array[i]
                         ),
-                        kernel_function_array[i](
-                            windows[-1], these_sizes[target_word], *kernel_args_array[i]
+                        update_kernel(
+                            windows[-1], kernel_array[i], *kernel_args_array[i]
                         ),
                     ]
                 )
@@ -127,31 +131,37 @@ def em_cooccurrence_iteration(
                         context_ind[i + win_offset[w]] = np.searchsorted(
                             col_ind, context + w * n_vocab
                         )
-                        assert (
+                        # assert(col_ind[context_ind[i + win_offset[w]]] == context+w*n_vocab)
+                        if (
                             col_ind[context_ind[i + win_offset[w]]]
                             == context + w * n_vocab
-                        )
-                        window_posterior[i + win_offset[w]] = (
-                            full_mix_weights[w]
-                            * kernels[w][i]
-                            * prior_data[
-                                prior_indptr[target_word]
-                                + context_ind[i + win_offset[w]]
-                            ]
-                        )
+                        ):
+                            window_posterior[i + win_offset[w]] = (
+                                full_mix_weights[w]
+                                * kernels[w][i]
+                                * prior_data[
+                                    prior_indptr[target_word]
+                                    + context_ind[i + win_offset[w]]
+                                ]
+                            )
+                        else:
+                            window_posterior[i + win_offset[w]] = 0
 
             temp = window_posterior.sum()
             if temp > 0:
                 window_posterior /= temp
 
+            #
             # Partial M_step - Update the posteriors
+            #
 
             for w, window in enumerate(windows):
                 for i, context in enumerate(window):
-                    if kernels[w][i] > 0:
+                    val = window_posterior[i + win_offset[w]]
+                    if val > 0:
                         posterior_data[
                             prior_indptr[target_word] + context_ind[i + win_offset[w]]
-                        ] += window_posterior[i + win_offset[w]]
+                        ] += val
 
     return posterior_data
 
@@ -354,6 +364,7 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             masking=self.mask_string,
         )
 
+        # Set kernel functions
         self._kernel_functions = []
         for ker in self.kernel_functions:
             if callable(ker):
@@ -364,8 +375,8 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
                 raise ValueError(
                     f"Unrecognized kernel_function; should be callable or one of {_KERNEL_FUNCTIONS.keys()}"
                 )
-        self._kernel_functions = tuple(self._kernel_functions)
 
+        # Set window functions
         self._window_functions = []
         for win in self.window_functions:
             if callable(win):
@@ -377,6 +388,7 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
                     f"Unrecognized window_function; should be callable or one of {_WINDOW_FUNCTIONS.keys()}"
                 )
 
+        # Set mask nullity
         if self.nullify_mask:
             if self.mask_string is None:
                 raise ValueError(f"Cannot nullify mask with mask_string = None")
@@ -384,27 +396,7 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         else:
             mask_index = None
 
-        self._kernel_args = []
-        if self.kernel_args is not None:
-            for args in self.kernel_args:
-                this_args = {
-                    "mask_index": mask_index,
-                    "normalize": False,
-                    "offset": 0,
-                }
-                this_args.update(args)
-                self._kernel_args.append(tuple(this_args.values()))
-            self._kernel_args = tuple(self._kernel_args)
-        else:
-            default_kernel_args = {
-                "mask_index": mask_index,
-                "normalize": False,
-                "offset": 0,
-            }
-            self._kernel_args = tuple(
-                [tuple(default_kernel_args.values()) for i in range(self._n_wide)]
-            )
-
+        # Set window args
         self._window_args = []
         if self.window_args is not None:
             for args in self.window_args:
@@ -413,6 +405,7 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         else:
             self._window_args = tuple([tuple([]) for i in range(self._n_wide)])
 
+        # Create the window size array
         self._window_sizes = []
         for i, win_fn in enumerate(self._window_functions):
             self._window_sizes.append(
@@ -423,8 +416,35 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
                     *self._window_args[i],
                 )
             )
-
         self._window_sizes = np.array(self._window_sizes)
+
+        # Set kernel args and size array
+        self._kernel_args = []
+        self._kernel_array = []
+        max_ker_len = np.max(self._window_sizes)
+        if self.kernel_args is None:
+            self.kernel_args = [dict() for i in range(self._n_wide)]
+        for i, args in enumerate(self.kernel_args):
+            default_global_args = {
+                "mask_index": None,
+                "normalize": False,
+                "offset": 0,
+            }
+            default_global_args.update(args)
+            default_global_args["normalize"] = False
+            self._kernel_array.append(
+                self._kernel_functions[i](
+                    np.repeat(-1, max_ker_len),
+                    self.window_radii[i],
+                    *default_global_args.values(),
+                )
+            )
+            default_global_args.update(args)
+            self._kernel_args.append(
+                tuple([mask_index, default_global_args["normalize"]])
+            )
+        self._kernel_args = tuple(self._kernel_args)
+        self._kernel_array = np.array(self._kernel_array)
 
         self.cooccurrences_ = scipy.sparse.hstack(
             [
@@ -455,7 +475,7 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
                 new_data += em_cooccurrence_iteration(
                     token_sequences=token_sequences[chunk_start:chunk_end],
                     window_size_array=self._window_sizes,
-                    kernel_function_array=self._kernel_functions,
+                    kernel_array=self._kernel_array,
                     kernel_args_array=self._kernel_args,
                     mix_weights=np.array(self.mix_weights),
                     prior_data=self.cooccurrences_.data,
@@ -558,7 +578,7 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
                 new_data += em_cooccurrence_iteration(
                     token_sequences=token_sequences[chunk_start:chunk_end],
                     window_size_array=self._window_sizes,
-                    kernel_function_array=self._kernel_functions,
+                    kernel_array=self._kernel_array,
                     kernel_args_array=self._kernel_args,
                     mix_weights=np.array(self.mix_weights),
                     prior_data=cooccurrences_.data,

@@ -530,14 +530,14 @@ def test_em_cooccurrence_vectorizer_em_iter():
 
 def test_em_cooccurrence_vectorizer_wide_iter():
     vectorizer_a = EMTokenCooccurrenceVectorizer(
-        kernel_functions=["flat", "flat"],
+        kernel_functions=["flat", "harmonic"],
         window_radii=[1, 2],
         mix_weights=[1, 1],
         window_functions=("fixed", "variable"),
         n_iter=0,
     )
     vectorizer_b = EMTokenCooccurrenceVectorizer(
-        kernel_functions=["flat", "flat"],
+        kernel_functions=["flat", "harmonic"],
         window_radii=[1, 2],
         mix_weights=[1, 1],
         window_functions=["fixed", "variable"],
@@ -546,6 +546,20 @@ def test_em_cooccurrence_vectorizer_wide_iter():
     assert (
         vectorizer_a.fit_transform(token_data).nnz
         == vectorizer_b.fit_transform(token_data).nnz
+    )
+
+
+def test_em_cooccurrence_vectorizer_wide_transform():
+    vectorizer_a = EMTokenCooccurrenceVectorizer(
+        kernel_functions=["flat", "harmonic"],
+        window_radii=[1, 2],
+        mix_weights=[1, 1],
+        window_functions=("fixed", "variable"),
+        n_iter=2,
+    )
+    assert (
+        vectorizer_a.fit_transform(token_data).nnz
+        == vectorizer_a.transform(token_data).nnz
     )
 
 
