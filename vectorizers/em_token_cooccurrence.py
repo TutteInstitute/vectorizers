@@ -4,6 +4,7 @@ from warnings import warn
 from sklearn.utils.validation import check_is_fitted
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.preprocessing import normalize
+from collections.abc import Iterable
 
 import vectorizers.distances as distances
 
@@ -24,6 +25,7 @@ from ._window_kernels import (
 def em_cooccurrence_iteration(
     token_sequences,
     window_size_array,
+    window_reversals,
     kernel_array,
     kernel_args_array,
     mix_weights,
@@ -73,7 +75,6 @@ def em_cooccurrence_iteration(
     """
 
     n_vocab = prior_indptr.shape[0] - 1
-    full_mix_weights = np.repeat(mix_weights, 2)
     posterior_data = np.zeros_like(prior_data)
 
     for seq_ind in range(len(token_sequences)):
@@ -88,29 +89,17 @@ def em_cooccurrence_iteration(
             kernels = []
             for i in range(len(window_size_array)):
                 these_sizes = window_size_array[i]
-                windows.extend(
-                    [
-                        window_at_index(
-                            token_sequences[seq_ind],
-                            these_sizes[target_word],
-                            w_i,
-                            reverse=True,
-                        ),
-                        window_at_index(
-                            token_sequences[seq_ind], these_sizes[target_word], w_i
-                        ),
-                    ]
+                windows.append(
+                    window_at_index(
+                        token_sequences[seq_ind],
+                        these_sizes[target_word],
+                        w_i,
+                        reverse=window_reversals[i],
+                    )
                 )
 
-                kernels.extend(
-                    [
-                        update_kernel(
-                            windows[-2], kernel_array[i], *kernel_args_array[i]
-                        ),
-                        update_kernel(
-                            windows[-1], kernel_array[i], *kernel_args_array[i]
-                        ),
-                    ]
+                kernels.append(
+                    update_kernel(windows[-1], kernel_array[i], *kernel_args_array[i])
                 )
 
             total_win_length = np.sum(np.array([len(w) for w in windows]))
@@ -137,7 +126,7 @@ def em_cooccurrence_iteration(
                             == context + w * n_vocab
                         ):
                             window_posterior[i + win_offset[w]] = (
-                                full_mix_weights[w]
+                                mix_weights[w]
                                 * kernels[w][i]
                                 * prior_data[
                                     prior_indptr[target_word]
@@ -247,11 +236,9 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
     kernel_args: tuple of dicts (optional, default = None)
         Optional arguments for the kernel function
 
-    window_orientation: string (['before', 'after', 'symmetric', 'directional'])
-        The orientation of the cooccurrence window.  Whether to return all the tokens that
-        occurred within a window before, after on either side.
-        symmetric: counts tokens occurring before and after as the same tokens
-        directional: counts tokens before and after as different and returns both counts.
+    window_orientations: Iterable of strings (['before', 'after', 'directional'])
+        The orientations of the cooccurrence windows.  Whether to return all the tokens that
+        occurred within a window before, after, or on either side separately.
 
     chunk_size: int (optional, default=1048576)
         When processing token sequences, break the list of sequences into
@@ -288,16 +275,13 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         ignored_tokens=None,
         excluded_token_regex=None,
         unknown_token=None,
-        window_functions=tuple(["fixed"]),
-        kernel_functions=tuple(["flat"]),
+        window_functions="fixed",
+        kernel_functions="flat",
         window_args=None,
         kernel_args=None,
-        window_radii=tuple(
-            [5],
-        ),
-        mix_weights=tuple(
-            [1],
-        ),
+        window_radii=5,
+        mix_weights=[1],
+        window_orientations="directional",
         chunk_size=1 << 20,
         validate_data=True,
         mask_string=None,
@@ -317,7 +301,7 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self.ignored_tokens = ignored_tokens
         self.excluded_token_regex = excluded_token_regex
         self.unknown_token = unknown_token
-
+        self.window_orientations = window_orientations
         self.window_functions = window_functions
         self.kernel_functions = kernel_functions
         self.window_args = window_args
@@ -331,10 +315,13 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self.n_iter = n_iter
         self.epsilon = epsilon
 
-        assert len(self.window_radii) == len(self.kernel_functions)
-        assert len(self.mix_weights) == len(self.window_functions)
-        assert len(self.window_radii) == len(self.window_functions)
-        self._n_wide = len(self.window_radii)
+        # Check the window orientations
+        if not isinstance(self.window_radii, Iterable):
+            self.window_radii = [self.window_radii]
+        if isinstance(self.window_orientations, str):
+            self.window_orientations = [
+                self.window_orientations for i in self.window_radii
+            ]
 
     def fit_transform(self, X, y=None, **fit_params):
 
@@ -364,9 +351,34 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             masking=self.mask_string,
         )
 
+        self._window_reversals = []
+        self._window_orientations = []
+        self._mix_weights = []
+        for i, w in enumerate(self.window_orientations):
+            if w == "directional":
+                self._window_reversals.extend([True, False])
+                self._window_orientations.extend(["before", "after"])
+                self._mix_weights.extend([self.mix_weights[i], self.mix_weights[i]])
+            elif w == "before":
+                self._window_reversals.append(True)
+                self._window_orientations.append("before")
+                self._mix_weights.append(self.mix_weights[i])
+            elif w == "after":
+                self._window_reversals.append(False)
+                self._window_orientations.append("after")
+                self._mix_weights.append(self.mix_weights[i])
+            else:
+                raise ValueError(
+                    f"Unrecognized window orientations; should be callable or one of 'before','after', or 'directional'."
+                )
+        self._n_wide = len(self._window_reversals)
+
         # Set kernel functions
+        if callable(self.kernel_functions) or isinstance(self.kernel_functions, str):
+            self.kernel_functions = [self.kernel_functions]
+
         self._kernel_functions = []
-        for ker in self.kernel_functions:
+        for i, ker in enumerate(self.kernel_functions):
             if callable(ker):
                 self._kernel_functions.append(ker)
             elif ker in _KERNEL_FUNCTIONS:
@@ -375,10 +387,15 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
                 raise ValueError(
                     f"Unrecognized kernel_function; should be callable or one of {_KERNEL_FUNCTIONS.keys()}"
                 )
+            if self.window_orientations[i] == "directional":
+                self._kernel_functions.append(self._kernel_functions[-1])
 
         # Set window functions
+        if callable(self.window_functions) or isinstance(self.window_functions, str):
+            self.window_functions = [self.window_functions]
+
         self._window_functions = []
-        for win in self.window_functions:
+        for i, win in enumerate(self.window_functions):
             if callable(win):
                 self._window_functions.append(win)
             elif win in _WINDOW_FUNCTIONS:
@@ -387,6 +404,8 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
                 raise ValueError(
                     f"Unrecognized window_function; should be callable or one of {_WINDOW_FUNCTIONS.keys()}"
                 )
+            if self.window_orientations[i] == "directional":
+                self._window_functions.append(self._window_functions[-1])
 
         # Set mask nullity
         if self.nullify_mask:
@@ -398,19 +417,55 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
         # Set window args
         self._window_args = []
-        if self.window_args is not None:
-            for args in self.window_args:
-                self._window_args.append(tuple(args.values()))
-            self._window_args = tuple(self._window_args)
-        else:
+        if isinstance(self.window_args, dict):
+            self._window_args = tuple(
+                [tuple(self.window_args.values()) for i in range(self._n_wide)]
+            )
+        elif self.window_args is None:
             self._window_args = tuple([tuple([]) for i in range(self._n_wide)])
+        else:
+            for i, args in enumerate(self.window_args):
+                self._window_args.append(tuple(args.values()))
+                if self.window_orientations[i] == "directional":
+                    self._window_args.append(tuple(args.values()))
+            self._window_args = tuple(self._window_args)
 
-        # Create the window size array
+        # Set initial kernel args
+        if isinstance(self.kernel_args, dict):
+            self._kernel_args = [self.kernel_args for i in range(self._n_wide)]
+        elif self.kernel_args is None:
+            self._kernel_args = [dict([]) for i in range(self._n_wide)]
+        else:
+            self._kernel_args = []
+            for i, args in enumerate(self.kernel_args):
+                self._kernel_args.append(args)
+                if self.window_orientations[i] == "directional":
+                    self._kernel_args.append(args)
+
+        # Set the window radii
+        if not isinstance(self.window_radii, Iterable):
+            self.window_radii = [self.window_radii]
+        self._window_radii = []
+        for i, radius in enumerate(self.window_radii):
+            self._window_radii.append(radius)
+            if self.window_orientations[i] == "directional":
+                self._window_radii.append(radius)
+
+        # Check that everything is the same size
+        assert len(self._window_radii) == self._n_wide
+        assert len(self._mix_weights) == self._n_wide
+        assert len(self._window_args) == self._n_wide
+        assert len(self._window_orientations) == self._n_wide
+        assert len(self._window_functions) == self._n_wide
+        assert len(self._kernel_functions) == self._n_wide
+        assert len(self._kernel_args) == self._n_wide
+
+        # Set the window array
         self._window_sizes = []
         for i, win_fn in enumerate(self._window_functions):
             self._window_sizes.append(
                 win_fn(
-                    self.window_radii[i],
+                    self._window_radii[i],
                     self._token_frequencies_,
                     mask_index,
                     *self._window_args[i],
@@ -418,55 +473,60 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             )
         self._window_sizes = np.array(self._window_sizes)
 
-        # Set kernel args and size array
-        self._kernel_args = []
+        # Set the kernel array and adjust args
+        self._em_kernel_args = []
+        self._initial_kernel_args = []
         self._kernel_array = []
         max_ker_len = np.max(self._window_sizes)
-        if self.kernel_args is None:
-            self.kernel_args = [dict() for i in range(self._n_wide)]
-        for i, args in enumerate(self.kernel_args):
-            default_global_args = {
+        for i, args in enumerate(self._kernel_args):
+            default_kernel_array_args = {
                 "mask_index": None,
                 "normalize": False,
                 "offset": 0,
             }
-            default_global_args.update(args)
-            default_global_args["normalize"] = False
+            default_kernel_array_args.update(args)
+            default_kernel_array_args["normalize"] = False
             self._kernel_array.append(
                 self._kernel_functions[i](
                     np.repeat(-1, max_ker_len),
-                    self.window_radii[i],
-                    *default_global_args.values(),
+                    self._window_radii[i],
+                    *tuple(default_kernel_array_args.values()),
                 )
             )
-            default_global_args.update(args)
-            self._kernel_args.append(
-                tuple([mask_index, default_global_args["normalize"]])
+            default_initial_args = {
+                "mask_index": mask_index,
+                "normalize": False,
+                "offset": 0,
+            }
+            default_initial_args.update(args)
+            self._initial_kernel_args.append(tuple(default_initial_args.values()))
+            self._em_kernel_args.append(
+                tuple([mask_index, default_initial_args["normalize"]])
             )
-        self._kernel_args = tuple(self._kernel_args)
-        self._kernel_array = np.array(self._kernel_array)
 
+        self._em_kernel_args = tuple(self._em_kernel_args)
+        self._kernel_array = np.array(self._kernel_array, dtype=np.float32)
+
+        # Build the initial matrix
         self.cooccurrences_ = scipy.sparse.hstack(
             [
                 token_cooccurrence_matrix(
                     token_sequences,
                     len(self.token_label_dictionary_),
                     kernel_function=self._kernel_functions[i],
-                    kernel_args=self._kernel_args[i],
+                    kernel_args=self._initial_kernel_args[i],
                     window_sizes=self._window_sizes[i],
-                    window_orientation="directional",
+                    window_orientation=self._window_orientations[i],
                     chunk_size=self.chunk_size,
                 )
                 for i in range(self._n_wide)
             ]
         ).tocsr()
-
         self.cooccurrences_.eliminate_zeros()
         self.cooccurrences_ = normalize(self.cooccurrences_, axis=0, norm="l1").tocsr()
+
         # Do the EM
-
         n_chunks = (len(token_sequences) // self.chunk_size) + 1
-
         for iter in range(self.n_iter):
             new_data = np.zeros_like(self.cooccurrences_.data)
             for chunk_index in range(n_chunks):
@@ -475,9 +535,10 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
                 new_data += em_cooccurrence_iteration(
                     token_sequences=token_sequences[chunk_start:chunk_end],
                     window_size_array=self._window_sizes,
+                    window_reversals=np.array(self._window_reversals),
                     kernel_array=self._kernel_array,
-                    kernel_args_array=self._kernel_args,
-                    mix_weights=np.array(self.mix_weights),
+                    kernel_args_array=self._em_kernel_args,
+                    mix_weights=np.array(self._mix_weights),
                     prior_data=self.cooccurrences_.data,
                     prior_indices=self.cooccurrences_.indices,
                     prior_indptr=self.cooccurrences_.indptr,
@@ -555,9 +616,9 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
                     token_sequences,
                     len(self.token_label_dictionary_),
                     kernel_function=self._kernel_functions[i],
-                    kernel_args=self._kernel_args[i],
+                    kernel_args=self._initial_kernel_args[i],
                     window_sizes=self._window_sizes[i],
-                    window_orientation="directional",
+                    window_orientation=self._window_orientations[i],
                     chunk_size=self.chunk_size,
                 )
                 for i in range(self._n_wide)
@@ -578,8 +639,9 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
                 new_data += em_cooccurrence_iteration(
                     token_sequences=token_sequences[chunk_start:chunk_end],
                     window_size_array=self._window_sizes,
+                    window_reversals=np.array(self._window_reversals),
                     kernel_array=self._kernel_array,
-                    kernel_args_array=self._kernel_args,
+                    kernel_args_array=self._em_kernel_args,
                     mix_weights=np.array(self.mix_weights),
                     prior_data=cooccurrences_.data,
                     prior_indices=cooccurrences_.indices,

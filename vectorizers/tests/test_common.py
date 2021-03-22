@@ -463,11 +463,13 @@ def test_token_cooccurrence_vectorizer_window_args():
 
 def test_token_cooccurrence_vectorizer_kernel_args():
     vectorizer_a = TokenCooccurrenceVectorizer(
-        kernel_function="negative_binomial", mask_string="MASK"
+        kernel_function="negative_binomial",
+        mask_string="MASK",
+        kernel_args={"normalize": True},
     )
     vectorizer_b = TokenCooccurrenceVectorizer(
         kernel_function="negative_binomial",
-        kernel_args={"p": 0.9},
+        kernel_args={"normalize": True, "p": 0.9},
         mask_string="MASK",
     )
     assert (
@@ -477,21 +479,25 @@ def test_token_cooccurrence_vectorizer_kernel_args():
 
 def test_em_cooccurrence_vectorizer_kernel_args():
     vectorizer_a = EMTokenCooccurrenceVectorizer(
-        kernel_functions=["negative_binomial"],
+        kernel_functions="negative_binomial",
+        window_functions="variable",
         mask_string="MASK",
-        kernel_args=[{"normalize": True, "p": 0.9}],
+        kernel_args={"normalize": True, "p": 0.7},
         n_iter=0,
     )
     vectorizer_b = TokenCooccurrenceVectorizer(
         kernel_function="negative_binomial",
-        kernel_args={"normalize": True, "p": 0.9},
+        kernel_args={"normalize": True, "p": 0.7},
+        window_function="variable",
         mask_string="MASK",
         window_orientation="directional",
     )
-    assert (
-        vectorizer_a.fit_transform(token_data)
-        != normalize(vectorizer_b.fit_transform(token_data), axis=0, norm="l1")
-    ).nnz == 0
+    mat1 = vectorizer_a.fit_transform(token_data).toarray()
+    # mat2 = vectorizer_b.fit_transform(token_data).toarray()
+    mat2 = normalize(
+        vectorizer_b.fit_transform(token_data), axis=0, norm="l1"
+    ).toarray()
+    assert np.allclose(mat1, mat2)
 
 
 def test_em_cooccurrence_vectorizer_window_args():
