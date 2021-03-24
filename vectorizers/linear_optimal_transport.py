@@ -171,11 +171,65 @@ def lot_vectors_sparse_internal(
     return result
 
 
-def lot_vectors_sparse(
-        weight_matrix,
+@numba.njit(nogil=True, parallel=True)
+def lot_vectors_dense_internal(
         sample_vectors,
-        reference_distribution,
+        sample_distributions,
         reference_vectors,
+        reference_distribution,
+        metric=cosine,
+        max_distribution_size=256,
+        chunk_size=256,
+):
+    n_rows = len(sample_vectors)
+    result = np.zeros((n_rows, reference_vectors.size), dtype=np.float64)
+    n_chunks = (n_rows // chunk_size) + 1
+    for n in numba.prange(n_chunks):
+        chunk_start = n * chunk_size
+        chunk_end = min(chunk_start + chunk_size, n_rows)
+        for i in range(chunk_start, chunk_end):
+            row_vectors = sample_vectors[i].astype(np.float64)
+            row_distribution = sample_distributions[i]
+
+            if row_vectors.shape[0] > max_distribution_size:
+                best_indices = np.argsort(-row_distribution)[:max_distribution_size]
+                row_vectors = row_vectors[best_indices]
+                row_distribution = row_distribution[best_indices]
+
+            row_sum = row_distribution.sum()
+
+            if row_sum > 0.0:
+                row_distribution /= row_sum
+
+            if row_vectors.shape[0] > reference_vectors.shape[0]:
+                cost = chunked_pairwise_distance(row_vectors, reference_vectors, dist=metric)
+            else:
+                cost = chunked_pairwise_distance(reference_vectors, row_vectors, dist=metric).T
+
+            current_transport_plan = transport_plan(row_distribution, reference_distribution, cost)
+            transport_images = (current_transport_plan * (1.0 / reference_distribution)).T @ row_vectors
+
+            if metric == cosine:
+                l2_normalize(transport_images)
+
+            transport_vectors = transport_images - reference_vectors
+
+            if metric == cosine:
+                tangent_vectors = project_to_sphere_tangent_space(transport_vectors, reference_vectors)
+                l2_normalize(tangent_vectors)
+                scaling = tangent_vectors_scales(transport_images, reference_vectors)
+                transport_vectors = tangent_vectors * scaling
+
+            result[i] = transport_vectors.flatten()
+
+    return result
+
+
+def lot_vectors_sparse(
+        sample_vectors,
+        weight_matrix,
+        reference_vectors,
+        reference_distribution,
         n_components=150,
         metric=cosine,
         random_state=None,
@@ -189,9 +243,26 @@ def lot_vectors_sparse(
 
     n_rows = weight_matrix.indptr.shape[0] - 1
     n_blocks = (n_rows // block_size) + 1
+    chunk_size = max(256, block_size // 64)
 
     if n_blocks == 1:
-        pass
+        lot_vectors = lot_vectors_sparse_internal(
+            weight_matrix.indptr,
+            weight_matrix.indices,
+            weight_matrix.data,
+            sample_vectors,
+            reference_vectors,
+            reference_distribution,
+            metric=metric,
+            max_distribution_size=max_distribution_size,
+            chunk_size=chunk_size,
+        )
+        u, singular_values, v = randomized_svd(
+            lot_vectors, n_components=n_components, n_iter=10, random_state=random_state,
+        )
+        result, components = svd_flip(u, v)
+
+        return result, components
 
     singular_values = None
     components = None
@@ -203,7 +274,6 @@ def lot_vectors_sparse(
         shape=(n_rows, reference_vectors.size),
         dtype = np.float32,
     )
-    chunk_size = max(256, block_size // 64)
 
     for i in range(n_blocks):
         block_start = i * block_size
@@ -242,4 +312,90 @@ def lot_vectors_sparse(
     result = saved_blocks @ components.T
     del saved_blocks
     os.remove(memmap_filename)
+
+    return result, components
+
+
+def lot_vectors_dense(
+        sample_vectors,
+        sample_distributions,
+        reference_vectors,
+        reference_distribution,
+        n_components=150,
+        metric=cosine,
+        random_state=None,
+        max_distribution_size=256,
+        block_size=16384
+):
+    if metric == cosine:
+        sample_vectors = normalize(sample_vectors, norm="l2")
+
+    n_rows = len(sample_vectors)
+    n_blocks = (n_rows // block_size) + 1
+    chunk_size = max(256, block_size // 64)
+
+    if n_blocks == 1:
+        lot_vectors = lot_vectors_dense_internal(
+            sample_vectors,
+            sample_distributions,
+            reference_vectors,
+            reference_distribution,
+            metric=metric,
+            max_distribution_size=max_distribution_size,
+            chunk_size=chunk_size,
+        )
+        u, singular_values, v = randomized_svd(
+            lot_vectors, n_components=n_components, n_iter=10, random_state=random_state,
+        )
+        result, components = svd_flip(u, v)
+
+        return result, components
+
+    singular_values = None
+    components = None
+
+    memmap_filename = os.path.join(tempfile.mkdtemp(), "lot_tmp_memmap.dat")
+    saved_blocks = np.memmap(
+        memmap_filename,
+        mode="w+",
+        shape=(n_rows, reference_vectors.size),
+        dtype = np.float32,
+    )
+
+    for i in range(n_blocks):
+        block_start = i * block_size
+        block_end = min(n_rows, block_start + block_size)
+        block = lot_vectors_dense_internal(
+            sample_vectors[block_start:block_end],
+            sample_distributions[block_start:block_end],
+            reference_vectors,
+            reference_distribution,
+            metric=metric,
+            max_distribution_size=max_distribution_size,
+            chunk_size=chunk_size,
+        )
+
+        if singular_values is not None:
+            block_to_learn = np.vstack((singular_values.reshape(-1, 1) * components, block))
+        else:
+            block_to_learn = block
+
+        u, singular_values, v = randomized_svd(
+            block_to_learn, n_components=n_components, n_iter=10, random_state=random_state,
+        )
+        u, components = svd_flip(u, v)
+        saved_blocks[block_start:block_end] = block
+
+    saved_blocks.flush()
+    del saved_blocks
+    saved_blocks = np.memmap(
+        memmap_filename,
+        mode="r",
+        shape=(n_rows, reference_vectors.size),
+        dtype = np.float32,
+    )
+    result = saved_blocks @ components.T
+    del saved_blocks
+    os.remove(memmap_filename)
+
     return result, components
