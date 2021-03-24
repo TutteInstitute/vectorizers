@@ -1,12 +1,6 @@
 import numba
 import numpy as np
 
-from vectorizers.optimal_transport import (
-    kantorovich_distance as kantorovich,
-    sparse_kantorovich_distance as sparse_kantorovich,
-    create_ground_metric,
-)
-
 EPS = 1e-11
 
 

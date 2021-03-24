@@ -9,12 +9,47 @@ from pynndescent.optimal_transport import (
     arc_id,
     ProblemStatus,
 )
+from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.utils.validation import (
+    check_X_y,
+    check_array,
+    check_is_fitted,
+    check_random_state,
+)
 from pynndescent.distances import cosine, named_distances
 from sklearn.utils.extmath import svd_flip, randomized_svd
 from sklearn.preprocessing import normalize
 
+import scipy.sparse
+
 import os
+import re
 import tempfile
+
+
+def str_to_bytes(size_str):
+    parse_match = re.match(r'(\d+\.?\d*)([kMGT]?i?[Bb]?)$', size_str)
+    if parse_match is None:
+        raise ValueError(f"Invalid memory size string {size_str}; should be of the form '200M', '2G', etc.")
+
+    if parse_match.group(2) in ("k", "kB", "kb"):
+        return int(np.ceil(float(parse_match.group(1)) * 1024))
+    elif parse_match.group(2) in ("M", "MB", "Mb"):
+        return int(np.ceil(float(parse_match.group(1)) * 1024**2))
+    elif parse_match.group(2) in ("G", "GB", "Gb"):
+        return int(np.ceil(float(parse_match.group(1)) * 1024**3))
+    elif parse_match.group(2) in ("T", "TB", "Tb"):
+        return int(np.ceil(float(parse_match.group(1)) * 1024**4))
+    elif parse_match.group(2) in ("ki", "kiB", "kib"):
+        return int(np.ceil(float(parse_match.group(1)) * 1000))
+    elif parse_match.group(2) in ("Mi", "MiB", "Mib"):
+        return int(np.ceil(float(parse_match.group(1)) * 1000**2))
+    elif parse_match.group(2) in ("Gi", "GiB", "Gib"):
+        return int(np.ceil(float(parse_match.group(1)) * 1000**3))
+    elif parse_match.group(2) in ("Ti", "TiB", "Tib"):
+        return int(np.ceil(float(parse_match.group(1)) * 1000**4))
+    else:
+        return int(np.ceil(parse_match.group(1)))
 
 
 @numba.njit(nogil=True, fastmath=True)
@@ -434,3 +469,126 @@ def lot_vectors_dense(
     os.remove(memmap_filename)
 
     return result, components
+
+
+class WassersteinVectorizer(BaseEstimator, TransformerMixin):
+    def __init__(
+        self,
+        n_components=128,
+        reference_size=None,
+        reference_scale=0.01,
+        metric="cosine",
+        memory_size="2G",
+        max_distribution_size=256,
+        random_state=None,
+    ):
+        self.n_components = n_components
+        self.reference_size = reference_size
+        self.reference_scale = reference_scale
+        self.metric = metric
+        self.memory_size = memory_size
+        self.max_distribution_size = max_distribution_size
+        self.random_state = random_state
+
+
+    def _get_metric(self):
+        if type(self.metric) is str:
+            if self.metric in named_distances:
+                return named_distances[self.metric]
+            else:
+                raise ValueError(f"Unsupported metric {self.metric} provided; metric should be one of {list(named_distances.keys())}")
+        elif callable(self.metric):
+            return self.metric
+        else:
+            raise ValueError(f"Unsupported metric {self.metric} provided; metric should be a callable or one of {list(named_distances.keys())}")
+
+    def fit(self, X, y=None, vectors=None, **fit_params):
+        if vectors is None:
+            raise ValueError(
+                "WassersteinVectorizer requires vector representations of points under the metric. "
+                "Please pass these in to fit using the vectors keyword argument."
+            )
+        vectors = check_array(vectors)
+        random_state = check_random_state(self.random_state)
+        memory_size = str_to_bytes(self.memory_size)
+        metric = self._get_metric()
+
+        if scipy.sparse.isspmatrix(X) or type(X) is np.ndarray:
+            if type(X) is np.ndarray:
+                X = scipy.sparse.csr_matrix(X)
+
+            if X.shape[1] != vectors.shape[0]:
+                raise ValueError("distribution matrix must have as many columns as there are vectors")
+
+            X = normalize(X, norm="l1")
+
+            if self.reference_size is None:
+                reference_size = np.median(np.squeeze(np.array((X != 0).sum(axis=1))))
+            else:
+                reference_size = self.reference_size
+
+            lot_dimension = reference_size * vectors.shape[1]
+            block_size = memory_size // (lot_dimension * 8)
+            u, s, v = scipy.sparse.linalg.svds(X)
+            reference_center = v @ vectors
+            if metric == cosine:
+                reference_center /= np.sqrt(np.sum(reference_center**2))
+            self.reference_vectors_ = reference_center + random_state.normal(scale=self.reference_scale, size=(reference_size, vectors.shape[1]))
+            if metric == cosine:
+                self.reference_vectors_ = normalize(self.reference_vectors_, norm="l2")
+
+            self.reference_distribution_ = np.full(reference_size, 1.0 / reference_size)
+
+            self.embedding_, self.components_ = lot_vectors_sparse(
+                vectors,
+                X,
+                self.reference_vectors_,
+                self.reference_distribution_,
+                self.n_components,
+                metric,
+                random_state,
+                self.max_distribution_size,
+                block_size,
+            )
+
+        elif type(X) in ("list", "tuple", "numba.typed.List"):
+            if self.reference_size is None:
+                reference_size = np.median([len(x) for x in X])
+            else:
+                reference_size = self.reference_size
+
+            lot_dimension = reference_size * vectors[0].shape[1]
+            block_size = memory_size // (lot_dimension * 8)
+
+            reference_center = np.mean(np.vstack(
+                [X[i].reshape(-1, 1) * vectors[i] for i in range(len(X))]
+            ), axis=0)
+            if metric == cosine:
+                reference_center /= np.sqrt(np.sum(reference_center**2))
+            self.reference_vectors_ = reference_center + random_state.normal(scale=self.reference_scale, size=(reference_size, vectors.shape[1]))
+            if metric == cosine:
+                self.reference_vectors_ = normalize(self.reference_vectors_, norm="l2")
+
+            self.reference_distribution_ = np.full(reference_size, 1.0 / reference_size)
+            self.embedding_, self.components_ = lot_vectors_dense(
+                vectors,
+                X,
+                self.reference_vectors_,
+                self.reference_distribution_,
+                self.n_components,
+                metric,
+                random_state,
+                self.max_distribution_size,
+                block_size,
+            )
+        else:
+            raise ValueError("Input data not in a recognized format for WassersteinVectorizer")
+
+        return self
+    
+    def fit_transform(self, X, y=None, vectors=None, **fit_params):
+        self.fit(X, vectors=vectors)
+        return self.embedding_
+
+    def transform(self, X, y=None, vectors=None, **transform_params):
+        pass
