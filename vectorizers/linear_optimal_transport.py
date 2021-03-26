@@ -28,7 +28,24 @@ import tempfile
 
 
 def str_to_bytes(size_str):
-    parse_match = re.match(r"(\d+\.?\d*)([kMGT]?i?[Bb]?)$", size_str)
+    """Convert a string description of a memory size (e.g. 1GB, or 100M, or 20kB)
+    into a number of bytes to be used in computations and memory size limits. This is
+    not particularly fancy or robust, but is enough for most standard cases up to
+    terabyte sizes.
+
+    Parameters
+    ----------
+    size_str: str
+        A description of a memory size. Support k, M, G, T and ki, Mi, Gi, Ti sizes
+        with optional B/b characters appended, and possible space between the number
+        and the unit.
+
+    Returns
+    -------
+    bytes: int
+        The memory size explicitly in bytes.
+    """
+    parse_match = re.match(r"(\d+\.?\d*)\s*([kMGT]?i?[Bb]?)$", size_str)
     if parse_match is None:
         raise ValueError(
             f"Invalid memory size string {size_str}; should be of the form '200M', '2G', etc."
@@ -56,6 +73,23 @@ def str_to_bytes(size_str):
 
 @numba.njit(nogil=True, fastmath=True)
 def project_to_sphere_tangent_space(euclidean_vectors, sphere_basepoints):
+    """Given arrays of vectors in euclidean space and a corresponding array of
+    basepoints on an n-sphere (one for each euclidean vector), map the euclidean
+    vectors to the tangent space of the sphere at the given basepoints.
+
+    Parameters
+    ----------
+    euclidean_vectors: ndarray
+        The vectors to be mapped into tangent spaces
+    sphere_basepoints: ndarray
+        points on an n-sphere, one for each euclidean vector, which the tangent
+        spaces are related to.
+
+    Returns
+    -------
+    result: ndarray
+        vectors in the tangent spaces of the relevant sphere basepoints.
+    """
     result = np.zeros_like(euclidean_vectors)
     for i in range(result.shape[0]):
         unit_normal = sphere_basepoints[i] / np.sqrt(np.sum(sphere_basepoints[i] ** 2))
@@ -67,6 +101,22 @@ def project_to_sphere_tangent_space(euclidean_vectors, sphere_basepoints):
 
 @numba.njit(nogil=True, fastmath=True)
 def tangent_vectors_scales(reference_vectors, image_vectors):
+    """Derive scaling values as the cosine distance between reference
+    vectors and associated image vectors.
+
+    Parameters
+    ----------
+    reference_vectors: ndarray
+        The reference vectors on the n-sphere
+
+    image_vectors: ndarray
+        The images, one for each reference vector, on the n-sphere
+
+    Returns
+    -------
+    result: ndarray
+        a 1d-array with a value for each reference_vector/image_vectopr pair
+    """
     result = np.zeros((reference_vectors.shape[0], 1), dtype=np.float32)
     for i in range(result.shape[0]):
         result[i, 0] = cosine(reference_vectors[i], image_vectors[i])
@@ -75,6 +125,25 @@ def tangent_vectors_scales(reference_vectors, image_vectors):
 
 @numba.njit(nogil=True)
 def get_transport_plan(flow, graph):
+    """Given a flow and graph computed via the network simplex algorithm
+    compute the resulting transport plan. Note that this is potentially
+    non-trivial largely due to the arc/edge re-ordering done for the
+    network simplex algorithm, so we need to unpack edges appropriately.
+
+    Parameters
+    ----------
+    flow: ndarray
+        The optimal flow from network simplex computations.
+
+    graph: Graph namedtuple
+        The graph on which the flow is occurring.
+
+    Returns
+    -------
+    plan: ndarray
+        The optimal transport plan defined on the flow and graph in
+        original input coordinates.
+    """
     n = graph.n
     m = graph.m
     result = np.zeros((n, m), dtype=np.float64)
@@ -89,6 +158,28 @@ def get_transport_plan(flow, graph):
 
 @numba.njit()
 def transport_plan(p, q, cost, max_iter=100000):
+    """Given distributions ``p`` and ``q`` and a transport cost matrix ``cost``
+    compute the optimal transport plan from p to q.
+
+    Parameters
+    ----------
+    p: ndarray of shape (n,)
+        A distribution to solve and optimal transport problem for (entries must sum to 1.0)
+
+    q: ndarray of shape (m,)
+        A distribution to solve and optimal transport problem for (entries must sum to 1.0)
+
+    cost: ndarray of shape (n,m)
+        The transport costs for the optimal transport problem
+
+    max_iter: int (optional, default=100000)
+        The maximum number of iterations of network simplex to perform
+
+    Returns
+    -------
+    plan: ndarray of shape (n, m)
+        The transport plan from distribution p to distribution q
+    """
     node_arc_data, spanning_tree, graph = allocate_graph_structures(
         p.shape[0], q.shape[0], False,
     )
@@ -116,6 +207,29 @@ def transport_plan(p, q, cost, max_iter=100000):
 
 @numba.njit(nogil=True, parallel=True)
 def chunked_pairwise_distance(data1, data2, dist=cosine, chunk_size=4):
+    """Compute pairwise distances between two datasets efficiently in parallel.
+
+    Parameters
+    ----------
+    data1: ndarray of shape (n, d)
+        The first dataset
+
+    data2: ndarray of shape (m, d)
+        The second dataset
+
+    dist: function(ndarray, ndarray) -> float
+        The distance function to use for distance computation
+
+    chunk_size: int (optional, default=4)
+        The chunk_sized used in breaking the computation into
+        localised chunks for cache efficiency.
+
+    Returns
+    -------
+    distances: ndarray of shape (n, m)
+        The distances between datasets; the i, j entry is the
+        distance from the ith entry of data1 to the jth entry of data2
+    """
     row_size = data1.shape[0]
     col_size = data2.shape[0]
     result = np.empty((row_size, col_size), dtype=np.float32)
@@ -136,6 +250,14 @@ def chunked_pairwise_distance(data1, data2, dist=cosine, chunk_size=4):
 # !! In place modification for efficiency
 @numba.njit(nogil=True, fastmath=True)
 def l2_normalize(vectors):
+    """Normalize a set of vectors in place.
+
+    Parameters
+    ----------
+    vectors: ndarray
+        The vectors to be l2-normalizes (each row is normalized)
+
+    """
     for i in range(vectors.shape[0]):
         norm = 0.0
         for j in range(vectors.shape[1]):
@@ -161,6 +283,48 @@ def lot_vectors_sparse_internal(
     max_distribution_size=256,
     chunk_size=256,
 ):
+    """Efficiently compute linear optimal transport vectors for
+    a block of data provided in sparse matrix format. Internal
+    numba accelerated version, so we work with pure numpy arrays
+    wherever possible.
+
+    Parameters
+    ----------
+    indptr: ndarray
+        CSR format indptr array of sparse matrix input
+
+    indices: ndarray
+        CSR format indices array of sparse matrix input
+
+    data: ndarray
+        CSR format data array of sparse matrix input
+
+    sample_vectors: ndarray
+        Vectors that the dsitributions are over.
+
+    reference_vectors: ndarray
+        The reference vector set for LOT
+
+    reference_distribution: ndarray
+        The reference distribution over the set of reference vectors
+
+    metric: function(ndarray, ndarray) -> float
+        The distance function to use for distance computation
+
+    max_distribution_size: int (optional, default=256)
+        The maximum size of a distribution to consider; larger
+        distributions over more vectors will be truncated back
+        to this value for faster performance.
+
+    chunk_size: int (optional, default=256)
+        Operations will be parallelised over chunks of the input.
+        This specifies the chunk size.
+
+    Returns
+    -------
+    lot_vectors: ndarray
+        The raw linear optimal transport vectors correpsonding to the input.
+    """
     n_rows = indptr.shape[0] - 1
     result = np.zeros((n_rows, reference_vectors.size), dtype=np.float64)
     n_chunks = (n_rows // chunk_size) + 1
@@ -474,6 +638,7 @@ def lot_vectors_dense(
 
 
 class WassersteinVectorizer(BaseEstimator, TransformerMixin):
+
     def __init__(
         self,
         n_components=128,
@@ -611,7 +776,7 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
         return self
 
     def fit_transform(self, X, y=None, vectors=None, **fit_params):
-        self.fit(X, vectors=vectors)
+        self.fit(X, y=y, vectors=vectors, **fit_params)
         return self.embedding_
 
     def transform(self, X, y=None, vectors=None, **transform_params):
