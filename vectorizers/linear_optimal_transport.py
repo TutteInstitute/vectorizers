@@ -391,6 +391,43 @@ def lot_vectors_dense_internal(
     max_distribution_size=256,
     chunk_size=256,
 ):
+    """Efficiently compute linear optimal transport vectors for
+    a block of data provided as a list of distributions and a
+    corresponding list of arrays of vectors.
+
+    Parameters
+    ----------
+    sample_vectors: numba.typed.List of ndarrays
+        A set of vectors for each distribution.
+
+    sample_distributions: numba.typed.List of ndarrays
+        A set of distributions (1d arrays that sum to one). The ith element of a given
+        distribution is the probability mass on the ith row of the corresponding entry
+        in the ``sample_vectors`` list.
+
+    reference_vectors: ndarray
+        The reference vector set for LOT
+
+    reference_distribution: ndarray
+        The reference distribution over the set of reference vectors
+
+    metric: function(ndarray, ndarray) -> float
+        The distance function to use for distance computation
+
+    max_distribution_size: int (optional, default=256)
+        The maximum size of a distribution to consider; larger
+        distributions over more vectors will be truncated back
+        to this value for faster performance.
+
+    chunk_size: int (optional, default=256)
+        Operations will be parallelised over chunks of the input.
+        This specifies the chunk size.
+
+    Returns
+    -------
+    lot_vectors: ndarray
+        The raw linear optimal transport vectors correpsonding to the input.
+    """
     n_rows = len(sample_vectors)
     result = np.zeros((n_rows, reference_vectors.size), dtype=np.float64)
     n_chunks = (n_rows // chunk_size) + 1
@@ -456,6 +493,69 @@ def lot_vectors_sparse(
     max_distribution_size=256,
     block_size=16384,
 ):
+    """Given distributions over a metric space produce a compressed array
+    of linear optimal transport vectors, one for each distribution, and
+    the components of the SVD used for the compression.
+
+    Distributions over a metric space are described by:
+       * An array of vectors
+       * A metric on those vectors (thus describing the underlying metric space)
+       * A sparse weight matrix
+
+    A single row of the weight matrix describes a distribution of vectors with the ith
+    element of the row giving the probability mass on the ith vector -- ideally this is
+    sparse with most distributions only having a relatively small number of non-zero
+    entries.
+
+    The LOT vectors are computed in blocks and components used for compression are
+    learned via an incremental version of an SVD. The resulting components are then
+    used for projection giving a compressed set of LOT vectors. Both the LOT vectors
+    and the learned components are returned.
+
+    Parameters
+    ----------
+    sample_vectors: ndarray
+        The vectors over which all the distributions range, providing the metric space.
+
+    weight_matrix: scipy sparse matrix
+        The probability distributions, one per row, over the sample vectors.
+
+    reference_vectors: ndarray
+        The reference vector set for LOT
+
+    reference_distribution: ndarray
+        The reference distribution over the set of reference vectors
+
+    n_components: int (optional, default=150)
+        The number of SVD components to use for projection. Thus the dimensionality of
+        the compressed LOT vectors that are output.
+
+    metric: function(ndarray, ndarray) -> float
+        The distance function to use for distance computation between vectors.
+
+    random_state: numpy.random.random_state or None (optional, default=None)
+        The random state used for randomized SVD computation. Fix a random state
+        for consistent reproducible results.
+
+    max_distribution_size: int (optional, default=256)
+        The maximum size of a distribution to consider; larger
+        distributions over more vectors will be truncated back
+        to this value for faster performance.
+
+    block_size: int (optional, default=16384)
+        The maximum number of rows to process at a time. Lowering this will
+        constrain memory use at the cost of accuracy (the incremental SVD will
+        learn less well in more, smaller, batches). Setting this too large can
+        cause the algorithm to exceed memory.
+
+    Returns
+    -------
+    lot_vectors: ndarray
+        The compressed linear optimal transport vectors of dimension ``n_components``.
+
+    components: ndarray
+        The learned SVD components which can be used for projecting new data.
+    """
     weight_matrix = weight_matrix.tocsr().astype(np.float64)
     weight_matrix = normalize(weight_matrix, norm="l1")
     if metric == cosine:
@@ -555,6 +655,66 @@ def lot_vectors_dense(
     max_distribution_size=256,
     block_size=16384,
 ):
+    """Given distributions over a metric space produce a compressed array
+    of linear optimal transport vectors, one for each distribution, and
+    the components of the SVD used for the compression.
+
+    Distributions over a metric space are described by:
+      * A list of vectors, one set of vectors per distribution
+      * A list of distributions, giving the probabilty masses over each vector
+      * A metric on the vectors (thus describing the underlying metric space)
+
+    The LOT vectors are computed in blocks and components used for compression are
+    learned via an incremental version of an SVD. The resulting components are then
+    used for projection giving a compressed set of LOT vectors. Both the LOT vectors
+    and the learned components are returned.
+
+    Parameters
+    ----------
+    sample_vectors: numba.typed.List of ndarrays
+        A set of vectors for each distribution.
+
+    sample_distributions: numba.typed.List of ndarrays
+        A set of distributions (1d arrays that sum to one). The ith element of a given
+        distribution is the probability mass on the ith row of the corresponding entry
+        in the ``sample_vectors`` list.
+
+    reference_vectors: ndarray
+        The reference vector set for LOT
+
+    reference_distribution: ndarray
+        The reference distribution over the set of reference vectors
+
+    n_components: int (optional, default=150)
+        The number of SVD components to use for projection. Thus the dimensionality of
+        the compressed LOT vectors that are output.
+
+    metric: function(ndarray, ndarray) -> float
+        The distance function to use for distance computation between vectors.
+
+    random_state: numpy.random.random_state or None (optional, default=None)
+        The random state used for randomized SVD computation. Fix a random state
+        for consistent reproducible results.
+
+    max_distribution_size: int (optional, default=256)
+        The maximum size of a distribution to consider; larger
+        distributions over more vectors will be truncated back
+        to this value for faster performance.
+
+    block_size: int (optional, default=16384)
+        The maximum number of rows to process at a time. Lowering this will
+        constrain memory use at the cost of accuracy (the incremental SVD will
+        learn less well in more, smaller, batches). Setting this too large can
+        cause the algorithm to exceed memory.
+
+    Returns
+    -------
+    lot_vectors: ndarray
+        The compressed linear optimal transport vectors of dimension ``n_components``.
+
+    components: ndarray
+        The learned SVD components which can be used for projecting new data.
+    """
     if metric == cosine:
         sample_vectors = normalize(sample_vectors, norm="l2")
 
@@ -638,6 +798,59 @@ def lot_vectors_dense(
 
 
 class WassersteinVectorizer(BaseEstimator, TransformerMixin):
+    """Transform distributions over a metric space into vectors in a linear space
+    such that euclidean or cosine distance approximates the Wasserstein distance
+    between the distributions. This is useful, for example, in transforming bags of
+    words with associated word vectors using word-mover-distance, into vectors that
+    can be used directly in classical machine learning algorithms, including
+    clustering.
+
+    The transformation process uses linear optimal transport as the means of
+    linearising the distributions, and compresses the results with SVD to keep
+    the dimensionality tractable.
+
+    Parameters
+    ----------
+    n_components: int (optional, default=128)
+        Dimensionality of the transformed vectors. Larger values will more
+        accurately capture Wasserstein distance, but there are rapidly
+        diminishing returns.
+
+    reference_size: int or None (optional, default=None)
+        The size of the reference distribution used for LOT computations.
+        This should be approximately the same size as the distributions to
+        be transformed. Larger values produce more accurate results, but at
+        significant computational and memory overhead costs. Setting the
+        value of this parameter to None will result in a "best guess" value
+        being generated based on the input data.
+
+    reference_scale: float (optional, default=0.01)
+        How dispersed to make the reference distribution within the metric space.
+        This value represents the standard deviation of a normal distribution around
+        a fixed center. Larger values may be requires for more highly dispersed
+        input data.
+
+    metric: string or function (ndarray, ndarray) -> float (optional, default="cosine")
+        A function that, given two vectors, can produce a distance between them. This
+        is used to define the metric space over which input distributions lie. If a string
+        is given it is checked against defined distances in pynndescent, and the relevant
+        distance function is used if found.
+
+    memory_size: string (optional, default="2G")
+        The memory size to attempt to stay under during LOT computation. Because LOT vectors
+        are high dimensional and dense they consume a lot of memory. The computation is
+        therefore handled in batches and the results compressed via SVD. This value, giving
+        a memory size in k, M, G or T describes how much memory to consume with raw LOT
+        vectors, and thus determines the batchign sizes etc.
+
+    max_distribution_size: int (optional, default=256)
+        The maximum size of a distribution to consider; larger
+        distributions over more vectors will be truncated back
+        to this value for faster performance.
+
+    random_state: numpy.random.random_state or int or None (optional, default=None)
+        A random state to use. A fixed integer seed can be used for reproducibility.
+    """
 
     def __init__(
         self,
