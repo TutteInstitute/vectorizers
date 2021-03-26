@@ -798,7 +798,7 @@ def lot_vectors_dense(
 
 
 class WassersteinVectorizer(BaseEstimator, TransformerMixin):
-    """Transform distributions over a metric space into vectors in a linear space
+    """Transform finite distributions over a metric space into vectors in a linear space
     such that euclidean or cosine distance approximates the Wasserstein distance
     between the distributions. This is useful, for example, in transforming bags of
     words with associated word vectors using word-mover-distance, into vectors that
@@ -886,6 +886,28 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
             )
 
     def fit(self, X, y=None, vectors=None, **fit_params):
+        """Train the transformer on a set of distributions ``X`` with associated
+        vectors ``vectors``.
+
+        Parameters
+        ----------
+        X: scipy sparse matrix or list of ndarrays
+            The distributions to train on.
+
+        y: None (optional, default=None)
+            Ignored.
+
+        vectors: ndarray or list of ndarrays
+            The vectors over which the distributions lie.
+
+        fit_params:
+            Other params to pass on for fitting.
+
+        Returns
+        -------
+        self:
+            The trained model.
+        """
         if vectors is None:
             raise ValueError(
                 "WassersteinVectorizer requires vector representations of points under the metric. "
@@ -989,10 +1011,54 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
         return self
 
     def fit_transform(self, X, y=None, vectors=None, **fit_params):
+        """Train the transformer on a set of distributions ``X`` with associated
+        vectors ``vectors``, and return the resulting transformed training data.
+
+        Parameters
+        ----------
+        X: scipy sparse matrix or list of ndarrays
+            The distributions to train on.
+
+        y: None (optional, default=None)
+            Ignored.
+
+        vectors: ndarray or list of ndarrays
+            The vectors over which the distributions lie.
+
+        fit_params:
+            Other params to pass on for fitting.
+
+        Returns
+        -------
+        lot_vectors:
+            The transformed training data.
+        """
         self.fit(X, y=y, vectors=vectors, **fit_params)
         return self.embedding_
 
     def transform(self, X, y=None, vectors=None, **transform_params):
+        """Transform distributions ``X`` over the metric space given by
+        ``vectors`` from a Wasserstein metric space into the linearised
+        space learned by the model.
+
+        X: scipy sparse matrix or list of ndarrays
+            The distributions to be transformed.
+
+        y: None (optional, default=None)
+            Ignored.
+
+        vectors: ndarray or list of ndarrays
+            The vectors over which the distributions lie.
+
+        transform_params:
+            Other params to pass on for transformation.
+
+        Returns
+        -------
+        lot_vectors:
+            The transformed data.
+        """
+        check_is_fitted(self, ["components_", "reference_vectors_", "reference_distribution_"])
         if vectors is None:
             raise ValueError(
                 "WassersteinVectorizer requires vector representations of points under the metric. "
