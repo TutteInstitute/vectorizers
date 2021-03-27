@@ -497,6 +497,8 @@ def test_em_cooccurrence_vectorizer_kernel_args():
     mat2 = normalize(
         vectorizer_b.fit_transform(token_data), axis=0, norm="l1"
     ).toarray()
+    print("mat1", mat1)
+    print("mat2", mat2)
     assert np.allclose(mat1, mat2)
 
 

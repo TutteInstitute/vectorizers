@@ -1,4 +1,10 @@
-from ._vectorizers import token_cooccurrence_matrix, preprocess_token_sequences
+from ._vectorizers import (
+    token_cooccurrence_matrix,
+    preprocess_token_sequences,
+    MOCK_DICT,
+    pair_to_tuple,
+    make_tuple_converter,
+)
 
 from warnings import warn
 from sklearn.utils.validation import check_is_fitted
@@ -8,7 +14,13 @@ from collections.abc import Iterable
 
 import vectorizers.distances as distances
 
-from .utils import validate_homogeneous_token_types, flatten
+from .utils import (
+    validate_homogeneous_token_types,
+    flatten,
+    coo_append,
+    CooArray,
+    coo_sum_duplicates,
+)
 
 import numpy as np
 import numba
@@ -19,6 +31,387 @@ from ._window_kernels import (
     window_at_index,
     update_kernel,
 )
+
+
+@numba.njit(nogil=True)
+def build_multi_skip_ngrams(
+    token_sequence,
+    window_size_array,
+    window_reversals,
+    kernel_array,
+    kernel_args_array,
+    mix_weights,
+    normalize_windows,
+    n_unique_tokens,
+    ngram_dictionary,
+    ngram_size=2,
+    array_to_tuple=pair_to_tuple,
+):
+    """Given a single token sequence produce an array of weighted skip-grams
+    associated to each token in the original sequence. The resulting array has
+    shape (n_skip_grams, 3) where each skip_gram is a vector giving the
+    head (or skip) token index, the tail token index, and the associated weight of the
+    skip-gram. The weights for skip-gramming are given by the kernel_function
+    that is applied to the window. Options for kernel functions include a fixed
+    kernel (giving a weight of 1 to each item), a triangular kernel (giving a
+    linear decaying weight depending on the distance from the skip token), and a
+    harmonic kernel (giving a weight that decays inversely proportional to the
+    distance from the skip_token).
+
+    Parameters
+    ----------
+    token_sequence: Iterable
+        The sequence of tokens to build skip-grams for.
+
+    window_sizes: Iterable
+        A collection of window sizes per vocabulary index
+
+    kernel_function: numba.jitted callable
+        A function producing weights given a window of tokens
+
+    kernel_args: tuple
+        Arguments to pass through to the kernel function
+
+    reverse: bool (optional, default False)
+        Whether windows follow the word (default) or are reversed and come
+        before the word.
+
+    Returns
+    -------
+    skip_grams: array of shape (n_skip_grams, 3)
+        Each skip_gram is a vector giving the head (or skip) token index, the
+        tail token index, and the associated weight of the skip-gram.
+    """
+
+    """
+    coo_tuples = [(np.float32(0.0), np.float32(0.0), np.float32(0.0))]
+
+    for i in range(ngram_size - 1, len(token_sequence)):
+        if reverse:
+            ngram = array_to_tuple(token_sequence[i : i + ngram_size])
+        else:
+            ngram = array_to_tuple(token_sequence[i - ngram_size : i])
+
+        if ngram in ngram_dictionary:
+            head_token = ngram_dictionary[ngram]
+            window = window_at_index(
+                token_sequence, window_sizes[head_token], i, reverse
+            )
+            weights = kernel_function(window, window_sizes[head_token], *kernel_args)
+
+            coo_tuples.extend(
+                [
+                    (np.float32(head_token), np.float32(window[j]), weights[j])
+                    for j in range(len(window))
+                ]
+            )
+    
+    return sum_coo_entries(coo_tuples)
+    """
+    return [(np.float32(0.0), np.float32(0.0), np.float32(0.0))]
+
+
+@numba.njit(nogil=True)
+def build_multi_skip_grams(
+    token_sequences,
+    window_size_array,
+    window_reversals,
+    kernel_array,
+    kernel_args_array,
+    mix_weights,
+    normalize_windows,
+    n_unique_tokens,
+    array_lens,
+    array_merge_inds,
+):
+    """Given a single token sequence produce an array of weighted skip-grams
+    associated to each token in the original sequence. The resulting array has
+    shape (n_skip_grams, 3) where each skip_gram is a vector giving the
+    head (or skip) token index, the tail token index, and the associated weight of the
+    skip-gram. The weights for skip-gramming are given by the kernel_function
+    that is applied to the window. Options for kernel functions include a fixed
+    kernel (giving a weight of 1 to each item), a triangular kernel (giving a
+    linear decaying weight depending on the distance from the skip token), and a
+    harmonic kernel (giving a weight that decays inversely proportional to the
+    distance from the skip_token).
+
+    Parameters
+    ----------
+    token_sequence: Iterable
+        The sequence of tokens to build skip-grams for.
+
+    window_sizes: Iterable
+        A collection of window sizes per vocabulary index
+
+    kernel_function: numba.jitted callable
+        A function producing weights given a window of tokens
+
+    kernel_args: tuple
+        Arguments to pass through to the kernel function
+
+    reverse: bool (optional, default False)
+        Whether windows follow the word (default) or are reversed and come
+        before the word.
+
+    Returns
+    -------
+    skip_grams: array of shape (n_skip_grams, 3)
+        Each skip_gram is a vector giving the head (or skip) token index, the
+        tail token index, and the associated weight of the skip-gram.
+    """
+
+    n_windows = window_size_array.shape[0]
+    array_mul = n_windows * n_unique_tokens + 1
+    kernel_masks = [ker[0] for ker in kernel_args_array]
+    kernel_normalize = [ker[1] for ker in kernel_args_array]
+
+    coo_data = [
+        CooArray(
+            np.zeros(array_lens[i], dtype=np.int32),
+            np.zeros(array_lens[i], dtype=np.int32),
+            np.zeros(array_lens[i], dtype=np.float32),
+            np.zeros(array_lens[i], dtype=np.int64),
+            np.zeros(1, dtype=np.int64),
+            np.zeros(1, dtype=np.int64),
+            array_merge_inds[i],
+        )
+        for i in range(n_windows)
+    ]
+    for d_i, seq in enumerate(token_sequences):
+        for w_i, target_word in enumerate(seq):
+            windows = [
+                window_at_index(
+                    seq,
+                    window_size_array[i, target_word],
+                    w_i,
+                    reverse=window_reversals[i],
+                )
+                for i in range(n_windows)
+            ]
+
+            kernels = [
+                mix_weights[i]
+                * update_kernel(
+                    windows[i], kernel_array[i], kernel_masks[i], kernel_normalize[i]
+                )
+                for i in range(n_windows)
+            ]
+
+            total = 0
+            if normalize_windows:
+                sums = np.array([np.sum(ker) for ker in kernels])
+                total = np.sum(sums)
+            if total <= 0:
+                total = 1
+
+            for i, window in enumerate(windows):
+                this_ker = kernels[i]
+                for j, context in enumerate(window):
+                    val = np.float32(this_ker[j] / total)
+                    if val > 0:
+                        row = target_word
+                        col = context + i * n_unique_tokens
+                        key = col + array_mul * row
+                        coo_append(coo_data[i], (row, col, val, key))
+
+    return coo_data
+
+
+@numba.njit(nogil=True)
+def sequence_multi_skip_grams(
+    token_sequences,
+    window_size_array,
+    window_reversals,
+    kernel_array,
+    kernel_args_array,
+    mix_weights,
+    normalize_windows,
+    n_unique_tokens,
+    array_lens,
+    array_merge_inds,
+):
+    """Produce skip-gram data for a combined over a list of token sequences. In this
+    case each token sequence represents a sequence with boundaries over which
+    skip-grams may not extend (such as sentence boundaries in an NLP context).
+
+    Parameters
+    ----------
+    token_sequences: Iterable of Iterables
+        The token sequences to produce skip-gram data for
+
+    window_sizes: Iterable
+        A collection of window sizes per vocabulary index
+
+    kernel_function: numba.jitted callable
+        A function producing weights given a window of tokens
+
+    kernel_args: tuple
+        Arguments to pass through to the kernel function
+
+    reverse: bool (optional, default False)
+        Whether windows follow the word (default) or are reversed and come
+        before the word.
+
+    Returns
+    -------
+    skip_grams: array of shape (n_skip_grams, 3)
+        The skip grams for the combined set of sequences.
+    """
+
+    coo_list = build_multi_skip_grams(
+        token_sequences=token_sequences,
+        window_size_array=window_size_array,
+        window_reversals=window_reversals,
+        kernel_array=kernel_array,
+        kernel_args_array=kernel_args_array,
+        mix_weights=mix_weights,
+        normalize_windows=normalize_windows,
+        n_unique_tokens=n_unique_tokens,
+        array_lens=array_lens,
+        array_merge_inds=array_merge_inds,
+    )
+    for coo in coo_list:
+        coo.min[0] = 0
+        coo_sum_duplicates(coo)
+
+    return (
+        [coo.row[: coo.ind[0]] for coo in coo_list],
+        [coo.col[: coo.ind[0]] for coo in coo_list],
+        [coo.val[: coo.ind[0]] for coo in coo_list],
+    )
+
+
+@numba.njit(nogil=True)
+def set_array_size(token_sequences, window_lens, n_windows):
+    tot_len = 0
+    for seq in token_sequences:
+        counts = np.bincount(seq, minlength=window_lens.shape[0])
+        tot_len += np.sum((window_lens) * counts)
+
+    return np.repeat(tot_len, n_windows).astype(np.int64)
+
+
+@numba.njit(nogil=True)
+def set_merge_size(token_sequences, window_array):
+    tot_len = np.zeros(window_array.shape[0])
+    win_arr = window_array.astype(np.float64)
+    for seq in token_sequences:
+        counts = np.bincount(seq, minlength=window_array.shape[0]).astype(np.float64)
+        tot_len += np.dot(win_arr, counts).T
+    phi = 0.5 * (1 + np.sqrt(5))
+    return np.ceil(
+        phi
+        * tot_len
+        / np.log2(phi * tot_len * np.log(phi * tot_len * np.log(phi * tot_len)))
+    )
+
+
+def multi_token_cooccurrence_matrix(
+    token_sequences,
+    n_unique_tokens,
+    window_size_array,
+    window_reversals,
+    kernel_array,
+    kernel_args_array,
+    mix_weights,
+    normalize_windows,
+    array_lens,
+    array_merge_inds,
+    chunk_size=1 << 20,
+):
+    """Generate a matrix of (weighted) counts of co-occurrences of tokens within
+    windows in a set of sequences of tokens. Each sequence in the collection of
+    sequences provides an effective boundary over which skip-grams may not pass
+    (such as sentence boundaries in an NLP context). Options for how to generate
+    windows and how to weight the counts with a window via a kernel are available.
+    By default a fixed width window and a flat kernel are used, but other options
+    include a variable width window based on total information within the window,
+    and kernels can also be a triangular kernel (giving a
+    linear decaying weight depending on the distance from the skip token), and a
+    harmonic kernel (giving a weight that decays inversely proportional to the
+    distance from the skip_token).
+
+    Parameters
+    ----------
+    token_sequences: Iterable of Iterables
+        The collection of token sequences to generate skip-gram data for.
+
+    n_unique_tokens: int
+        The number of unique tokens in the token_dictionary.
+
+    window_sizes: Iterable
+        A collection of window sizes per vocabulary index
+
+    kernel_function: numba.jitted callable (optional, default=flat_kernel)
+        A function producing weights given a window of tokens
+
+    kernel_args: tuple (optional, default=())
+        Arguments to pass through to the kernel function
+
+    window_orientation: string (['before', 'after', 'symmetric', 'directional'])
+        The orientation of the cooccurrence window.  Whether to return all the tokens that
+        occurred within a window before, after on either side.
+        symmetric: counts tokens occurring before and after as the same tokens
+        directional: counts tokens before and after as different and returns both counts.
+
+    chunk_size: int (optional, default=1048576)
+        When processing token sequences, break the list of sequences into
+        chunks of this size to stream the data through, rather than storing all
+        the results at once. This saves on peak memory usage.
+
+    Returns
+    -------
+    cooccurrence_matrix: scipyr.sparse.csr_matrix
+        A matrix of shape (n_unique_tokens, n_unique_tokens) where the i,j entry gives
+        the (weighted)  count of the number of times token i cooccurs within a
+        window with token j.
+    """
+    if n_unique_tokens == 0:
+        raise ValueError("Token dictionary is empty; try using less extreme contraints")
+
+    # if len(ngram_dictionary) == 1 or ngram_size == 1:
+    #    n_rows = n_unique_tokens
+    #    array_to_tuple = pair_to_tuple  # Mock function for this case; unused
+    # else:
+    #    n_rows = len(ngram_dictionary)
+    #   array_to_tuple = make_tuple_converter(ngram_size)
+
+    cooccurrence_matrix = scipy.sparse.coo_matrix(
+        (n_unique_tokens, window_size_array.shape[0] * n_unique_tokens)
+    )
+    n_chunks = (len(token_sequences) // chunk_size) + 1
+
+    for chunk_index in range(n_chunks):
+        chunk_start = chunk_index * chunk_size
+        chunk_end = min(len(token_sequences), chunk_start + chunk_size)
+        coo_rows, coo_cols, coo_vals = sequence_multi_skip_grams(
+            token_sequences=token_sequences[chunk_start:chunk_end],
+            n_unique_tokens=n_unique_tokens,
+            window_size_array=window_size_array,
+            window_reversals=window_reversals,
+            kernel_array=kernel_array,
+            kernel_args_array=kernel_args_array,
+            mix_weights=mix_weights,
+            normalize_windows=normalize_windows,
+            array_lens=array_lens,
+            array_merge_inds=array_merge_inds,
+        )
+
+        cooccurrence_matrix += scipy.sparse.coo_matrix(
+            (
+                np.hstack(coo_vals),
+                (
+                    np.hstack(coo_rows),
+                    np.hstack(coo_cols),
+                ),
+            ),
+            shape=(n_unique_tokens, n_unique_tokens * window_size_array.shape[0]),
+            dtype=np.float32,
+        )
+
+    cooccurrence_matrix.sum_duplicates()
+
+    return cooccurrence_matrix.tocsr()
 
 
 @numba.njit(nogil=True)
@@ -103,7 +496,7 @@ def em_cooccurrence_iteration(
                 )
 
             total_win_length = np.sum(np.array([len(w) for w in windows]))
-            window_posterior = np.zeros(total_win_length, dtype=np.float32)
+            window_posterior = np.zeros(total_win_length)
             context_ind = np.zeros(total_win_length, dtype=np.int64)
             win_offset = np.append(
                 np.zeros(1, dtype=np.int64),
@@ -286,8 +679,10 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         validate_data=True,
         mask_string=None,
         nullify_mask=False,
+        normalize_windows=False,
         n_iter=1,
         epsilon=1e-8,
+        coo_max_bytes=2 ** 31,
     ):
         self.token_dictionary = token_dictionary
         self.min_occurrences = min_occurrences
@@ -312,8 +707,10 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self.validate_data = validate_data
         self.mask_string = mask_string
         self.nullify_mask = nullify_mask
+        self.normalize_windows = normalize_windows
         self.n_iter = n_iter
         self.epsilon = epsilon
+        self.coo_max_bytes = coo_max_bytes
 
         # Check the window orientations
         if not isinstance(self.window_radii, Iterable):
@@ -372,6 +769,8 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
                     f"Unrecognized window orientations; should be callable or one of 'before','after', or 'directional'."
                 )
         self._n_wide = len(self._window_reversals)
+        self._mix_weights = np.array(self._mix_weights, dtype=np.float64)
+        self._window_reversals = np.array(self._window_reversals)
 
         # Set kernel functions
         if callable(self.kernel_functions) or isinstance(self.kernel_functions, str):
@@ -450,6 +849,7 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             self._window_radii.append(radius)
             if self.window_orientations[i] == "directional":
                 self._window_radii.append(radius)
+        self._window_radii = np.array(self._window_radii)
 
         # Check that everything is the same size
         assert len(self._window_radii) == self._n_wide
@@ -476,8 +876,9 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         # Set the kernel array and adjust args
         self._em_kernel_args = []
         self._initial_kernel_args = []
-        self._kernel_array = []
         max_ker_len = np.max(self._window_sizes)
+        self._kernel_array = np.zeros((self._n_wide, max_ker_len), dtype=np.float64)
+
         for i, args in enumerate(self._kernel_args):
             default_kernel_array_args = {
                 "mask_index": None,
@@ -486,7 +887,7 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             }
             default_kernel_array_args.update(args)
             default_kernel_array_args["normalize"] = False
-            self._kernel_array.append(
+            self._kernel_array[i] = np.array(
                 self._kernel_functions[i](
                     np.repeat(-1, max_ker_len),
                     self._window_radii[i],
@@ -505,23 +906,41 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             )
 
         self._em_kernel_args = tuple(self._em_kernel_args)
-        self._kernel_array = np.array(self._kernel_array, dtype=np.float32)
 
-        # Build the initial matrix
-        self.cooccurrences_ = scipy.sparse.hstack(
-            [
-                token_cooccurrence_matrix(
-                    token_sequences,
-                    len(self.token_label_dictionary_),
-                    kernel_function=self._kernel_functions[i],
-                    kernel_args=self._initial_kernel_args[i],
-                    window_sizes=self._window_sizes[i],
-                    window_orientation=self._window_orientations[i],
-                    chunk_size=self.chunk_size,
-                )
-                for i in range(self._n_wide)
-            ]
-        ).tocsr()
+        ## Set the coo_array size
+
+        approx_coo_size = 0
+        for t in token_sequences:
+            approx_coo_size += len(t)
+        approx_coo_size *= (max(self.window_radii) + 1) * (20 * (self._n_wide))
+        if approx_coo_size < self.coo_max_bytes:
+            coo_sizes = set_array_size(
+                token_sequences,
+                self._window_sizes.max(axis=0),
+                self._window_sizes.shape[0],
+            )
+            merge_inds = coo_sizes + 1
+        else:
+            coo_sizes = (self.coo_max_bytes // 20) // np.sum(self._window_radii)
+            coo_sizes = np.array(coo_sizes * self._window_radii, dtype=np.int64)
+            merge_inds = set_merge_size(token_sequences, self._window_sizes)
+        print("merge_inds ", merge_inds)
+        print("coo_sizes ", coo_sizes)
+
+        self.cooccurrences_ = multi_token_cooccurrence_matrix(
+            token_sequences,
+            len(self.token_label_dictionary_),
+            window_size_array=self._window_sizes,
+            window_reversals=self._window_reversals,
+            kernel_array=self._kernel_array,
+            kernel_args_array=self._em_kernel_args,
+            mix_weights=self._mix_weights,
+            chunk_size=self.chunk_size,
+            normalize_windows=self.normalize_windows,
+            array_lens=coo_sizes,
+            array_merge_inds=merge_inds,
+        )
+
         self.cooccurrences_.eliminate_zeros()
         self.cooccurrences_ = normalize(self.cooccurrences_, axis=0, norm="l1").tocsr()
 
@@ -535,10 +954,10 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
                 new_data += em_cooccurrence_iteration(
                     token_sequences=token_sequences[chunk_start:chunk_end],
                     window_size_array=self._window_sizes,
-                    window_reversals=np.array(self._window_reversals),
+                    window_reversals=self._window_reversals,
                     kernel_array=self._kernel_array,
                     kernel_args_array=self._em_kernel_args,
-                    mix_weights=np.array(self._mix_weights),
+                    mix_weights=self._mix_weights,
                     prior_data=self.cooccurrences_.data,
                     prior_indices=self.cooccurrences_.indices,
                     prior_indptr=self.cooccurrences_.indptr,
@@ -547,7 +966,7 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             self.cooccurrences_ = normalize(
                 self.cooccurrences_, axis=0, norm="l1"
             ).tocsr()
-            # self.cooccurrences_.eliminate_zeros()
+            self.cooccurrences_.eliminate_zeros()
 
         self.column_label_dictionary_ = {}
         for i in range(self._window_sizes.shape[0]):
@@ -639,10 +1058,10 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
                 new_data += em_cooccurrence_iteration(
                     token_sequences=token_sequences[chunk_start:chunk_end],
                     window_size_array=self._window_sizes,
-                    window_reversals=np.array(self._window_reversals),
+                    window_reversals=self._window_reversals,
                     kernel_array=self._kernel_array,
                     kernel_args_array=self._em_kernel_args,
-                    mix_weights=np.array(self.mix_weights),
+                    mix_weights=self._mix_weights,
                     prior_data=cooccurrences_.data,
                     prior_indices=cooccurrences_.indices,
                     prior_indptr=cooccurrences_.indptr,

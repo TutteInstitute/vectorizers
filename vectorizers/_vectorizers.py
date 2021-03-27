@@ -606,7 +606,7 @@ def preprocess_token_sequences(
                         for token in sequence
                         if token in token_dictionary
                     ],
-                    dtype=np.int64,
+                    dtype=np.int32,
                 )
             )
     else:
@@ -623,7 +623,7 @@ def preprocess_token_sequences(
                         else token_dictionary[token]
                         for token in sequence
                     ],
-                    dtype=np.int64,
+                    dtype=np.int32,
                 )
             )
         token_dictionary[masking] = len(token_dictionary)
