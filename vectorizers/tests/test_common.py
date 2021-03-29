@@ -28,7 +28,6 @@ from vectorizers._vectorizers import (
 )
 from vectorizers._window_kernels import (
     harmonic_kernel,
-    triangle_kernel,
     flat_kernel,
 )
 
@@ -387,13 +386,6 @@ def test_harmonic_kernel():
     assert kernel[0] == 1.0
     assert kernel[-1] == 1.0 / 4.0
     assert kernel[1] == 1.0 / 2.0
-
-
-def test_triangle_kernel():
-    kernel = triangle_kernel([0, 0, 0, 0], 4.0)
-    assert kernel[0] == 4.0
-    assert kernel[-1] == 1.0
-    assert kernel[1] == 3.0
 
 
 def test_flat_kernel():

@@ -850,7 +850,6 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             self._window_array.append(
                 win_fn(
                     self._window_radii[i],
-                    self._token_frequencies_,
                     mask_index,
                     *self._window_args[i],
                 )

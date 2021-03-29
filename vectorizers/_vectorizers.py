@@ -738,7 +738,7 @@ def build_skip_grams(
     coo_tuples = [(np.float32(0.0), np.float32(0.0), np.float32(0.0))]
     for i, head_token in enumerate(token_sequence):
         window = window_at_index(token_sequence, window_sizes[head_token], i, reverse)
-        weights = kernel_function(window, window_sizes[head_token], *kernel_args)
+        weights = kernel_function(window, *kernel_args)
 
         coo_tuples.extend(
             [
@@ -809,7 +809,7 @@ def build_skip_ngrams(
             window = window_at_index(
                 token_sequence, window_sizes[head_token], i, reverse
             )
-            weights = kernel_function(window, window_sizes[head_token], *kernel_args)
+            weights = kernel_function(window, *kernel_args)
 
             coo_tuples.extend(
                 [
