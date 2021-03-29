@@ -382,14 +382,14 @@ def test_sequence_tree_skip_grams(window_orientation):
 
 
 def test_harmonic_kernel():
-    kernel = harmonic_kernel([0, 0, 0, 0], 4.0)
+    kernel = harmonic_kernel([0, 0, 0, 0])
     assert kernel[0] == 1.0
     assert kernel[-1] == 1.0 / 4.0
     assert kernel[1] == 1.0 / 2.0
 
 
 def test_flat_kernel():
-    kernel = flat_kernel([0] * np.random.randint(2, 10), 1.0)
+    kernel = flat_kernel([0] * np.random.randint(2, 10))
     assert np.all(kernel == 1.0)
 
 
@@ -536,6 +536,18 @@ def test_em_cooccurrence_vectorizer_ker_arg_type():
         vectorizer_b.fit_transform(token_data), axis=0, norm="l1"
     ).toarray()
     assert np.allclose(mat1, mat2)
+
+
+def test_em_cooccurrence_vectorizer_epsilon():
+    vectorizer_a = EMTokenCooccurrenceVectorizer(epsilon=0)
+    vectorizer_b = EMTokenCooccurrenceVectorizer()
+    vectorizer_c = EMTokenCooccurrenceVectorizer(epsilon=1)
+    mat1 = vectorizer_a.fit_transform(token_data).toarray()
+    mat2 = normalize(
+        vectorizer_b.fit_transform(token_data), axis=0, norm="l1"
+    ).toarray()
+    assert np.allclose(mat1, mat2)
+    assert vectorizer_c.fit_transform(token_data).nnz == 0
 
 
 def test_em_cooccurrence_vectorizer_em_iter():

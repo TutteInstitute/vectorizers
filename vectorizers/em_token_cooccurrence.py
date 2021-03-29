@@ -665,7 +665,7 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         nullify_mask=False,
         normalize_windows=False,
         n_iter=1,
-        epsilon=1e-8,
+        epsilon=1e-11,
         coo_max_bytes=2 << 30,
     ):
         self.token_dictionary = token_dictionary
@@ -850,6 +850,7 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             self._window_array.append(
                 win_fn(
                     self._window_radii[i],
+                    self._token_frequencies_,
                     mask_index,
                     *self._window_args[i],
                 )
@@ -873,7 +874,6 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             self._kernel_array[i] = np.array(
                 self._kernel_functions[i](
                     np.repeat(-1, max_ker_len),
-                    self._window_radii[i],
                     *tuple(default_kernel_array_args.values()),
                 )
             )
@@ -925,6 +925,8 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             array_merge_inds=self._merge_inds,
         )
 
+        self.cooccurrences_ = normalize(self.cooccurrences_, axis=0, norm="l1").tocsr()
+        self.cooccurrences_.data[self.cooccurrences_.data < self.epsilon] = 0
         self.cooccurrences_.eliminate_zeros()
         self.cooccurrences_ = normalize(self.cooccurrences_, axis=0, norm="l1").tocsr()
 
@@ -950,7 +952,11 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             self.cooccurrences_ = normalize(
                 self.cooccurrences_, axis=0, norm="l1"
             ).tocsr()
+            self.cooccurrences_.data[self.cooccurrences_.data < self.epsilon] = 0
             self.cooccurrences_.eliminate_zeros()
+            self.cooccurrences_ = normalize(
+                self.cooccurrences_, axis=0, norm="l1"
+            ).tocsr()
 
         self.column_label_dictionary_ = {}
         for i in range(self._window_array.shape[0]):
@@ -1027,8 +1033,11 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             array_merge_inds=self._merge_inds,
         )
 
+        cooccurrences_ = normalize(cooccurrences_, axis=0, norm="l1").tocsr()
+        cooccurrences_.data[cooccurrences_.data < self.epsilon] = 0
         cooccurrences_.eliminate_zeros()
         cooccurrences_ = normalize(cooccurrences_, axis=0, norm="l1").tocsr()
+
         # Do the EM
         n_chunks = (len(token_sequences) // self.chunk_size) + 1
 
@@ -1050,4 +1059,8 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
                 )
             cooccurrences_.data = new_data
             cooccurrences_ = normalize(cooccurrences_, axis=0, norm="l1").tocsr()
+            cooccurrences_.data[cooccurrences_.data < self.epsilon] = 0
+            cooccurrences_.eliminate_zeros()
+            cooccurrences_ = normalize(cooccurrences_, axis=0, norm="l1").tocsr()
+
         return cooccurrences_
