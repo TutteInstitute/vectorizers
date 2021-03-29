@@ -16,10 +16,7 @@ def window_at_index(token_sequence, window_size, ind, reverse=False):
 
 @numba.njit(nogil=True)
 def variable_window_radii(
-    window_size,
-    token_frequency,
-    mask_index=None,
-    power=0.75,
+    window_size, token_frequency, mask_index=None, power=0.75,
 ):
     radii = np.power(token_frequency, power - 1)
     radii /= np.sum(radii * token_frequency)
@@ -55,11 +52,7 @@ def flat_kernel(window, window_size, mask_index=None, normalize=False, offset=0)
 
 @numba.njit(nogil=True)
 def triangle_kernel(
-    window,
-    window_size,
-    mask_index=None,
-    normalized=False,
-    offset=0,
+    window, window_size, mask_index=None, normalized=False, offset=0,
 ):
     start = max(window_size, len(window))
     stop = window_size - len(window)
@@ -89,12 +82,7 @@ def harmonic_kernel(window, window_size, mask_index=None, normalize=False, offse
 
 @numba.njit(nogil=True)
 def negative_binomial_kernel(
-    window,
-    window_size,
-    mask_index=None,
-    normalize=False,
-    offset=0,
-    power=0.9,
+    window, window_size, mask_index=None, normalize=False, offset=0, power=0.9,
 ):
     result = (1 - power) * (power ** np.arange(0, len(window), dtype=np.float32))
 
@@ -110,10 +98,7 @@ def negative_binomial_kernel(
 
 @numba.njit(nogil=True)
 def update_kernel(
-    window,
-    kernel,
-    mask_index=None,
-    normalize=False,
+    window, kernel, mask_index=None, normalize=False,
 ):
     result = kernel[: len(window)]
     if mask_index is not None:

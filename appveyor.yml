@@ -24,6 +24,7 @@ install:
   # install the dependencies
   - "conda install --yes pip numpy==%NUMPY_VERSION% scipy==%SCIPY_VERSION% scikit-learn==%SKLEARN_VERSION% nose pytest pytest-cov"
   - conda install --yes numba pandas
+  - pip install pynndescent
   - pip install codecov
   - pip install .
 

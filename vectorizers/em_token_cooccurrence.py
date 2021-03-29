@@ -292,12 +292,8 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         kernel_functions=tuple(["flat"]),
         window_args=None,
         kernel_args=None,
-        window_radii=tuple(
-            [5],
-        ),
-        mix_weights=tuple(
-            [1],
-        ),
+        window_radii=tuple([5],),
+        mix_weights=tuple([1],),
         chunk_size=1 << 20,
         validate_data=True,
         mask_string=None,

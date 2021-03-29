@@ -3,3 +3,4 @@ scipy
 scikit-learn
 numba
 pandas
+pynndescent>=0.5

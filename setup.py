@@ -21,7 +21,7 @@ URL = 'https://github.com/TutteInstitute/vectorizers'
 LICENSE = 'new BSD'
 DOWNLOAD_URL = 'https://github.com/TutteInstitute/vectorizers'
 VERSION = __version__
-INSTALL_REQUIRES = ['numpy', 'scipy', 'scikit-learn', 'numba']
+INSTALL_REQUIRES = ['numpy', 'scipy', 'scikit-learn', 'numba', 'pynndescent']
 CLASSIFIERS = ['Intended Audience :: Science/Research',
                'Intended Audience :: Developers',
                'License :: OSI Approved',
