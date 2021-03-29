@@ -504,17 +504,46 @@ def test_em_cooccurrence_vectorizer_kernel_args():
 
 def test_em_cooccurrence_vectorizer_window_args():
     vectorizer_a = EMTokenCooccurrenceVectorizer(
-        window_functions=["variable"], window_args=[{"power": 0.5}], n_iter=0
+        window_functions="variable", window_args={"power": 0.5}, n_iter=0
     )
     vectorizer_b = TokenCooccurrenceVectorizer(
         window_function="variable",
         window_args={"power": 0.5},
         window_orientation="directional",
     )
-    assert (
-        vectorizer_a.fit_transform(token_data)
-        != normalize(vectorizer_b.fit_transform(token_data), axis=0, norm="l1")
-    ).nnz == 0
+    mat1 = vectorizer_a.fit_transform(token_data).toarray()
+    mat2 = normalize(
+        vectorizer_b.fit_transform(token_data), axis=0, norm="l1"
+    ).toarray()
+    assert np.allclose(mat1, mat2)
+
+
+def test_em_cooccurrence_vectorizer_win_arg_type():
+    vectorizer_a = EMTokenCooccurrenceVectorizer(
+        window_functions=["variable"], window_args=[{"power": 0.5}], n_iter=1
+    )
+    vectorizer_b = EMTokenCooccurrenceVectorizer(
+        window_functions="variable", window_args={"power": 0.5}, n_iter=1
+    )
+    mat1 = vectorizer_a.fit_transform(token_data).toarray()
+    mat2 = normalize(
+        vectorizer_b.fit_transform(token_data), axis=0, norm="l1"
+    ).toarray()
+    assert np.allclose(mat1, mat2)
+
+
+def test_em_cooccurrence_vectorizer_ker_arg_type():
+    vectorizer_a = EMTokenCooccurrenceVectorizer(
+        kernel_functions="negative_binomial", kernel_args={"p": 0.5}, n_iter=1
+    )
+    vectorizer_b = EMTokenCooccurrenceVectorizer(
+        kernel_functions=["negative_binomial"], kernel_args=[{"p": 0.5}], n_iter=1
+    )
+    mat1 = vectorizer_a.fit_transform(token_data).toarray()
+    mat2 = normalize(
+        vectorizer_b.fit_transform(token_data), axis=0, norm="l1"
+    ).toarray()
+    assert np.allclose(mat1, mat2)
 
 
 def test_em_cooccurrence_vectorizer_em_iter():

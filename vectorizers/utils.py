@@ -73,8 +73,8 @@ def coo_append(coo, tup):
             coo.min[0] = 0.0
             coo_sum_duplicates(coo, kind="mergesort")
             if coo.ind[0] >= 0.95 * coo.key.shape[0]:
-                warn(
-                    f"The coo matrix array is near memory limit.  Increasing coo_max_bytes should increase performance."
+                print(
+                    "The coo matrix array is near memory limit.  Increasing coo_max_bytes should increase performance."
                 )
 
     if coo.ind[0] == coo.key.shape[0]:
