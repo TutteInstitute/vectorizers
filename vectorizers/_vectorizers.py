@@ -692,11 +692,7 @@ def remove_node(adjacency_matrix, node, inplace=True):
 
 @numba.njit(nogil=True)
 def build_skip_grams(
-    token_sequence,
-    window_sizes,
-    kernel_function,
-    kernel_args,
-    reverse=False,
+    token_sequence, window_sizes, kernel_function, kernel_args, reverse=False,
 ):
     """Given a single token sequence produce an array of weighted skip-grams
     associated to each token in the original sequence. The resulting array has
@@ -822,11 +818,7 @@ def build_skip_ngrams(
 
 
 def build_tree_skip_grams(
-    token_sequence,
-    adjacency_matrix,
-    kernel_function,
-    kernel_args,
-    window_size,
+    token_sequence, adjacency_matrix, kernel_function, kernel_args, window_size,
 ):
     """
     Takes and adjacency matrix counts the co-occurrence of each token within a window_size
@@ -864,10 +856,7 @@ def build_tree_skip_grams(
 
 
 def skip_grams_matrix_coo_data(
-    list_of_token_sequences,
-    window_sizes,
-    kernel_function,
-    kernel_args,
+    list_of_token_sequences, window_sizes, kernel_function, kernel_args,
 ):
     """Given a list of token sequences construct the relevant data for a sparse
     matrix representation with a row for each token sequence and a column for each
@@ -965,11 +954,7 @@ def sequence_skip_grams(
         for i, token_sequence in enumerate(token_sequences):
             skip_grams.extend(
                 build_skip_grams(
-                    token_sequence,
-                    window_sizes,
-                    kernel_function,
-                    kernel_args,
-                    reverse,
+                    token_sequence, window_sizes, kernel_function, kernel_args, reverse,
                 )
             )
     else:
@@ -1897,9 +1882,7 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
 class DistributionVectorizer(BaseEstimator, TransformerMixin):
     def __init__(
-        self,
-        n_components=20,
-        random_state=None,
+        self, n_components=20, random_state=None,
     ):
         self.n_components = n_components
         self.random_state = random_state
@@ -1947,8 +1930,7 @@ class DistributionVectorizer(BaseEstimator, TransformerMixin):
         )
         self.mixture_model_.fit(combined_data)
         self.ground_distance_ = pairwise_gaussian_ground_distance(
-            self.mixture_model_.means_,
-            self.mixture_model_.covariances_,
+            self.mixture_model_.means_, self.mixture_model_.covariances_,
         )
         self.metric_ = distances.hellinger
 
@@ -2194,9 +2176,7 @@ class CyclicHistogramVectorizer(BaseEstimator, TransformerMixin):
     """"""
 
     def __init__(
-        self,
-        periodicity="week",
-        resolution="day",
+        self, periodicity="week", resolution="day",
     ):
         self.periodicity = periodicity
         self.resolution = resolution
@@ -2452,17 +2432,11 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
 
     def transform(self, X):
         check_is_fitted(
-            self,
-            [
-                "_token_dictionary_",
-                "_column_is_kept",
-            ],
+            self, ["_token_dictionary_", "_column_is_kept",],
         )
         flat_sequence = flatten(X)
         (token_sequences, _, _, _) = preprocess_token_sequences(
-            X,
-            flat_sequence,
-            self._token_dictionary_,
+            X, flat_sequence, self._token_dictionary_,
         )
 
         n_unique_tokens = len(self._token_dictionary_)
@@ -2696,9 +2670,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         )
         flat_sequence = flatten(X)
         (token_sequences, _, _, _) = preprocess_token_sequences(
-            X,
-            flat_sequence,
-            self._token_dictionary_,
+            X, flat_sequence, self._token_dictionary_,
         )
 
         indptr = [0]
@@ -2748,8 +2720,6 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         result.sort_indices()
 
         return result
-
-
 
 
 class ProductDistributionVectorizer(BaseEstimator, TransformerMixin):

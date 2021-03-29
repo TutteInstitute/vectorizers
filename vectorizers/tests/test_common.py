@@ -11,11 +11,12 @@ from vectorizers import NgramVectorizer
 from vectorizers import SkipgramVectorizer
 from vectorizers import DistributionVectorizer
 from vectorizers import HistogramVectorizer
-from vectorizers import KDEVectorizer
+from vectorizers.kde_vectorizer import KDEVectorizer
 from vectorizers import LabelledTreeCooccurrenceVectorizer
 from vectorizers.em_token_cooccurrence import EMTokenCooccurrenceVectorizer
 from vectorizers import SequentialDifferenceTransformer
 from vectorizers import Wasserstein1DHistogramTransformer
+from vectorizers.linear_optimal_transport import WassersteinVectorizer
 
 from vectorizers.distances import kantorovich1d
 
@@ -127,6 +128,11 @@ seq_tree_sequence = [
     ),
 ]
 
+distributions_data = scipy.sparse.rand(
+    100, 1000, format="csr", random_state=42, dtype=np.float64
+)
+vectors_data = np.random.normal(size=(1000, 150))
+
 
 def test_LabeledTreeCooccurrenceVectorizer():
     model = LabelledTreeCooccurrenceVectorizer(
@@ -163,9 +169,7 @@ def test_LabeledTreeCooccurrenceVectorizer():
 
 def test_LabeledTreeCooccurrenceVectorizer_reduced_vocab():
     model = LabelledTreeCooccurrenceVectorizer(
-        window_radius=2,
-        window_orientation="after",
-        token_dictionary=sub_dictionary,
+        window_radius=2, window_orientation="after", token_dictionary=sub_dictionary,
     )
     result = model.fit_transform(tree_sequence)
     assert result.shape == (3, 3)
@@ -466,9 +470,7 @@ def test_token_cooccurrence_vectorizer_kernel_args():
         kernel_function="negative_binomial", mask_string="MASK"
     )
     vectorizer_b = TokenCooccurrenceVectorizer(
-        kernel_function="negative_binomial",
-        kernel_args={"p": 0.9},
-        mask_string="MASK",
+        kernel_function="negative_binomial", kernel_args={"p": 0.9}, mask_string="MASK",
     )
     assert (
         vectorizer_a.fit_transform(token_data) != vectorizer_b.fit_transform(token_data)
@@ -572,9 +574,7 @@ def test_token_cooccurrence_vectorizer_offset(kernel_function):
         kernel_function=kernel_function, window_radius=2
     )
     vectorizer_c = TokenCooccurrenceVectorizer(
-        window_radius=2,
-        kernel_function=kernel_function,
-        kernel_args={"offset": 1},
+        window_radius=2, kernel_function=kernel_function, kernel_args={"offset": 1},
     )
     mat1 = (
         vectorizer_a.fit_transform(token_data) + vectorizer_c.fit_transform(token_data)
@@ -585,9 +585,7 @@ def test_token_cooccurrence_vectorizer_offset(kernel_function):
 
 def test_token_cooccurrence_vectorizer_nullify_mask():
     vectorizer_a = TokenCooccurrenceVectorizer(mask_string="MASK", nullify_mask=True)
-    vectorizer_b = TokenCooccurrenceVectorizer(
-        mask_string="MASK",
-    )
+    vectorizer_b = TokenCooccurrenceVectorizer(mask_string="MASK",)
     assert np.allclose(
         vectorizer_a.fit_transform(token_data).toarray()[:-1, :-1],
         vectorizer_b.fit_transform(token_data).toarray()[:-1, :-1],
@@ -598,9 +596,7 @@ def test_token_cooccurrence_vectorizer_nullify_mask():
 
 def test_token_cooccurrence_vectorizer_nullify_mask():
     vectorizer_a = TokenCooccurrenceVectorizer(mask_string="MASK", nullify_mask=True)
-    vectorizer_b = TokenCooccurrenceVectorizer(
-        mask_string="MASK",
-    )
+    vectorizer_b = TokenCooccurrenceVectorizer(mask_string="MASK",)
     assert np.allclose(
         vectorizer_a.fit_transform(token_data).toarray()[:-1, :-1],
         vectorizer_b.fit_transform(token_data).toarray()[:-1, :-1],
@@ -848,16 +844,7 @@ def test_distribution_vectorizer_bad_params():
     vectorizer = DistributionVectorizer()
     with pytest.raises(ValueError):
         vectorizer.fit(
-            [
-                [[1, 2, 3], [1, 2], [1, 2, 3, 4]],
-                [
-                    [1, 2],
-                    [
-                        1,
-                    ],
-                    [1, 2, 3],
-                ],
-            ]
+            [[[1, 2, 3], [1, 2], [1, 2, 3, 4]], [[1, 2], [1,], [1, 2, 3],],]
         )
 
 
@@ -906,6 +893,58 @@ def test_wass1d_transfomer():
                 kantorovich1d(histogram_data[i], histogram_data[j]),
                 np.sum(np.abs(result[i] - result[j])),
             )
+
+
+def test_wasserstein_vectorizer_basic():
+    vectorizer = WassersteinVectorizer(random_state=42)
+    result = vectorizer.fit_transform(distributions_data, vectors=vectors_data)
+    transform_result = vectorizer.transform(distributions_data, vectors=vectors_data)
+    assert np.allclose(result, transform_result)
+
+
+def test_wasserstein_vectorizer_blockwise():
+    vectorizer = WassersteinVectorizer(random_state=42, memory_size="50k")
+    result = vectorizer.fit_transform(distributions_data, vectors=vectors_data)
+    transform_result = vectorizer.transform(distributions_data, vectors=vectors_data)
+    assert np.allclose(result, transform_result)
+
+
+def test_wasserstein_vectorizer_list_based():
+    lil_data = normalize(distributions_data, norm="l1").tolil()
+    distributions = [np.array(x) for x in lil_data.data]
+    vectors = [vectors_data[x] for x in lil_data.rows]
+    vectorizer = WassersteinVectorizer(random_state=42)
+    result = vectorizer.fit_transform(distributions, vectors=vectors)
+    transform_result = vectorizer.transform(distributions, vectors=vectors)
+    assert np.allclose(result, transform_result)
+
+
+def test_wasserstein_vectorizer_list_based_blockwise():
+    lil_data = normalize(distributions_data, norm="l1").tolil()
+    distributions = [np.array(x) for x in lil_data.data]
+    vectors = [vectors_data[x] for x in lil_data.rows]
+    vectorizer = WassersteinVectorizer(random_state=42, memory_size="50k")
+    result = vectorizer.fit_transform(distributions, vectors=vectors)
+    transform_result = vectorizer.transform(distributions, vectors=vectors)
+    assert np.allclose(result, transform_result)
+
+
+def test_wasserstein_vectorizer_list_compared_to_sparse():
+    lil_data = normalize(distributions_data.astype(np.float64), norm="l1").tolil()
+    distributions = [np.array(x) for x in lil_data.data]
+    vectors = [vectors_data[x] for x in lil_data.rows]
+    vectorizer_sparse = WassersteinVectorizer(random_state=42)
+    result_sparse = vectorizer_sparse.fit_transform(
+        distributions_data, vectors=vectors_data
+    )
+    vectorizer_list = WassersteinVectorizer(random_state=42)
+    result_list = vectorizer_list.fit_transform(
+        distributions,
+        vectors=vectors,
+        reference_distribution=vectorizer_sparse.reference_distribution_,
+        reference_vectors=vectorizer_sparse.reference_vectors_,
+    )
+    assert np.allclose(result_sparse, result_list)
 
 
 def test_node_removal():

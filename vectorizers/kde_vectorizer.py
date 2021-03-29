@@ -2,14 +2,10 @@ import numba
 import numpy as np
 
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.utils.validation import (
-    check_is_fitted,
-)
+from sklearn.utils.validation import check_is_fitted
 from warnings import warn
 from sklearn.neighbors import KernelDensity
-from .utils import (
-    flatten,
-)
+from .utils import flatten
 
 
 @numba.njit(nogil=True)

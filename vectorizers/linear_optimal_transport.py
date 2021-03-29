@@ -68,7 +68,7 @@ def str_to_bytes(size_str):
     elif parse_match.group(2) in ("Ti", "TiB", "Tib"):
         return int(np.ceil(float(parse_match.group(1)) * 1000 ** 4))
     else:
-        return int(np.ceil(parse_match.group(1)))
+        return int(np.ceil(float(parse_match.group(1))))
 
 
 @numba.njit(nogil=True, fastmath=True)
@@ -271,7 +271,7 @@ def l2_normalize(vectors):
                 vectors[i, j] /= norm
 
 
-@numba.njit(nogil=True, parallel=True)
+@numba.njit(nogil=True)
 def lot_vectors_sparse_internal(
     indptr,
     indices,
@@ -328,7 +328,7 @@ def lot_vectors_sparse_internal(
     n_rows = indptr.shape[0] - 1
     result = np.zeros((n_rows, reference_vectors.size), dtype=np.float64)
     n_chunks = (n_rows // chunk_size) + 1
-    for n in numba.prange(n_chunks):
+    for n in range(n_chunks):
         chunk_start = n * chunk_size
         chunk_end = min(chunk_start + chunk_size, n_rows)
         for i in range(chunk_start, chunk_end):
@@ -363,12 +363,12 @@ def lot_vectors_sparse_internal(
                 current_transport_plan * (1.0 / reference_distribution)
             ).T @ row_vectors
 
-            if metric == cosine:
+            if metric is cosine:
                 l2_normalize(transport_images)
 
             transport_vectors = transport_images - reference_vectors
 
-            if metric == cosine:
+            if metric is cosine:
                 tangent_vectors = project_to_sphere_tangent_space(
                     transport_vectors, reference_vectors
                 )
@@ -381,7 +381,7 @@ def lot_vectors_sparse_internal(
     return result
 
 
-@numba.njit(nogil=True, parallel=True)
+@numba.njit(nogil=True)
 def lot_vectors_dense_internal(
     sample_vectors,
     sample_distributions,
@@ -431,7 +431,7 @@ def lot_vectors_dense_internal(
     n_rows = len(sample_vectors)
     result = np.zeros((n_rows, reference_vectors.size), dtype=np.float64)
     n_chunks = (n_rows // chunk_size) + 1
-    for n in numba.prange(n_chunks):
+    for n in range(n_chunks):
         chunk_start = n * chunk_size
         chunk_end = min(chunk_start + chunk_size, n_rows)
         for i in range(chunk_start, chunk_end):
@@ -464,12 +464,12 @@ def lot_vectors_dense_internal(
                 current_transport_plan * (1.0 / reference_distribution)
             ).T @ row_vectors
 
-            if metric == cosine:
+            if metric is cosine:
                 l2_normalize(transport_images)
 
             transport_vectors = transport_images - reference_vectors
 
-            if metric == cosine:
+            if metric is cosine:
                 tangent_vectors = project_to_sphere_tangent_space(
                     transport_vectors, reference_vectors
                 )
@@ -585,7 +585,8 @@ def lot_vectors_sparse(
         )
         result, components = svd_flip(u, v)
 
-        return result, components
+        # return lot_vectors @ components.T, components
+        return result * singular_values, components
 
     singular_values = None
     components = None
@@ -716,7 +717,7 @@ def lot_vectors_dense(
         The learned SVD components which can be used for projecting new data.
     """
     if metric == cosine:
-        sample_vectors = normalize(sample_vectors, norm="l2")
+        sample_vectors = tuple([normalize(v, norm="l2") for v in sample_vectors])
 
     n_rows = len(sample_vectors)
     n_blocks = (n_rows // block_size) + 1
@@ -740,7 +741,7 @@ def lot_vectors_dense(
         )
         result, components = svd_flip(u, v)
 
-        return result, components
+        return result * singular_values, components
 
     singular_values = None
     components = None
@@ -756,6 +757,8 @@ def lot_vectors_dense(
     for i in range(n_blocks):
         block_start = i * block_size
         block_end = min(n_rows, block_start + block_size)
+        if block_start == block_end:
+            continue
         block = lot_vectors_dense_internal(
             sample_vectors[block_start:block_end],
             sample_distributions[block_start:block_end],
@@ -885,7 +888,15 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                 f"Unsupported metric {self.metric} provided; metric should be a callable or one of {list(named_distances.keys())}"
             )
 
-    def fit(self, X, y=None, vectors=None, **fit_params):
+    def fit(
+        self,
+        X,
+        y=None,
+        vectors=None,
+        reference_distribution=None,
+        reference_vectors=None,
+        **fit_params,
+    ):
         """Train the transformer on a set of distributions ``X`` with associated
         vectors ``vectors``.
 
@@ -913,12 +924,12 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                 "WassersteinVectorizer requires vector representations of points under the metric. "
                 "Please pass these in to fit using the vectors keyword argument."
             )
-        vectors = check_array(vectors)
         random_state = check_random_state(self.random_state)
         memory_size = str_to_bytes(self.memory_size)
         metric = self._get_metric()
 
         if scipy.sparse.isspmatrix(X) or type(X) is np.ndarray:
+            vectors = check_array(vectors)
             if type(X) is np.ndarray:
                 X = scipy.sparse.csr_matrix(X)
 
@@ -929,24 +940,34 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
 
             X = normalize(X, norm="l1")
 
-            if self.reference_size is None:
-                reference_size = np.median(np.squeeze(np.array((X != 0).sum(axis=1))))
+            if reference_vectors is None:
+                if self.reference_size is None:
+                    reference_size = int(
+                        np.median(np.squeeze(np.array((X != 0).sum(axis=1))))
+                    )
+                else:
+                    reference_size = self.reference_size
+
+                lot_dimension = reference_size * vectors.shape[1]
+                block_size = max(1, memory_size // (lot_dimension * 8))
+                u, s, v = scipy.sparse.linalg.svds(X, k=1)
+                reference_center = v @ vectors
+                if metric == cosine:
+                    reference_center /= np.sqrt(np.sum(reference_center ** 2))
+                self.reference_vectors_ = reference_center + random_state.normal(
+                    scale=self.reference_scale, size=(reference_size, vectors.shape[1])
+                )
+                if metric == cosine:
+                    self.reference_vectors_ = normalize(
+                        self.reference_vectors_, norm="l2"
+                    )
+
+                self.reference_distribution_ = np.full(
+                    reference_size, 1.0 / reference_size
+                )
             else:
-                reference_size = self.reference_size
-
-            lot_dimension = reference_size * vectors.shape[1]
-            block_size = memory_size // (lot_dimension * 8)
-            u, s, v = scipy.sparse.linalg.svds(X)
-            reference_center = v @ vectors
-            if metric == cosine:
-                reference_center /= np.sqrt(np.sum(reference_center ** 2))
-            self.reference_vectors_ = reference_center + random_state.normal(
-                scale=self.reference_scale, size=(reference_size, vectors.shape[1])
-            )
-            if metric == cosine:
-                self.reference_vectors_ = normalize(self.reference_vectors_, norm="l2")
-
-            self.reference_distribution_ = np.full(reference_size, 1.0 / reference_size)
+                self.reference_distribution_ = reference_distribution
+                self.reference_vectors_ = reference_vectors
 
             self.embedding_, self.components_ = lot_vectors_sparse(
                 vectors,
@@ -960,9 +981,9 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                 block_size,
             )
 
-        elif type(X) in ("list", "tuple", "numba.typed.List"):
+        elif type(X) in (list, tuple, numba.typed.List):
             if self.reference_size is None:
-                reference_size = np.median([len(x) for x in X])
+                reference_size = int(np.median([len(x) for x in X]))
             else:
                 reference_size = self.reference_size
 
@@ -972,26 +993,44 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
             sample_vectors.extend(tuple(vectors))
 
             lot_dimension = reference_size * vectors[0].shape[1]
-            block_size = memory_size // (lot_dimension * 8)
+            block_size = max(1, memory_size // (lot_dimension * 8))
 
-            reference_center = np.mean(
-                np.vstack(
-                    [
-                        X[i].reshape(-1, 1) * normalize(vectors[i], norm="l2")
-                        for i in range(len(X))
-                    ]
-                ),
-                axis=0,
-            )
-            if metric == cosine:
-                reference_center /= np.sqrt(np.sum(reference_center ** 2))
-            self.reference_vectors_ = reference_center + random_state.normal(
-                scale=self.reference_scale, size=(reference_size, vectors.shape[1])
-            )
-            if metric == cosine:
-                self.reference_vectors_ = normalize(self.reference_vectors_, norm="l2")
+            if reference_vectors is None:
+                if metric == cosine:
+                    reference_center = np.mean(
+                        np.vstack(
+                            [
+                                X[i].reshape(-1, 1) * normalize(vectors[i], norm="l2")
+                                for i in range(len(X))
+                            ]
+                        ),
+                        axis=0,
+                    )
+                    reference_center /= np.sqrt(np.sum(reference_center ** 2))
+                else:
+                    reference_center = np.mean(
+                        np.vstack(
+                            [X[i].reshape(-1, 1) * vectors[i] for i in range(len(X))]
+                        ),
+                        axis=0,
+                    )
 
-            self.reference_distribution_ = np.full(reference_size, 1.0 / reference_size)
+                self.reference_vectors_ = reference_center + random_state.normal(
+                    scale=self.reference_scale,
+                    size=(reference_size, vectors[0].shape[1]),
+                )
+                if metric == cosine:
+                    self.reference_vectors_ = normalize(
+                        self.reference_vectors_, norm="l2"
+                    )
+
+                self.reference_distribution_ = np.full(
+                    reference_size, 1.0 / reference_size
+                )
+            else:
+                self.reference_distribution_ = reference_distribution
+                self.reference_vectors_ = reference_vectors
+
             self.embedding_, self.components_ = lot_vectors_dense(
                 sample_vectors,
                 distributions,
@@ -1005,12 +1044,20 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
             )
         else:
             raise ValueError(
-                "Input data not in a recognized format for WassersteinVectorizer"
+                f"Input data of type {type(X)} not in a recognized format for WassersteinVectorizer"
             )
 
         return self
 
-    def fit_transform(self, X, y=None, vectors=None, **fit_params):
+    def fit_transform(
+        self,
+        X,
+        y=None,
+        vectors=None,
+        reference_distribution=None,
+        reference_vectors=None,
+        **fit_params,
+    ):
         """Train the transformer on a set of distributions ``X`` with associated
         vectors ``vectors``, and return the resulting transformed training data.
 
@@ -1033,7 +1080,14 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
         lot_vectors:
             The transformed training data.
         """
-        self.fit(X, y=y, vectors=vectors, **fit_params)
+        self.fit(
+            X,
+            y=y,
+            vectors=vectors,
+            reference_distribution=reference_distribution,
+            reference_vectors=reference_vectors,
+            **fit_params,
+        )
         return self.embedding_
 
     def transform(self, X, y=None, vectors=None, **transform_params):
@@ -1058,13 +1112,14 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
         lot_vectors:
             The transformed data.
         """
-        check_is_fitted(self, ["components_", "reference_vectors_", "reference_distribution_"])
+        check_is_fitted(
+            self, ["components_", "reference_vectors_", "reference_distribution_"]
+        )
         if vectors is None:
             raise ValueError(
                 "WassersteinVectorizer requires vector representations of points under the metric. "
                 "Please pass these in to transform using the vectors keyword argument."
             )
-        vectors = check_array(vectors)
         memory_size = str_to_bytes(self.memory_size)
         metric = self._get_metric()
 
@@ -1077,13 +1132,15 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                     "distribution matrix must have as many columns as there are vectors"
                 )
 
-            X = normalize(X, norm="l1")
+            X = normalize(X.astype(np.float64), norm="l1")
+
+            vectors = check_array(vectors)
 
             if metric == cosine:
                 vectors = normalize(vectors, norm="l2")
 
             lot_dimension = self.reference_vectors_.size
-            block_size = memory_size // (lot_dimension * 8)
+            block_size = max(1, memory_size // (lot_dimension * 8))
 
             n_rows = X.indptr.shape[0] - 1
             n_blocks = (n_rows // block_size) + 1
@@ -1110,7 +1167,7 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
 
             return np.vstack(result_blocks)
 
-        elif type(X) in ("list", "tuple", "numba.typed.List"):
+        elif type(X) in (list, tuple, numba.typed.List):
             lot_dimension = self.reference_vectors_.size
             block_size = memory_size // (lot_dimension * 8)
 
@@ -1121,7 +1178,10 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
             distributions = numba.typed.List.empty_list(numba.float64[:])
             sample_vectors = numba.typed.List.empty_list(numba.float64[:, :])
             distributions.extend(tuple(X))
-            sample_vectors.extend(tuple(vectors))
+            if metric == cosine:
+                sample_vectors.extend(tuple([normalize(v, norm="l2") for v in vectors]))
+            else:
+                sample_vectors.extend(tuple(vectors))
 
             result_blocks = []
 
