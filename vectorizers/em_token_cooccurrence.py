@@ -173,7 +173,6 @@ def build_multi_skip_grams(
             np.zeros(array_lens[i], dtype=np.int64),
             np.zeros(1, dtype=np.int64),
             np.zeros(1, dtype=np.int64),
-            array_merge_inds[i],
         )
         for i in range(n_windows)
     ]
@@ -272,7 +271,7 @@ def sequence_multi_skip_grams(
     )
     for coo in coo_list:
         coo.min[0] = 0
-        coo_sum_duplicates(coo)
+        coo_sum_duplicates(coo, kind="mergesort")
 
     return (
         [coo.row[: coo.ind[0]] for coo in coo_list],
@@ -282,28 +281,13 @@ def sequence_multi_skip_grams(
 
 
 @numba.njit(nogil=True)
-def set_array_size(token_sequences, window_lens, n_windows):
-    tot_len = 0
+def set_array_size(token_sequences, window_array):
+    tot_len = np.zeros(window_array.shape[0]).astype(np.float64)
+    window_array = window_array.astype(np.float64)
     for seq in token_sequences:
-        counts = np.bincount(seq, minlength=window_lens.shape[0])
-        tot_len += np.sum((window_lens) * counts)
-
-    return np.repeat(tot_len, n_windows).astype(np.int64)
-
-
-@numba.njit(nogil=True)
-def set_merge_size(token_sequences, window_array):
-    tot_len = np.zeros(window_array.shape[0])
-    win_arr = window_array.astype(np.float64)
-    for seq in token_sequences:
-        counts = np.bincount(seq, minlength=window_array.shape[0]).astype(np.float64)
-        tot_len += np.dot(win_arr, counts).T
-    phi = 0.5 * (1 + np.sqrt(5))
-    return np.ceil(
-        phi
-        * tot_len
-        / np.log2(phi * tot_len * np.log(phi * tot_len * np.log(phi * tot_len)))
-    )
+        counts = np.bincount(seq, minlength=window_array.shape[1]).astype(np.float64)
+        tot_len += np.dot(window_array, counts).T
+    return tot_len.astype(np.int64)
 
 
 def multi_token_cooccurrence_matrix(
@@ -682,7 +666,7 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         normalize_windows=False,
         n_iter=1,
         epsilon=1e-8,
-        coo_max_bytes=2 ** 31,
+        coo_max_bytes=2 << 30,
     ):
         self.token_dictionary = token_dictionary
         self.min_occurrences = min_occurrences
@@ -861,9 +845,9 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         assert len(self._kernel_args) == self._n_wide
 
         # Set the window array
-        self._window_sizes = []
+        self._window_array = []
         for i, win_fn in enumerate(self._window_functions):
-            self._window_sizes.append(
+            self._window_array.append(
                 win_fn(
                     self._window_radii[i],
                     self._token_frequencies_,
@@ -871,12 +855,12 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
                     *self._window_args[i],
                 )
             )
-        self._window_sizes = np.array(self._window_sizes)
+        self._window_array = np.array(self._window_array)
 
         # Set the kernel array and adjust args
         self._em_kernel_args = []
         self._initial_kernel_args = []
-        max_ker_len = np.max(self._window_sizes)
+        max_ker_len = np.max(self._window_array)
         self._kernel_array = np.zeros((self._n_wide, max_ker_len), dtype=np.float64)
 
         for i, args in enumerate(self._kernel_args):
@@ -914,31 +898,32 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             approx_coo_size += len(t)
         approx_coo_size *= (max(self.window_radii) + 1) * (20 * (self._n_wide))
         if approx_coo_size < self.coo_max_bytes:
-            coo_sizes = set_array_size(
+            self._coo_sizes = set_array_size(
                 token_sequences,
-                self._window_sizes.max(axis=0),
-                self._window_sizes.shape[0],
+                self._window_array,
             )
-            merge_inds = coo_sizes + 1
+            self._merge_inds = self._coo_sizes + 1
         else:
-            coo_sizes = (self.coo_max_bytes // 20) // np.sum(self._window_radii)
-            coo_sizes = np.array(coo_sizes * self._window_radii, dtype=np.int64)
-            merge_inds = set_merge_size(token_sequences, self._window_sizes)
-        print("merge_inds ", merge_inds)
-        print("coo_sizes ", coo_sizes)
+            offsets = np.array(
+                [self._initial_kernel_args[i][2] for i in range(self._n_wide)]
+            )
+            average_window = self._window_radii - offsets
+            self._coo_sizes = (self.coo_max_bytes // 20) // np.sum(average_window)
+            self._coo_sizes = np.array(self._coo_sizes * average_window, dtype=np.int64)
+            self._merge_inds = np.repeat(2 ** 16, self._n_wide)
 
         self.cooccurrences_ = multi_token_cooccurrence_matrix(
             token_sequences,
             len(self.token_label_dictionary_),
-            window_size_array=self._window_sizes,
+            window_size_array=self._window_array,
             window_reversals=self._window_reversals,
             kernel_array=self._kernel_array,
             kernel_args_array=self._em_kernel_args,
             mix_weights=self._mix_weights,
             chunk_size=self.chunk_size,
             normalize_windows=self.normalize_windows,
-            array_lens=coo_sizes,
-            array_merge_inds=merge_inds,
+            array_lens=self._coo_sizes,
+            array_merge_inds=self._merge_inds,
         )
 
         self.cooccurrences_.eliminate_zeros()
@@ -953,7 +938,7 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
                 chunk_end = min(len(token_sequences), chunk_start + self.chunk_size)
                 new_data += em_cooccurrence_iteration(
                     token_sequences=token_sequences[chunk_start:chunk_end],
-                    window_size_array=self._window_sizes,
+                    window_size_array=self._window_array,
                     window_reversals=self._window_reversals,
                     kernel_array=self._kernel_array,
                     kernel_args_array=self._em_kernel_args,
@@ -969,7 +954,7 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             self.cooccurrences_.eliminate_zeros()
 
         self.column_label_dictionary_ = {}
-        for i in range(self._window_sizes.shape[0]):
+        for i in range(self._window_array.shape[0]):
 
             self.column_label_dictionary_.update(
                 {
@@ -1029,24 +1014,22 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             X, flat_sequences, self.token_label_dictionary_, masking=self.mask_string
         )
 
-        cooccurrences_ = scipy.sparse.hstack(
-            [
-                token_cooccurrence_matrix(
-                    token_sequences,
-                    len(self.token_label_dictionary_),
-                    kernel_function=self._kernel_functions[i],
-                    kernel_args=self._initial_kernel_args[i],
-                    window_sizes=self._window_sizes[i],
-                    window_orientation=self._window_orientations[i],
-                    chunk_size=self.chunk_size,
-                )
-                for i in range(self._n_wide)
-            ]
-        ).tocsr()
+        cooccurrences_ = multi_token_cooccurrence_matrix(
+            token_sequences,
+            len(self.token_label_dictionary_),
+            window_size_array=self._window_array,
+            window_reversals=self._window_reversals,
+            kernel_array=self._kernel_array,
+            kernel_args_array=self._em_kernel_args,
+            mix_weights=self._mix_weights,
+            chunk_size=self.chunk_size,
+            normalize_windows=self.normalize_windows,
+            array_lens=self._coo_sizes,
+            array_merge_inds=self._merge_inds,
+        )
 
         cooccurrences_.eliminate_zeros()
         cooccurrences_ = normalize(cooccurrences_, axis=0, norm="l1").tocsr()
-
         # Do the EM
         n_chunks = (len(token_sequences) // self.chunk_size) + 1
 
@@ -1057,7 +1040,7 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
                 chunk_end = min(len(token_sequences), chunk_start + self.chunk_size)
                 new_data += em_cooccurrence_iteration(
                     token_sequences=token_sequences[chunk_start:chunk_end],
-                    window_size_array=self._window_sizes,
+                    window_size_array=self._window_array,
                     window_reversals=self._window_reversals,
                     kernel_array=self._kernel_array,
                     kernel_args_array=self._em_kernel_args,

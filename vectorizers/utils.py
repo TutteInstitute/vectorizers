@@ -12,20 +12,16 @@ from collections import Counter
 
 from warnings import warn
 
-CooArray = namedtuple(
-    "CooArray", ["row", "col", "val", "key", "ind", "min", "merge_ind"]
-)
+CooArray = namedtuple("CooArray", ["row", "col", "val", "key", "ind", "min"])
 
 
 @numba.njit(nogil=True, inline="always")
-def coo_sum_duplicates(coo):
-    print("summing...ind, min    ", coo.ind[0], coo.min[0])
+def coo_sum_duplicates(coo, kind):
+
     upper_lim = coo.ind[0]
-    # if coo.min[0] > 0.95 * coo.row.shape[0]:
-    #    coo.min[0] = 0
     lower_lim = coo.min[0]
 
-    perm = np.argsort(coo.key[lower_lim:upper_lim])
+    perm = np.argsort(coo.key[lower_lim:upper_lim], kind=kind)
 
     coo.row[lower_lim:upper_lim] = coo.row[lower_lim:upper_lim][perm]
     coo.col[lower_lim:upper_lim] = coo.col[lower_lim:upper_lim][perm]
@@ -65,24 +61,26 @@ def coo_sum_duplicates(coo):
 
 @numba.njit(nogil=True, inline="always")
 def coo_append(coo, tup):
-    if coo.key.shape[0] - coo.min[0] <= coo.merge_ind:
-        if coo.ind[0] == coo.key.shape[0]:
-            print("Array filled... summing all to compress")
-            coo.min[0] = 0
-            coo_sum_duplicates(coo)
-            if coo.ind[0] == coo.key.shape[0]:
-                raise ValueError(
-                    f"Coo matrix array is over memory limit.  Increase coo_mem_limit to proceed."
-                )
-    else:
-        if (coo.ind[0] - coo.min[0]) >= coo.merge_ind:
-            coo_sum_duplicates(coo)
-
     coo.row[coo.ind[0]] = tup[0]
     coo.col[coo.ind[0]] = tup[1]
     coo.val[coo.ind[0]] = tup[2]
     coo.key[coo.ind[0]] = tup[3]
     coo.ind[0] += 1
+
+    if (coo.ind[0] - coo.min[0]) >= 1 << 16:
+        coo_sum_duplicates(coo, kind="quicksort")
+        if coo.key.shape[0] - coo.min[0] <= 1 << 16:
+            coo.min[0] = 0.0
+            coo_sum_duplicates(coo, kind="mergesort")
+            if coo.ind[0] >= 0.95 * coo.key.shape[0]:
+                warn(
+                    f"The coo matrix array is near memory limit.  Increasing coo_max_bytes should increase performance."
+                )
+
+    if coo.ind[0] == coo.key.shape[0]:
+        raise ValueError(
+            f"The coo matrix array is over memory limit.  Increase coo_max_bytes to process data."
+        )
 
 
 def flatten(list_of_seq):
