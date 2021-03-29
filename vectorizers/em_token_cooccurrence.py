@@ -942,6 +942,9 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             self._coo_sizes = (self.coo_max_bytes // 20) // np.sum(average_window)
             self._coo_sizes = np.array(self._coo_sizes * average_window, dtype=np.int64)
 
+        if np.any(self._coo_sizes == 0):
+            raise ValueError(f"The coo_max_mem is too small to process the data.")
+
         # Build the initial matrix
         self.cooccurrences_ = multi_token_cooccurrence_matrix(
             token_sequences,

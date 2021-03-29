@@ -17,7 +17,7 @@ CooArray = namedtuple("CooArray", ["row", "col", "val", "key", "ind", "min"])
 
 @numba.njit(nogil=True, inline="always")
 def coo_sum_duplicates(coo, kind):
-
+    print("summing")
     upper_lim = coo.ind[0]
     lower_lim = coo.min[0]
 
@@ -73,14 +73,17 @@ def coo_append(coo, tup):
             coo.min[0] = 0.0
             coo_sum_duplicates(coo, kind="mergesort")
             if coo.ind[0] >= 0.95 * coo.key.shape[0]:
-                print(
-                    "The coo matrix array is near memory limit.  Increasing coo_max_bytes should increase performance."
+                raise ValueError(
+                    f"The coo matrix array is over memory limit.  Increase coo_max_bytes to process data."
                 )
 
     if coo.ind[0] == coo.key.shape[0]:
-        raise ValueError(
-            f"The coo matrix array is over memory limit.  Increase coo_max_bytes to process data."
-        )
+        coo.min[0] = 0.0
+        coo_sum_duplicates(coo, kind="mergesort")
+        if coo.ind[0] >= 0.95 * coo.key.shape[0]:
+            raise ValueError(
+                f"The coo matrix array is over memory limit.  Increase coo_max_bytes to process data."
+            )
 
 
 def flatten(list_of_seq):
@@ -89,6 +92,38 @@ def flatten(list_of_seq):
         return tuple(itertools.chain.from_iterable(list_of_seq))
     else:
         return list_of_seq
+
+
+@numba.njit(nogil=True)
+def sum_coo_entries(seq):
+    seq.sort()
+    this_coord = (seq[0][0], seq[0][1])
+    this_sum = 0
+    reduced_data = []
+    for entry in seq:
+        if (entry[0], entry[1]) == this_coord:
+            this_sum += entry[2]
+        else:
+            reduced_data.append((this_coord[0], this_coord[1], this_sum))
+            this_sum = entry[2]
+            this_coord = (entry[0], entry[1])
+
+    reduced_data.append((this_coord[0], this_coord[1], this_sum))
+
+    return reduced_data
+
+
+@numba.njit(nogil=True)
+def update_coo_entries(seq, tup):
+    place = np.searchsorted(seq, tup)
+    if seq[place][1:2] == tup[1:2]:
+        seq[place][3] += tup[3]
+        return seq
+    elif seq[place - 1][1:2] == tup[1:2]:
+        seq[place - 1][3] += tup[3]
+        return seq
+    return seq.insert(place, tup)
+
 
 def sparse_collapse(matrix, labels, sparse=True):
     """

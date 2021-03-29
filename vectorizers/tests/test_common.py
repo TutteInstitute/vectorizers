@@ -537,9 +537,7 @@ def test_em_cooccurrence_vectorizer_ker_arg_type():
         kernel_functions=["geometric"], kernel_args=[{"p": 0.5}], n_iter=1
     )
     mat1 = vectorizer_a.fit_transform(token_data).toarray()
-    mat2 = normalize(
-        vectorizer_b.fit_transform(token_data), axis=0, norm="l1"
-    ).toarray()
+    mat2 = vectorizer_b.fit_transform(token_data).toarray()
     assert np.allclose(mat1, mat2)
 
 
@@ -548,11 +546,33 @@ def test_em_cooccurrence_vectorizer_epsilon():
     vectorizer_b = EMTokenCooccurrenceVectorizer()
     vectorizer_c = EMTokenCooccurrenceVectorizer(epsilon=1)
     mat1 = vectorizer_a.fit_transform(token_data).toarray()
-    mat2 = normalize(
-        vectorizer_b.fit_transform(token_data), axis=0, norm="l1"
-    ).toarray()
+    mat2 = vectorizer_b.fit_transform(token_data).toarray()
     assert np.allclose(mat1, mat2)
     assert vectorizer_c.fit_transform(token_data).nnz == 0
+
+
+def test_em_cooccurrence_vectorizer_coo_mem():
+    vectorizer_a = EMTokenCooccurrenceVectorizer(
+        window_functions="fixed",
+        n_iter=0,
+        coo_max_bytes=2 ** 11,
+        normalize_windows=False,
+    )
+    vectorizer_b = EMTokenCooccurrenceVectorizer(
+        window_functions="fixed",
+        n_iter=0,
+        normalize_windows=False,
+    )
+    vectorizer_c = TokenCooccurrenceVectorizer(
+        window_function="fixed",
+    )
+    mat1 = vectorizer_a.fit_transform(token_data).toarray()
+    mat2 = vectorizer_b.fit_transform(token_data).toarray()
+    mat3 = normalize(
+        vectorizer_c.fit_transform(token_data), axis=0, norm="l1"
+    ).toarray()
+    assert np.allclose(mat1, mat2)
+    assert np.allclose(mat1, mat3)
 
 
 def test_em_cooccurrence_vectorizer_em_iter():
