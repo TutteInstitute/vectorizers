@@ -17,7 +17,6 @@ CooArray = namedtuple("CooArray", ["row", "col", "val", "key", "ind", "min"])
 
 @numba.njit(nogil=True, inline="always")
 def coo_sum_duplicates(coo, kind):
-    print("summing")
     upper_lim = coo.ind[0]
     lower_lim = coo.min[0]
 
