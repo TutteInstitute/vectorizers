@@ -26,8 +26,6 @@ import os
 import re
 import tempfile
 
-from warnings import warn
-
 def str_to_bytes(size_str):
     """Convert a string description of a memory size (e.g. 1GB, or 100M, or 20kB)
     into a number of bytes to be used in computations and memory size limits. This is
@@ -193,14 +191,14 @@ def transport_plan(p, q, cost, max_iter=100000):
             "Optimal transport inputs must be valid probability distributions."
         )
     solve_status = network_simplex_core(node_arc_data, spanning_tree, graph, max_iter,)
-    if solve_status == ProblemStatus.INFEASIBLE:
-        warn(
-            "An optimal transport problem was INFEASIBLE. You may wish to check inputs."
-        )
-    elif solve_status == ProblemStatus.UNBOUNDED:
-        warn(
-            "An optimal transport problem was UNBOUNDED. You may wish to  check inputs."
-        )
+    # if solve_status == ProblemStatus.INFEASIBLE:
+    #     warn(
+    #         "An optimal transport problem was INFEASIBLE. You may wish to check inputs."
+    #     )
+    # elif solve_status == ProblemStatus.UNBOUNDED:
+    #     warn(
+    #         "An optimal transport problem was UNBOUNDED. You may wish to  check inputs."
+    #     )
     result = get_transport_plan(node_arc_data.flow, graph)
 
     return result
