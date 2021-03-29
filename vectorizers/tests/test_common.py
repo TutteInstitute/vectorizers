@@ -178,7 +178,7 @@ def test_LabeledTreeCooccurrenceVectorizer_reduced_vocab():
     "window_orientation", ["before", "after", "symmetric", "directional"]
 )
 @pytest.mark.parametrize("window_radius", [1, 2])
-@pytest.mark.parametrize("kernel_function", ["harmonic", "flat", "negative_binomial"])
+@pytest.mark.parametrize("kernel_function", ["harmonic", "flat", "geometric"])
 @pytest.mark.parametrize("mask_string", [None, "[MASK]"])
 def test_equality_of_CooccurrenceVectorizers(
     min_token_occurrences,
@@ -232,7 +232,7 @@ def test_equality_of_CooccurrenceVectorizers(
 @pytest.mark.parametrize("max_document_frequency", [None, 0.7])
 @pytest.mark.parametrize("window_orientation", ["directional"])
 @pytest.mark.parametrize("window_radius", [1, 2])
-@pytest.mark.parametrize("kernel_function", ["flat", "negative_binomial"])
+@pytest.mark.parametrize("kernel_function", ["flat", "geometric"])
 @pytest.mark.parametrize("window_function", ["fixed", "variable"])
 @pytest.mark.parametrize("mask_string", [None, "[MASK]"])
 @pytest.mark.parametrize("nullify_mask", [False, True])
@@ -255,6 +255,7 @@ def test_equality_of_EMCooccurrenceVectorizer(
         mask_string=mask_string,
         n_iter=0,
         nullify_mask=nullify_mask and mask_string is not None,
+        normalize_windows=False,
     )
     seq_model = TokenCooccurrenceVectorizer(
         window_radius=window_radius,
@@ -455,12 +456,12 @@ def test_token_cooccurrence_vectorizer_window_args():
 
 def test_token_cooccurrence_vectorizer_kernel_args():
     vectorizer_a = TokenCooccurrenceVectorizer(
-        kernel_function="negative_binomial",
+        kernel_function="geometric",
         mask_string="MASK",
         kernel_args={"normalize": True},
     )
     vectorizer_b = TokenCooccurrenceVectorizer(
-        kernel_function="negative_binomial",
+        kernel_function="geometric",
         kernel_args={"normalize": True, "p": 0.9},
         mask_string="MASK",
     )
@@ -471,14 +472,15 @@ def test_token_cooccurrence_vectorizer_kernel_args():
 
 def test_em_cooccurrence_vectorizer_kernel_args():
     vectorizer_a = EMTokenCooccurrenceVectorizer(
-        kernel_functions="negative_binomial",
+        kernel_functions="geometric",
         window_functions="variable",
         mask_string="MASK",
         kernel_args={"normalize": True, "p": 0.7},
         n_iter=0,
+        normalize_windows=False,
     )
     vectorizer_b = TokenCooccurrenceVectorizer(
-        kernel_function="negative_binomial",
+        kernel_function="geometric",
         kernel_args={"normalize": True, "p": 0.7},
         window_function="variable",
         mask_string="MASK",
@@ -496,7 +498,10 @@ def test_em_cooccurrence_vectorizer_kernel_args():
 
 def test_em_cooccurrence_vectorizer_window_args():
     vectorizer_a = EMTokenCooccurrenceVectorizer(
-        window_functions="variable", window_args={"power": 0.5}, n_iter=0
+        window_functions="variable",
+        window_args={"power": 0.5},
+        n_iter=0,
+        normalize_windows=False,
     )
     vectorizer_b = TokenCooccurrenceVectorizer(
         window_function="variable",
@@ -526,10 +531,10 @@ def test_em_cooccurrence_vectorizer_win_arg_type():
 
 def test_em_cooccurrence_vectorizer_ker_arg_type():
     vectorizer_a = EMTokenCooccurrenceVectorizer(
-        kernel_functions="negative_binomial", kernel_args={"p": 0.5}, n_iter=1
+        kernel_functions="geometric", kernel_args={"p": 0.5}, n_iter=1
     )
     vectorizer_b = EMTokenCooccurrenceVectorizer(
-        kernel_functions=["negative_binomial"], kernel_args=[{"p": 0.5}], n_iter=1
+        kernel_functions=["geometric"], kernel_args=[{"p": 0.5}], n_iter=1
     )
     mat1 = vectorizer_a.fit_transform(token_data).toarray()
     mat2 = normalize(
@@ -552,13 +557,13 @@ def test_em_cooccurrence_vectorizer_epsilon():
 
 def test_em_cooccurrence_vectorizer_em_iter():
     vectorizer_a = EMTokenCooccurrenceVectorizer(
-        kernel_functions=["negative_binomial"],
+        kernel_functions=["geometric"],
         mask_string="MASK",
         kernel_args=[{"normalize": True, "p": 0.9}],
         n_iter=0,
     )
     vectorizer_b = EMTokenCooccurrenceVectorizer(
-        kernel_functions=["negative_binomial"],
+        kernel_functions=["geometric"],
         mask_string="MASK",
         kernel_args=[{"normalize": True, "p": 0.9}],
         n_iter=2,
@@ -604,7 +609,7 @@ def test_em_cooccurrence_vectorizer_wide_transform():
     )
 
 
-@pytest.mark.parametrize("kernel_function", ["harmonic", "flat", "negative_binomial"])
+@pytest.mark.parametrize("kernel_function", ["harmonic", "flat", "geometric"])
 def test_token_cooccurrence_vectorizer_offset(kernel_function):
     vectorizer_a = TokenCooccurrenceVectorizer(
         kernel_function=kernel_function, window_radius=1

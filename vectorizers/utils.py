@@ -67,9 +67,9 @@ def coo_append(coo, tup):
     coo.key[coo.ind[0]] = tup[3]
     coo.ind[0] += 1
 
-    if (coo.ind[0] - coo.min[0]) >= 1 << 16:
+    if (coo.ind[0] - coo.min[0]) >= 1 << 18:
         coo_sum_duplicates(coo, kind="quicksort")
-        if coo.key.shape[0] - coo.min[0] <= 1 << 16:
+        if coo.key.shape[0] - coo.min[0] <= 1 << 18:
             coo.min[0] = 0.0
             coo_sum_duplicates(coo, kind="mergesort")
             if coo.ind[0] >= 0.95 * coo.key.shape[0]:
@@ -89,38 +89,6 @@ def flatten(list_of_seq):
         return tuple(itertools.chain.from_iterable(list_of_seq))
     else:
         return list_of_seq
-
-
-@numba.njit(nogil=True)
-def sum_coo_entries(seq):
-    seq.sort()
-    this_coord = (seq[0][0], seq[0][1])
-    this_sum = 0
-    reduced_data = []
-    for entry in seq:
-        if (entry[0], entry[1]) == this_coord:
-            this_sum += entry[2]
-        else:
-            reduced_data.append((this_coord[0], this_coord[1], this_sum))
-            this_sum = entry[2]
-            this_coord = (entry[0], entry[1])
-
-    reduced_data.append((this_coord[0], this_coord[1], this_sum))
-
-    return reduced_data
-
-
-@numba.njit(nogil=True)
-def update_coo_entries(seq, tup):
-    place = np.searchsorted(seq, tup)
-    if seq[place][1:2] == tup[1:2]:
-        seq[place][3] += tup[3]
-        return seq
-    elif seq[place - 1][1:2] == tup[1:2]:
-        seq[place - 1][3] += tup[3]
-        return seq
-    return seq.insert(place, tup)
-
 
 def sparse_collapse(matrix, labels, sparse=True):
     """

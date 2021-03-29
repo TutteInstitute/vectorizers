@@ -26,7 +26,10 @@ def variable_window_radii(
     radii = np.append(radii, min(radii))
     if mask_index is not None:
         radii[mask_index] = 0.0
-    return np.ceil(radii * window_size).astype(np.int64)
+    result = radii * window_size
+    result[(result > 0) * (result < 1)] = 1.0
+    np.round(result, 0, result)
+    return result.astype(np.int64)
 
 
 @numba.njit(nogil=True)
@@ -67,14 +70,14 @@ def harmonic_kernel(window, mask_index=None, normalize=False, offset=0):
 
 
 @numba.njit(nogil=True)
-def negative_binomial_kernel(
+def geometric_kernel(
     window,
     mask_index=None,
     normalize=False,
     offset=0,
     power=0.9,
 ):
-    result = (1 - power) * (power ** np.arange(0, len(window)))
+    result = (power ** np.arange(0, len(window)))
 
     if mask_index is not None:
         result[window == mask_index] = 0.0
@@ -113,5 +116,5 @@ _WINDOW_FUNCTIONS = {
 _KERNEL_FUNCTIONS = {
     "flat": flat_kernel,
     "harmonic": harmonic_kernel,
-    "negative_binomial": negative_binomial_kernel,
+    "geometric": geometric_kernel,
 }

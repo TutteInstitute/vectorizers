@@ -494,7 +494,7 @@ def preprocess_token_sequences(
 
     Parameters
     ----------
-    token_sequences: Iterable of (tuple | list | np.ndarray)
+    token_sequences: Iterable of (tuple | list | numpy.array)
         A list of token sequences. Each sequence should be tuple, list or
         numpy array of tokens.
 
@@ -1382,7 +1382,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
     kernel_function: numba.jitted callable or str (optional, default='flat')
         A function producing weights given a window of tokens and a window_radius.
-        The string options are ['flat', 'triangular', 'harmonic', 'negative_binomial'] for using pre-defined functions.
+        The string options are ['flat', 'harmonic', 'geometric'] for using pre-defined functions.
 
     window_radius: int (optional, default=5)
         Argument to pass through to the window function.  Outside of boundary cases, this is the expected width
