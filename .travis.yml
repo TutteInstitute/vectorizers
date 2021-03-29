@@ -36,6 +36,7 @@ install:
           conda install --yes numpy==$NUMPY_VERSION scipy==$SCIPY_VERSION scikit-learn==$SKLEARN_VERSION cython nose pytest pytest-cov
       fi
   - conda install --yes pandas numba
+  - pip install pynndescent
   - pip install codecov
   - pip install coverage
   - pip install coveralls
