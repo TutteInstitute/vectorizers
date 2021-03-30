@@ -491,6 +491,7 @@ def lot_vectors_sparse(
     random_state=None,
     max_distribution_size=256,
     block_size=16384,
+    n_svd_iter=10,
 ):
     """Given distributions over a metric space produce a compressed array
     of linear optimal transport vectors, one for each distribution, and
@@ -547,6 +548,10 @@ def lot_vectors_sparse(
         learn less well in more, smaller, batches). Setting this too large can
         cause the algorithm to exceed memory.
 
+    n_svd_iter: int (optional, default=10)
+        How many iterations of randomized SVD to run to get compressed vectors. More
+        iterations will produce better results at greater computational cost.
+
     Returns
     -------
     lot_vectors: ndarray
@@ -579,7 +584,7 @@ def lot_vectors_sparse(
         u, singular_values, v = randomized_svd(
             lot_vectors,
             n_components=n_components,
-            n_iter=10,
+            n_iter=n_svd_iter,
             random_state=random_state,
         )
         result, components = svd_flip(u, v)
@@ -623,7 +628,7 @@ def lot_vectors_sparse(
         u, singular_values, v = randomized_svd(
             block_to_learn,
             n_components=n_components,
-            n_iter=10,
+            n_iter=n_svd_iter,
             random_state=random_state,
         )
         u, components = svd_flip(u, v)
@@ -654,6 +659,7 @@ def lot_vectors_dense(
     random_state=None,
     max_distribution_size=256,
     block_size=16384,
+    n_svd_iter=10,
 ):
     """Given distributions over a metric space produce a compressed array
     of linear optimal transport vectors, one for each distribution, and
@@ -707,6 +713,10 @@ def lot_vectors_dense(
         learn less well in more, smaller, batches). Setting this too large can
         cause the algorithm to exceed memory.
 
+    n_svd_iter: int (optional, default=10)
+        How many iterations of randomized SVD to run to get compressed vectors. More
+        iterations will produce better results at greater computational cost.
+
     Returns
     -------
     lot_vectors: ndarray
@@ -735,7 +745,7 @@ def lot_vectors_dense(
         u, singular_values, v = randomized_svd(
             lot_vectors,
             n_components=n_components,
-            n_iter=10,
+            n_iter=n_svd_iter,
             random_state=random_state,
         )
         result, components = svd_flip(u, v)
@@ -778,7 +788,7 @@ def lot_vectors_dense(
         u, singular_values, v = randomized_svd(
             block_to_learn,
             n_components=n_components,
-            n_iter=10,
+            n_iter=n_svd_iter,
             random_state=random_state,
         )
         u, components = svd_flip(u, v)
@@ -850,6 +860,10 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
         distributions over more vectors will be truncated back
         to this value for faster performance.
 
+    n_svd_iter: int (optional, default=10)
+        How many iterations of randomized SVD to run to get compressed vectors. More
+        iterations will produce better results at greater computational cost.
+
     random_state: numpy.random.random_state or int or None (optional, default=None)
         A random state to use. A fixed integer seed can be used for reproducibility.
     """
@@ -862,6 +876,7 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
         metric="cosine",
         memory_size="2G",
         max_distribution_size=256,
+        n_svd_iter=10,
         random_state=None,
     ):
         self.n_components = n_components
@@ -870,6 +885,7 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
         self.metric = metric
         self.memory_size = memory_size
         self.max_distribution_size = max_distribution_size
+        self.n_svd_iter = n_svd_iter
         self.random_state = random_state
 
     def _get_metric(self):
@@ -975,9 +991,10 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                 self.reference_distribution_,
                 self.n_components,
                 metric,
-                random_state,
-                self.max_distribution_size,
-                block_size,
+                random_state=random_state,
+                max_distribution_size=self.max_distribution_size,
+                block_size=block_size,
+                n_svd_iter=self.n_svd_iter,
             )
 
         elif type(X) in (list, tuple, numba.typed.List):
@@ -1037,9 +1054,10 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                 self.reference_distribution_,
                 self.n_components,
                 metric,
-                random_state,
-                self.max_distribution_size,
-                block_size,
+                random_state=random_state,
+                max_distribution_size=self.max_distribution_size,
+                block_size=block_size,
+                n_svd_iter=self.n_svd_iter,
             )
         else:
             raise ValueError(
