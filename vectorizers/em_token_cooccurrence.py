@@ -845,12 +845,70 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         assert len(self._kernel_functions) == self._n_wide
         assert len(self._kernel_args) == self._n_wide
 
+    def _set_column_dicts(self):
+        self.column_label_dictionary_ = {}
+        colonade = 0
+        for i, win in enumerate(self.window_orientations):
+            if win == "directional":
+                self.column_label_dictionary_.update(
+                    {
+                        "pre_"
+                        + str(i)
+                        + "_"
+                        + str(token): index
+                        + colonade * len(self.token_label_dictionary_)
+                        for token, index in self.token_label_dictionary_.items()
+                    }
+                )
+                colonade += 1
+                self.column_label_dictionary_.update(
+                    {
+                        "post_"
+                        + str(i)
+                        + "_"
+                        + str(token): index
+                        + colonade * len(self.token_label_dictionary_)
+                        for token, index in self.token_label_dictionary_.items()
+                    }
+                )
+                colonade += 1
+            elif win == "before":
+                self.column_label_dictionary_.update(
+                    {
+                        "pre_"
+                        + str(i)
+                        + "_"
+                        + str(token): index
+                        + colonade * len(self.token_label_dictionary_)
+                        for token, index in self.token_label_dictionary_.items()
+                    }
+                )
+                colonade += 1
+            else:
+                self.column_label_dictionary_.update(
+                    {
+                        "post_"
+                        + str(i)
+                        + "_"
+                        + str(token): index
+                        + colonade * len(self.token_label_dictionary_)
+                        for token, index in self.token_label_dictionary_.items()
+                    }
+                )
+                colonade += 1
+
+        self.column_index_dictionary_ = {
+            item[1]: item[0] for item in self.column_label_dictionary_.items()
+        }
+        assert len(self.column_index_dictionary_) == self.cooccurrences_.shape(1)
+
     def fit_transform(self, X, y=None, **fit_params):
 
         if self.validate_data:
             validate_homogeneous_token_types(X)
 
         flat_sequences = flatten(X)
+        # noinspection PyTupleAssignmentBalance
         (
             token_sequences,
             self.token_label_dictionary_,
@@ -992,34 +1050,8 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
                 self.cooccurrences_, axis=0, norm="l1"
             ).tocsr()
 
-        # Set the dictionaries
-        self.column_label_dictionary_ = {}
-        for i in range(self._window_array.shape[0]):
-
-            self.column_label_dictionary_.update(
-                {
-                    "pre_"
-                    + str(i)
-                    + "_"
-                    + str(token): index
-                    + 2 * i * len(self.token_label_dictionary_)
-                    for token, index in self.token_label_dictionary_.items()
-                }
-            )
-            self.column_label_dictionary_.update(
-                {
-                    "post_"
-                    + str(i)
-                    + "_"
-                    + str(token): index
-                    + (2 * i + 1) * len(self.token_label_dictionary_)
-                    for token, index in self.token_label_dictionary_.items()
-                }
-            )
-
-        self.column_index_dictionary_ = {
-            item[1]: item[0] for item in self.column_label_dictionary_.items()
-        }
+        # Set attributes
+        self._set_column_dicts()
         self.metric_ = distances.sparse_hellinger
 
         return self.cooccurrences_
@@ -1045,6 +1077,7 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             validate_homogeneous_token_types(X)
 
         flat_sequences = flatten(X)
+        # noinspection PyTupleAssignmentBalance
         (
             token_sequences,
             column_label_dictionary,
