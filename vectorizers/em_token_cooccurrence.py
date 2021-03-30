@@ -11,6 +11,8 @@ from sklearn.utils.validation import check_is_fitted
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.preprocessing import normalize
 from collections.abc import Iterable
+from scipy.sparse.linalg import svds
+
 
 import vectorizers.distances as distances
 
@@ -301,7 +303,7 @@ def set_array_size(token_sequences, window_array):
     window_array = window_array.astype(np.float64)
     for seq in token_sequences:
         counts = np.bincount(seq, minlength=window_array.shape[1]).astype(np.float64)
-        tot_len += np.dot(window_array, counts).T
+        tot_len += np.dot(window_array, counts).T  # NOTE: numba only does dot products with floats
     return tot_len.astype(np.int64)
 
 
@@ -1111,3 +1113,15 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         )
 
         return cooccurrences_
+
+
+def reduce_dimension(self, dim=150):
+    check_is_fitted(self, ["column_label_dictionary_"])
+
+    self.reduced_matrix_ = normalize(self.cooccurrences_, axis=1, norm="l1")
+    self.reduced_matrix_.data = np.power(self.reduced_matrix_.data, 0.25)
+
+    u, s, v = svds(self.reduced_matrix_, k=dim)
+    self.reduced_matrix_ = u * np.power(v, 0.5)
+
+    return self.reduced_matrix_
