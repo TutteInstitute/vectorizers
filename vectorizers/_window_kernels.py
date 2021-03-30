@@ -16,10 +16,7 @@ def window_at_index(token_sequence, window_size, ind, reverse=False):
 
 @numba.njit(nogil=True)
 def variable_window_radii(
-    window_size,
-    token_frequency,
-    mask_index=None,
-    power=0.75,
+    window_size, token_frequency, mask_index=None, power=0.75,
 ):
     radii = np.power(token_frequency, power - 1)
     radii /= np.sum(radii * token_frequency)

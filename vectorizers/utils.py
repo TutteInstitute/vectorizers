@@ -234,9 +234,7 @@ def gmm_component_likelihood(
         under the provided Gaussian
     """
     return scipy.stats.multivariate_normal.pdf(
-        diagram,
-        mean=component_mean,
-        cov=component_covar,
+        diagram, mean=component_mean, cov=component_covar,
     )
 
 
