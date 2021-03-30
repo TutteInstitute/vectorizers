@@ -40,6 +40,7 @@ from ._window_kernels import (
 
 from numba.np.unsafe.ndarray import to_fixed_tuple
 
+
 @numba.njit(nogil=True)
 def build_multi_skip_ngrams(
     token_sequences,
@@ -624,8 +625,11 @@ def em_update_matrix(
                 context_ind[i + win_offset[w]] = np.searchsorted(
                     col_ind, context + w * n_unique_tokens
                 )
-                #assert(col_ind[context_ind[i + win_offset[w]]] == context+w * n_unique_tokens)
-                if col_ind[context_ind[i + win_offset[w]]] == context + w * n_unique_tokens:
+                # assert(col_ind[context_ind[i + win_offset[w]]] == context+w * n_unique_tokens)
+                if (
+                    col_ind[context_ind[i + win_offset[w]]]
+                    == context + w * n_unique_tokens
+                ):
                     window_posterior[i + win_offset[w]] = (
                         kernels[w][i]
                         * prior_data[
@@ -650,6 +654,7 @@ def em_update_matrix(
                 ] += val
 
     return posterior_data
+
 
 @numba.njit(nogil=True)
 def em_cooccurrence_iteration(
@@ -1421,7 +1426,6 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         )
 
         return cooccurrences_
-
 
     def reduce_dimension(self, dimension=150):
         check_is_fitted(self, ["column_label_dictionary_"])

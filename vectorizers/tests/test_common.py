@@ -557,7 +557,9 @@ def test_em_cooccurrence_vectorizer_epsilon():
     vectorizer_a = EMTokenCooccurrenceVectorizer(epsilon=0)
     vectorizer_b = EMTokenCooccurrenceVectorizer(epsilon=1e-11)
     vectorizer_c = EMTokenCooccurrenceVectorizer(epsilon=1)
-    mat1 = normalize(vectorizer_a.fit_transform(token_data).toarray(), axis = 0, norm='l1')
+    mat1 = normalize(
+        vectorizer_a.fit_transform(token_data).toarray(), axis=0, norm="l1"
+    )
     mat2 = vectorizer_b.fit_transform(token_data).toarray()
     assert np.allclose(mat1, mat2)
     assert vectorizer_c.fit_transform(token_data).nnz == 0
@@ -584,15 +586,14 @@ def test_em_cooccurrence_vectorizer_coo_mem():
     assert np.allclose(mat1, mat2)
     assert np.allclose(mat1, mat3)
 
+
 @pytest.mark.parametrize("skip_grams_size", [1, 2])
 def test_em_cooccurrence_vectorizer_em_iter(skip_grams_size):
     vectorizer_a = EMTokenCooccurrenceVectorizer(
-        n_iter=0,
-        skip_ngram_size=skip_grams_size
+        n_iter=0, skip_ngram_size=skip_grams_size
     )
     vectorizer_b = EMTokenCooccurrenceVectorizer(
-        n_iter=2,
-        skip_ngram_size=skip_grams_size
+        n_iter=2, skip_ngram_size=skip_grams_size
     )
     assert (
         vectorizer_a.fit_transform(token_data).nnz
