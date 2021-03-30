@@ -493,7 +493,7 @@ def preprocess_token_sequences(
 
     Parameters
     ----------
-    token_sequences: Iterable of (tuple | list | np.ndarray)
+    token_sequences: Iterable of (tuple | list | numpy.array)
         A list of token sequences. Each sequence should be tuple, list or
         numpy array of tokens.
 
@@ -605,7 +605,7 @@ def preprocess_token_sequences(
                         for token in sequence
                         if token in token_dictionary
                     ],
-                    dtype=np.int64,
+                    dtype=np.int32,
                 )
             )
     else:
@@ -622,7 +622,7 @@ def preprocess_token_sequences(
                         else token_dictionary[token]
                         for token in sequence
                     ],
-                    dtype=np.int64,
+                    dtype=np.int32,
                 )
             )
         token_dictionary[masking] = len(token_dictionary)
@@ -731,10 +731,9 @@ def build_skip_grams(
     """
 
     coo_tuples = [(np.float32(0.0), np.float32(0.0), np.float32(0.0))]
-
     for i, head_token in enumerate(token_sequence):
         window = window_at_index(token_sequence, window_sizes[head_token], i, reverse)
-        weights = kernel_function(window, window_sizes[head_token], *kernel_args)
+        weights = kernel_function(window, *kernel_args)
 
         coo_tuples.extend(
             [
@@ -805,7 +804,7 @@ def build_skip_ngrams(
             window = window_at_index(
                 token_sequence, window_sizes[head_token], i, reverse
             )
-            weights = kernel_function(window, window_sizes[head_token], *kernel_args)
+            weights = kernel_function(window, *kernel_args)
 
             coo_tuples.extend(
                 [
@@ -1159,46 +1158,43 @@ def token_cooccurrence_matrix(
 
     if window_orientation in ("symmetric", "directional"):
         # Only fixed window matrices (with or without mask nullity) can be transposed to compute the reverse
-        if np.sum(np.unique(window_sizes) != 0) > 1:
-            cooccurrence_matrix_reverse = scipy.sparse.coo_matrix(
-                (n_unique_tokens, n_unique_tokens), dtype=np.float32
+        cooccurrence_matrix_reverse = scipy.sparse.coo_matrix(
+            (n_unique_tokens, n_unique_tokens), dtype=np.float32
+        )
+
+        for chunk_index in range(n_chunks):
+            chunk_start = chunk_index * chunk_size
+            chunk_end = min(len(token_sequences), chunk_start + chunk_size)
+
+            raw_coo_data = sequence_skip_grams(
+                token_sequences=token_sequences[chunk_start:chunk_end],
+                window_sizes=window_sizes,
+                kernel_function=kernel_function,
+                kernel_args=kernel_args,
+                ngram_dictionary=ngram_dictionary,
+                ngram_size=ngram_size,
+                array_to_tuple=array_to_tuple,
+                reverse=True,
             )
-
-            for chunk_index in range(n_chunks):
-                chunk_start = chunk_index * chunk_size
-                chunk_end = min(len(token_sequences), chunk_start + chunk_size)
-
-                raw_coo_data = sequence_skip_grams(
-                    token_sequences[chunk_start:chunk_end],
-                    window_sizes,
-                    kernel_function,
-                    kernel_args,
-                    ngram_dictionary=ngram_dictionary,
-                    ngram_size=ngram_size,
-                    array_to_tuple=array_to_tuple,
-                    reverse=True,
-                )
-                cooccurrence_matrix_reverse += scipy.sparse.coo_matrix(
+            cooccurrence_matrix_reverse += scipy.sparse.coo_matrix(
+                (
+                    raw_coo_data.T[2],
                     (
-                        raw_coo_data.T[2],
-                        (
-                            raw_coo_data.T[0].astype(np.int64),
-                            raw_coo_data.T[1].astype(np.int64),
-                        ),
+                        raw_coo_data.T[0].astype(np.int64),
+                        raw_coo_data.T[1].astype(np.int64),
                     ),
-                    shape=(n_unique_tokens, n_unique_tokens),
-                    dtype=np.float32,
-                )
-                cooccurrence_matrix_reverse.sum_duplicates()
-        else:
-            cooccurrence_matrix_reverse = cooccurrence_matrix.transpose()
-
-        if window_orientation == "symmetric":
-            cooccurrence_matrix = cooccurrence_matrix + cooccurrence_matrix_reverse
-        elif window_orientation == "directional":
-            cooccurrence_matrix = scipy.sparse.hstack(
-                [cooccurrence_matrix_reverse, cooccurrence_matrix]
+                ),
+                shape=(n_unique_tokens, n_unique_tokens),
+                dtype=np.float32,
             )
+            cooccurrence_matrix_reverse.sum_duplicates()
+
+    if window_orientation == "symmetric":
+        cooccurrence_matrix = cooccurrence_matrix + cooccurrence_matrix_reverse
+    elif window_orientation == "directional":
+        cooccurrence_matrix = scipy.sparse.hstack(
+            [cooccurrence_matrix_reverse, cooccurrence_matrix]
+        )
 
     return cooccurrence_matrix.tocsr()
 
@@ -1308,7 +1304,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
     kernel_function: numba.jitted callable or str (optional, default='flat')
         A function producing weights given a window of tokens and a window_radius.
-        The string options are ['flat', 'triangular', 'harmonic', 'negative_binomial'] for using pre-defined functions.
+        The string options are ['flat', 'harmonic', 'geometric'] for using pre-defined functions.
 
     window_radius: int (optional, default=5)
         Argument to pass through to the window function.  Outside of boundary cases, this is the expected width
@@ -1508,7 +1504,6 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self._kernel_args = {"mask_index": mask_index, "normalize": False, "offset": 0}
         self._kernel_args.update(self.kernel_args)
         self._kernel_args = tuple(self._kernel_args.values())
-
         self._window_sizes = self._window_function(
             self.window_radius,
             self._token_frequencies_,
