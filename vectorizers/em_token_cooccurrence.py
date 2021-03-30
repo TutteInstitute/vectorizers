@@ -117,7 +117,7 @@ def build_multi_skip_grams(
     window_size_array,
     window_reversals,
     kernel_array,
-    kernel_args_tuple,
+    kernel_args,
     mix_weights,
     normalize_windows,
     n_unique_tokens,
@@ -146,7 +146,7 @@ def build_multi_skip_grams(
     kernel_array: numpy.ndarray(float, size = (n_windows, max_window_radius))
         A collection of kernel values per window index per window funciton
 
-    kernel_args_tuple: tuple of tuples
+    kernel_args: tuple of tuples
         Arguments to pass through to the kernel functions per function
 
     mix_weights: numpy.array(bool, size = (n_windows,))
@@ -166,8 +166,8 @@ def build_multi_skip_grams(
 
     n_windows = window_size_array.shape[0]
     array_mul = n_windows * n_unique_tokens + 1
-    kernel_masks = [ker[0] for ker in kernel_args_tuple]
-    kernel_normalize = [ker[1] for ker in kernel_args_tuple]
+    kernel_masks = [ker[0] for ker in kernel_args]
+    kernel_normalize = [ker[1] for ker in kernel_args]
 
     coo_data = [
         CooArray(
@@ -226,7 +226,7 @@ def sequence_multi_skip_grams(
     window_size_array,
     window_reversals,
     kernel_array,
-    kernel_args_tuple,
+    kernel_args,
     mix_weights,
     normalize_windows,
     n_unique_tokens,
@@ -255,7 +255,7 @@ def sequence_multi_skip_grams(
     kernel_array: numpy.ndarray(float, size = (n_windows, max(window_size_array)))
         A collection of kernel values per window index per window funciton
 
-    kernel_args_tuple: tuple of tuples
+    kernel_args: tuple of tuples
         Arguments to pass through to the kernel functions per function
 
     mix_weights: numpy.array(bool, size = (n_windows,))
@@ -278,7 +278,7 @@ def sequence_multi_skip_grams(
         window_size_array=window_size_array,
         window_reversals=window_reversals,
         kernel_array=kernel_array,
-        kernel_args_tuple=kernel_args_tuple,
+        kernel_args=kernel_args,
         mix_weights=mix_weights,
         normalize_windows=normalize_windows,
         n_unique_tokens=n_unique_tokens,
@@ -311,10 +311,12 @@ def multi_token_cooccurrence_matrix(
     window_size_array,
     window_reversals,
     kernel_array,
-    kernel_args_tuple,
+    kernel_args,
     mix_weights,
     normalize_windows,
     array_lengths,
+    n_iter,
+    epsilon,
     chunk_size=1 << 20,
 ):
     """Generate a matrix of (weighted) counts of co-occurrences of tokens within
@@ -340,7 +342,7 @@ def multi_token_cooccurrence_matrix(
     kernel_array: numpy.ndarray(float, size = (n_windows, max(window_size_array)))
         A collection of kernel values per window index per window funciton
 
-    kernel_args_tuple: tuple of tuples
+    kernel_args: tuple of tuples
         Arguments to pass through to the kernel functions per function
 
     mix_weights: numpy.array(bool, size = (n_windows,))
@@ -351,6 +353,12 @@ def multi_token_cooccurrence_matrix(
 
     array_lengths: numpy.array(int, size = (n_windows,))
         The lengths of the arrays per window used to the store the coo matrix triples.
+
+    n_iter: int
+        The number of iterations of EM to perform
+
+    epsilon: float
+        Set to zero all coooccurrence matrix values less than epsilon
 
     chunk_size: int (optional, default=1048576)
         When processing token sequences, break the list of sequences into
@@ -388,7 +396,7 @@ def multi_token_cooccurrence_matrix(
             window_size_array=window_size_array,
             window_reversals=window_reversals,
             kernel_array=kernel_array,
-            kernel_args_tuple=kernel_args_tuple,
+            kernel_args=kernel_args,
             mix_weights=mix_weights,
             normalize_windows=normalize_windows,
             array_lengths=array_lengths,
@@ -407,6 +415,36 @@ def multi_token_cooccurrence_matrix(
         )
 
     cooccurrence_matrix.sum_duplicates()
+
+    cooccurrence_matrix = normalize(cooccurrence_matrix, axis=0, norm="l1").tocsr()
+    cooccurrence_matrix.data[cooccurrence_matrix.data < epsilon] = 0
+    cooccurrence_matrix.eliminate_zeros()
+    cooccurrence_matrix = normalize(cooccurrence_matrix, axis=0, norm="l1").tocsr()
+
+    # Do the EM
+    n_chunks = (len(token_sequences) // chunk_size) + 1
+
+    for iter in range(n_iter):
+        new_data = np.zeros_like(cooccurrence_matrix.data)
+        for chunk_index in range(n_chunks):
+            chunk_start = chunk_index * chunk_size
+            chunk_end = min(len(token_sequences), chunk_start + chunk_size)
+            new_data += em_cooccurrence_iteration(
+                token_sequences=token_sequences[chunk_start:chunk_end],
+                window_size_array=window_size_array,
+                window_reversals=window_reversals,
+                kernel_array=kernel_array,
+                kernel_args_array=kernel_args,
+                mix_weights=mix_weights,
+                prior_data=cooccurrence_matrix.data,
+                prior_indices=cooccurrence_matrix.indices,
+                prior_indptr=cooccurrence_matrix.indptr,
+            )
+        cooccurrence_matrix.data = new_data
+        cooccurrence_matrix = normalize(cooccurrence_matrix, axis=0, norm="l1").tocsr()
+        cooccurrence_matrix.data[cooccurrence_matrix.data < epsilon] = 0
+        cooccurrence_matrix.eliminate_zeros()
+        cooccurrence_matrix = normalize(cooccurrence_matrix, axis=0, norm="l1").tocsr()
 
     return cooccurrence_matrix.tocsr()
 
@@ -930,6 +968,7 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             excluded_token_regex=self.excluded_token_regex,
             masking=self.mask_string,
         )
+
         # Set mask nullity
         if self.nullify_mask:
             mask_index = len(self._token_frequencies_)
@@ -1010,45 +1049,14 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             window_size_array=self._window_array,
             window_reversals=self._window_reversals,
             kernel_array=self._kernel_array,
-            kernel_args_tuple=self._em_kernel_args,
+            kernel_args=self._em_kernel_args,
             mix_weights=self._mix_weights,
             chunk_size=self.chunk_size,
             normalize_windows=self.normalize_windows,
             array_lengths=self._coo_sizes,
+            n_iter=self.n_iter,
+            epsilon=self.epsilon,
         )
-
-        self.cooccurrences_ = normalize(self.cooccurrences_, axis=0, norm="l1").tocsr()
-        self.cooccurrences_.data[self.cooccurrences_.data < self.epsilon] = 0
-        self.cooccurrences_.eliminate_zeros()
-        self.cooccurrences_ = normalize(self.cooccurrences_, axis=0, norm="l1").tocsr()
-
-        # Do the EM
-        n_chunks = (len(token_sequences) // self.chunk_size) + 1
-        for iter in range(self.n_iter):
-            new_data = np.zeros_like(self.cooccurrences_.data)
-            for chunk_index in range(n_chunks):
-                chunk_start = chunk_index * self.chunk_size
-                chunk_end = min(len(token_sequences), chunk_start + self.chunk_size)
-                new_data += em_cooccurrence_iteration(
-                    token_sequences=token_sequences[chunk_start:chunk_end],
-                    window_size_array=self._window_array,
-                    window_reversals=self._window_reversals,
-                    kernel_array=self._kernel_array,
-                    kernel_args_array=self._em_kernel_args,
-                    mix_weights=self._mix_weights,
-                    prior_data=self.cooccurrences_.data,
-                    prior_indices=self.cooccurrences_.indices,
-                    prior_indptr=self.cooccurrences_.indptr,
-                )
-            self.cooccurrences_.data = new_data
-            self.cooccurrences_ = normalize(
-                self.cooccurrences_, axis=0, norm="l1"
-            ).tocsr()
-            self.cooccurrences_.data[self.cooccurrences_.data < self.epsilon] = 0
-            self.cooccurrences_.eliminate_zeros()
-            self.cooccurrences_ = normalize(
-                self.cooccurrences_, axis=0, norm="l1"
-            ).tocsr()
 
         # Set attributes
         self._set_column_dicts()
@@ -1093,41 +1101,13 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             window_size_array=self._window_array,
             window_reversals=self._window_reversals,
             kernel_array=self._kernel_array,
-            kernel_args_tuple=self._em_kernel_args,
+            kernel_args=self._em_kernel_args,
             mix_weights=self._mix_weights,
             chunk_size=self.chunk_size,
             normalize_windows=self.normalize_windows,
             array_lengths=self._coo_sizes,
+            n_iter=self.n_iter,
+            epsilon=self.epsilon,
         )
-
-        cooccurrences_ = normalize(cooccurrences_, axis=0, norm="l1").tocsr()
-        cooccurrences_.data[cooccurrences_.data < self.epsilon] = 0
-        cooccurrences_.eliminate_zeros()
-        cooccurrences_ = normalize(cooccurrences_, axis=0, norm="l1").tocsr()
-
-        # Do the EM
-        n_chunks = (len(token_sequences) // self.chunk_size) + 1
-
-        for iter in range(self.n_iter):
-            new_data = np.zeros_like(cooccurrences_.data)
-            for chunk_index in range(n_chunks):
-                chunk_start = chunk_index * self.chunk_size
-                chunk_end = min(len(token_sequences), chunk_start + self.chunk_size)
-                new_data += em_cooccurrence_iteration(
-                    token_sequences=token_sequences[chunk_start:chunk_end],
-                    window_size_array=self._window_array,
-                    window_reversals=self._window_reversals,
-                    kernel_array=self._kernel_array,
-                    kernel_args_array=self._em_kernel_args,
-                    mix_weights=self._mix_weights,
-                    prior_data=cooccurrences_.data,
-                    prior_indices=cooccurrences_.indices,
-                    prior_indptr=cooccurrences_.indptr,
-                )
-            cooccurrences_.data = new_data
-            cooccurrences_ = normalize(cooccurrences_, axis=0, norm="l1").tocsr()
-            cooccurrences_.data[cooccurrences_.data < self.epsilon] = 0
-            cooccurrences_.eliminate_zeros()
-            cooccurrences_ = normalize(cooccurrences_, axis=0, norm="l1").tocsr()
 
         return cooccurrences_
