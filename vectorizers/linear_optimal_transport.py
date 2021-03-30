@@ -19,56 +19,11 @@ from sklearn.utils.validation import (
 from pynndescent.distances import cosine, named_distances
 from sklearn.utils.extmath import svd_flip, randomized_svd
 from sklearn.preprocessing import normalize
-
+from vectorizers.utils import str_to_bytes
 import scipy.sparse
 
 import os
-import re
 import tempfile
-
-def str_to_bytes(size_str):
-    """Convert a string description of a memory size (e.g. 1GB, or 100M, or 20kB)
-    into a number of bytes to be used in computations and memory size limits. This is
-    not particularly fancy or robust, but is enough for most standard cases up to
-    terabyte sizes.
-
-    Parameters
-    ----------
-    size_str: str
-        A description of a memory size. Support k, M, G, T and ki, Mi, Gi, Ti sizes
-        with optional B/b characters appended, and possible space between the number
-        and the unit.
-
-    Returns
-    -------
-    bytes: int
-        The memory size explicitly in bytes.
-    """
-    parse_match = re.match(r"(\d+\.?\d*)\s*([kMGT]?i?[Bb]?)$", size_str)
-    if parse_match is None:
-        raise ValueError(
-            f"Invalid memory size string {size_str}; should be of the form '200M', '2G', etc."
-        )
-
-    if parse_match.group(2) in ("k", "kB", "kb"):
-        return int(np.ceil(float(parse_match.group(1)) * 1024))
-    elif parse_match.group(2) in ("M", "MB", "Mb"):
-        return int(np.ceil(float(parse_match.group(1)) * 1024 ** 2))
-    elif parse_match.group(2) in ("G", "GB", "Gb"):
-        return int(np.ceil(float(parse_match.group(1)) * 1024 ** 3))
-    elif parse_match.group(2) in ("T", "TB", "Tb"):
-        return int(np.ceil(float(parse_match.group(1)) * 1024 ** 4))
-    elif parse_match.group(2) in ("ki", "kiB", "kib"):
-        return int(np.ceil(float(parse_match.group(1)) * 1000))
-    elif parse_match.group(2) in ("Mi", "MiB", "Mib"):
-        return int(np.ceil(float(parse_match.group(1)) * 1000 ** 2))
-    elif parse_match.group(2) in ("Gi", "GiB", "Gib"):
-        return int(np.ceil(float(parse_match.group(1)) * 1000 ** 3))
-    elif parse_match.group(2) in ("Ti", "TiB", "Tib"):
-        return int(np.ceil(float(parse_match.group(1)) * 1000 ** 4))
-    else:
-        return int(np.ceil(float(parse_match.group(1))))
-
 
 @numba.njit(nogil=True, fastmath=True)
 def project_to_sphere_tangent_space(euclidean_vectors, sphere_basepoints):

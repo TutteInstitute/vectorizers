@@ -569,7 +569,7 @@ def test_em_cooccurrence_vectorizer_coo_mem():
     vectorizer_a = EMTokenCooccurrenceVectorizer(
         window_functions="fixed",
         n_iter=0,
-        coo_max_bytes=2 ** 11,
+        coo_max_memory='2k',
         normalize_windows=False,
     )
     vectorizer_b = EMTokenCooccurrenceVectorizer(

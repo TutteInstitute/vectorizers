@@ -25,6 +25,7 @@ from .utils import (
     coo_append,
     CooArray,
     coo_sum_duplicates,
+    str_to_bytes
 )
 
 import numpy as np
@@ -925,11 +926,11 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
     epsilon: float32 (optional default = 0)
         Sets values in the cooccurrence matrix (after l_1 normalizing the columns) less than epsilon to zero
 
-    coo_max_bytes: int (optional, default = 2<<30) = 2 GiB)
-        Sets the maximal memory size for acculumating the (row, col, val) triples.  This should be at least 2 times
-        the number of non-zero entries in the final cooccurrence matrix for near optimal performance.  Optimizations
-        to use significantly less memory are made for data sets with small expected numbers of non zeros.
-
+    coo_max_memory: str (optional, default = "2 GiB")
+        This value, giving a memory size in k, M, G or T, describes how much memory to set for acculumating the
+        (row, col, val) triples of larger data sets.  This should be at least 2 times the number of non-zero
+        entries in the final cooccurrence matrix for near optimal performance.  Optimizations to use
+        significantly less memory are made for data sets with small expected numbers of non zeros.
     """
 
     def __init__(
@@ -961,7 +962,7 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         normalize_windows=True,
         n_iter=1,
         epsilon=0,
-        coo_max_bytes=2 << 30,
+        coo_max_memory='2 GiB',
     ):
         self.token_dictionary = token_dictionary
         self.min_occurrences = min_occurrences
@@ -990,11 +991,13 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self.normalize_windows = normalize_windows
         self.n_iter = n_iter
         self.epsilon = epsilon
-        self.coo_max_bytes = coo_max_bytes
+        self.coo_max_memory = coo_max_memory
 
         self.token_label_dictionary_ = {}
         self.token_index_dictionary_ = {}
         self._token_frequencies_ = np.array([])
+
+        self.coo_max_bytes = str_to_bytes(self.coo_max_memory)
 
         # Check the window orientations
         if not isinstance(self.window_radii, Iterable):
