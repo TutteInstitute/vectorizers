@@ -900,7 +900,7 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self.column_index_dictionary_ = {
             item[1]: item[0] for item in self.column_label_dictionary_.items()
         }
-        assert len(self.column_index_dictionary_) == self.cooccurrences_.shape(1)
+        assert len(self.column_index_dictionary_) == self.cooccurrences_.shape[1]
 
     def fit_transform(self, X, y=None, **fit_params):
 
