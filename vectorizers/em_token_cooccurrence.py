@@ -1437,6 +1437,6 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self.reduced_matrix_.data = np.power(self.reduced_matrix_.data, 0.25)
 
         u, s, v = svds(self.reduced_matrix_, k=dimension)
-        self.reduced_matrix_ = u * np.power(v, 0.5)
+        self.reduced_matrix_ = u * np.power(s, 0.5)
 
         return self.reduced_matrix_
