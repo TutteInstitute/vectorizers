@@ -236,6 +236,7 @@ def lot_vectors_sparse_internal(
     metric=cosine,
     max_distribution_size=256,
     chunk_size=256,
+    spherical_vectors=True,
 ):
     """Efficiently compute linear optimal transport vectors for
     a block of data provided in sparse matrix format. Internal
@@ -274,6 +275,10 @@ def lot_vectors_sparse_internal(
         Operations will be parallelised over chunks of the input.
         This specifies the chunk size.
 
+    spherical_vectors: bool (optional, default=True)
+        Whether the vectors live on an n-sphere instead of euclidean space
+        and thus require some degree of spherical correction.
+
     Returns
     -------
     lot_vectors: ndarray
@@ -299,38 +304,44 @@ def lot_vectors_sparse_internal(
             if row_sum > 0.0:
                 row_distribution /= row_sum
 
-            row_vectors = sample_vectors[row_indices].astype(np.float64)
+                row_vectors = sample_vectors[row_indices].astype(np.float64)
 
-            if row_vectors.shape[0] > reference_vectors.shape[0]:
-                cost = chunked_pairwise_distance(
-                    row_vectors, reference_vectors, dist=metric
+                if row_vectors.shape[0] > reference_vectors.shape[0]:
+                    cost = chunked_pairwise_distance(
+                        row_vectors, reference_vectors, dist=metric
+                    )
+                else:
+                    cost = chunked_pairwise_distance(
+                        reference_vectors, row_vectors, dist=metric
+                    ).T
+
+                current_transport_plan = transport_plan(
+                    row_distribution, reference_distribution, cost
                 )
-            else:
-                cost = chunked_pairwise_distance(
-                    reference_vectors, row_vectors, dist=metric
-                ).T
+                transport_images = (
+                    current_transport_plan * (1.0 / reference_distribution)
+                ).T @ row_vectors
 
-            current_transport_plan = transport_plan(
-                row_distribution, reference_distribution, cost
-            )
-            transport_images = (
-                current_transport_plan * (1.0 / reference_distribution)
-            ).T @ row_vectors
+                if spherical_vectors:
+                    l2_normalize(transport_images)
 
-            if metric is cosine:
-                l2_normalize(transport_images)
+                transport_vectors = transport_images - reference_vectors
 
-            transport_vectors = transport_images - reference_vectors
+                if spherical_vectors:
+                    tangent_vectors = project_to_sphere_tangent_space(
+                        transport_vectors, reference_vectors
+                    )
+                    l2_normalize(tangent_vectors)
+                    scaling = tangent_vectors_scales(transport_images, reference_vectors)
+                    transport_vectors = tangent_vectors * scaling
 
-            if metric is cosine:
-                tangent_vectors = project_to_sphere_tangent_space(
-                    transport_vectors, reference_vectors
-                )
-                l2_normalize(tangent_vectors)
-                scaling = tangent_vectors_scales(transport_images, reference_vectors)
-                transport_vectors = tangent_vectors * scaling
+                result[i] = transport_vectors.flatten()
 
-            result[i] = transport_vectors.flatten()
+    # Help the SVD preserve spherical data by sqrt entries
+    if spherical_vectors:
+        for i in range(result.shape[0]):
+            for j in range(result.shape[1]):
+                result[i, j] = np.sign(result[i,j]) * np.sqrt(np.abs(result[i, j]))
 
     return result
 
@@ -344,6 +355,7 @@ def lot_vectors_dense_internal(
     metric=cosine,
     max_distribution_size=256,
     chunk_size=256,
+    spherical_vectors=True,
 ):
     """Efficiently compute linear optimal transport vectors for
     a block of data provided as a list of distributions and a
@@ -377,6 +389,10 @@ def lot_vectors_dense_internal(
         Operations will be parallelised over chunks of the input.
         This specifies the chunk size.
 
+    spherical_vectors: bool (optional, default=True)
+        Whether the vectors live on an n-sphere instead of euclidean space
+        and thus require some degree of spherical correction.
+
     Returns
     -------
     lot_vectors: ndarray
@@ -402,36 +418,42 @@ def lot_vectors_dense_internal(
             if row_sum > 0.0:
                 row_distribution /= row_sum
 
-            if row_vectors.shape[0] > reference_vectors.shape[0]:
-                cost = chunked_pairwise_distance(
-                    row_vectors, reference_vectors, dist=metric
+                if row_vectors.shape[0] > reference_vectors.shape[0]:
+                    cost = chunked_pairwise_distance(
+                        row_vectors, reference_vectors, dist=metric
+                    )
+                else:
+                    cost = chunked_pairwise_distance(
+                        reference_vectors, row_vectors, dist=metric
+                    ).T
+
+                current_transport_plan = transport_plan(
+                    row_distribution, reference_distribution, cost
                 )
-            else:
-                cost = chunked_pairwise_distance(
-                    reference_vectors, row_vectors, dist=metric
-                ).T
+                transport_images = (
+                    current_transport_plan * (1.0 / reference_distribution)
+                ).T @ row_vectors
 
-            current_transport_plan = transport_plan(
-                row_distribution, reference_distribution, cost
-            )
-            transport_images = (
-                current_transport_plan * (1.0 / reference_distribution)
-            ).T @ row_vectors
+                if spherical_vectors:
+                    l2_normalize(transport_images)
 
-            if metric is cosine:
-                l2_normalize(transport_images)
+                transport_vectors = transport_images - reference_vectors
 
-            transport_vectors = transport_images - reference_vectors
+                if spherical_vectors:
+                    tangent_vectors = project_to_sphere_tangent_space(
+                        transport_vectors, reference_vectors
+                    )
+                    l2_normalize(tangent_vectors)
+                    scaling = tangent_vectors_scales(transport_images, reference_vectors)
+                    transport_vectors = tangent_vectors * scaling
 
-            if metric is cosine:
-                tangent_vectors = project_to_sphere_tangent_space(
-                    transport_vectors, reference_vectors
-                )
-                l2_normalize(tangent_vectors)
-                scaling = tangent_vectors_scales(transport_images, reference_vectors)
-                transport_vectors = tangent_vectors * scaling
+                result[i] = transport_vectors.flatten()
 
-            result[i] = transport_vectors.flatten()
+    # Help the SVD preserve spherical data by sqrt entries
+    if spherical_vectors:
+        for i in range(result.shape[0]):
+            for j in range(result.shape[1]):
+                result[i, j] = np.sign(result[i,j]) * np.sqrt(np.abs(result[i, j]))
 
     return result
 
@@ -446,6 +468,7 @@ def lot_vectors_sparse(
     random_state=None,
     max_distribution_size=256,
     block_size=16384,
+    n_svd_iter=10,
 ):
     """Given distributions over a metric space produce a compressed array
     of linear optimal transport vectors, one for each distribution, and
@@ -502,6 +525,10 @@ def lot_vectors_sparse(
         learn less well in more, smaller, batches). Setting this too large can
         cause the algorithm to exceed memory.
 
+    n_svd_iter: int (optional, default=10)
+        How many iterations of randomized SVD to run to get compressed vectors. More
+        iterations will produce better results at greater computational cost.
+
     Returns
     -------
     lot_vectors: ndarray
@@ -530,11 +557,12 @@ def lot_vectors_sparse(
             metric=metric,
             max_distribution_size=max_distribution_size,
             chunk_size=chunk_size,
+            spherical_vectors=(metric == cosine)
         )
         u, singular_values, v = randomized_svd(
             lot_vectors,
             n_components=n_components,
-            n_iter=10,
+            n_iter=n_svd_iter,
             random_state=random_state,
         )
         result, components = svd_flip(u, v)
@@ -566,6 +594,7 @@ def lot_vectors_sparse(
             metric=metric,
             max_distribution_size=max_distribution_size,
             chunk_size=chunk_size,
+            spherical_vectors=(metric == cosine)
         )
 
         if singular_values is not None:
@@ -578,7 +607,7 @@ def lot_vectors_sparse(
         u, singular_values, v = randomized_svd(
             block_to_learn,
             n_components=n_components,
-            n_iter=10,
+            n_iter=n_svd_iter,
             random_state=random_state,
         )
         u, components = svd_flip(u, v)
@@ -609,6 +638,7 @@ def lot_vectors_dense(
     random_state=None,
     max_distribution_size=256,
     block_size=16384,
+    n_svd_iter=10,
 ):
     """Given distributions over a metric space produce a compressed array
     of linear optimal transport vectors, one for each distribution, and
@@ -662,6 +692,10 @@ def lot_vectors_dense(
         learn less well in more, smaller, batches). Setting this too large can
         cause the algorithm to exceed memory.
 
+    n_svd_iter: int (optional, default=10)
+        How many iterations of randomized SVD to run to get compressed vectors. More
+        iterations will produce better results at greater computational cost.
+
     Returns
     -------
     lot_vectors: ndarray
@@ -686,11 +720,12 @@ def lot_vectors_dense(
             metric=metric,
             max_distribution_size=max_distribution_size,
             chunk_size=chunk_size,
+            spherical_vectors=(metric == cosine)
         )
         u, singular_values, v = randomized_svd(
             lot_vectors,
             n_components=n_components,
-            n_iter=10,
+            n_iter=n_svd_iter,
             random_state=random_state,
         )
         result, components = svd_flip(u, v)
@@ -721,6 +756,7 @@ def lot_vectors_dense(
             metric=metric,
             max_distribution_size=max_distribution_size,
             chunk_size=chunk_size,
+            spherical_vectors=(metric == cosine)
         )
 
         if singular_values is not None:
@@ -733,7 +769,7 @@ def lot_vectors_dense(
         u, singular_values, v = randomized_svd(
             block_to_learn,
             n_components=n_components,
-            n_iter=10,
+            n_iter=n_svd_iter,
             random_state=random_state,
         )
         u, components = svd_flip(u, v)
@@ -805,6 +841,10 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
         distributions over more vectors will be truncated back
         to this value for faster performance.
 
+    n_svd_iter: int (optional, default=10)
+        How many iterations of randomized SVD to run to get compressed vectors. More
+        iterations will produce better results at greater computational cost.
+
     random_state: numpy.random.random_state or int or None (optional, default=None)
         A random state to use. A fixed integer seed can be used for reproducibility.
     """
@@ -817,6 +857,7 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
         metric="cosine",
         memory_size="2G",
         max_distribution_size=256,
+        n_svd_iter=10,
         random_state=None,
     ):
         self.n_components = n_components
@@ -825,6 +866,7 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
         self.metric = metric
         self.memory_size = memory_size
         self.max_distribution_size = max_distribution_size
+        self.n_svd_iter = n_svd_iter
         self.random_state = random_state
 
     def _get_metric(self):
@@ -930,9 +972,10 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                 self.reference_distribution_,
                 self.n_components,
                 metric,
-                random_state,
-                self.max_distribution_size,
-                block_size,
+                random_state=random_state,
+                max_distribution_size=self.max_distribution_size,
+                block_size=block_size,
+                n_svd_iter=self.n_svd_iter,
             )
 
         elif type(X) in (list, tuple, numba.typed.List):
@@ -992,9 +1035,10 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                 self.reference_distribution_,
                 self.n_components,
                 metric,
-                random_state,
-                self.max_distribution_size,
-                block_size,
+                random_state=random_state,
+                max_distribution_size=self.max_distribution_size,
+                block_size=block_size,
+                n_svd_iter=self.n_svd_iter,
             )
         else:
             raise ValueError(

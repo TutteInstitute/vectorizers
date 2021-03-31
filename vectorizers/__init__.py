@@ -8,6 +8,7 @@ from ._vectorizers import ProductDistributionVectorizer
 from ._vectorizers import Wasserstein1DHistogramTransformer
 from ._vectorizers import SequentialDifferenceTransformer
 from ._vectorizers import LabelledTreeCooccurrenceVectorizer
+from .linear_optimal_transport import WassersteinVectorizer
 
 from .utils import cast_tokens_to_strings
 
@@ -24,5 +25,6 @@ __all__ = [
     "Wasserstein1DHistogramTransformer",
     "SequentialDifferenceTransformer",
     "LabelledTreeCooccurrenceVectorizer",
+    "WassersteinVectorizer",
     "__version__",
 ]
