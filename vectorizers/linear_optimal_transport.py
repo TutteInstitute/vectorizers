@@ -382,6 +382,12 @@ def lot_vectors_sparse_internal(
 
                 result[i] = transport_vectors.flatten()
 
+    # Help the SVD preserve spherical data by sqrt entries
+    if spherical_vectors:
+        for i in range(result.shape[0]):
+            for j in range(result.shape[1]):
+                result[i, j] = np.sign(result[i,j]) * np.sqrt(np.abs(result[i, j]))
+
     return result
 
 
@@ -487,6 +493,12 @@ def lot_vectors_dense_internal(
                     transport_vectors = tangent_vectors * scaling
 
                 result[i] = transport_vectors.flatten()
+
+    # Help the SVD preserve spherical data by sqrt entries
+    if spherical_vectors:
+        for i in range(result.shape[0]):
+            for j in range(result.shape[1]):
+                result[i, j] = np.sign(result[i,j]) * np.sqrt(np.abs(result[i, j]))
 
     return result
 
