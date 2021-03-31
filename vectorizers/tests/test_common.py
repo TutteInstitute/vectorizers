@@ -64,9 +64,23 @@ text_token_data = (
     ),
 )
 
+text_token_data_ngram = (
+    ("wer", "pok", "wer"),
+    ("bar", "pok", "wer"),
+    ("foo", "pok", "wer"),
+)
 text_token_data_permutation = (("wer", "pok"), ("bar", "pok"), ("foo", "pok", "wer"))
 text_token_data_subset = (("foo", "pok"), ("pok", "foo", "foo"))
 text_token_data_new_token = (("foo", "pok"), ("pok", "foo", "foo", "zaz"))
+text_token_data_ngram_soln = np.array(
+    [
+        [0, 0, 0, 0, 0, 0, 0, 1],
+        [0, 0, 0, 0, 0, 0, 0, 1],
+        [1, 1, 0, 1, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0, 1],
+    ]
+)
+
 
 mixed_token_data = (
     (1, "pok", 1, 3.1415, "bar"),
@@ -168,7 +182,9 @@ def test_LabeledTreeCooccurrenceVectorizer():
 
 def test_LabeledTreeCooccurrenceVectorizer_reduced_vocab():
     model = LabelledTreeCooccurrenceVectorizer(
-        window_radius=2, window_orientation="after", token_dictionary=sub_dictionary,
+        window_radius=2,
+        window_orientation="after",
+        token_dictionary=sub_dictionary,
     )
     result = model.fit_transform(tree_sequence)
     assert result.shape == (3, 3)
@@ -272,11 +288,7 @@ def test_equality_of_EMCooccurrenceVectorizer(
     )
     assert np.allclose(
         em_model.fit_transform(text_token_data_permutation).toarray(),
-        normalize(
-            seq_model.fit_transform(text_token_data_permutation).toarray(),
-            axis=0,
-            norm="l1",
-        ),
+        seq_model.fit_transform(text_token_data_permutation).toarray(),
     )
     assert np.allclose(
         em_model.fit_transform(text_token_data_permutation).toarray(),
@@ -288,11 +300,7 @@ def test_equality_of_EMCooccurrenceVectorizer(
     )
     assert np.allclose(
         em_model.transform(text_token_data_permutation).toarray(),
-        normalize(
-            seq_model.fit_transform(text_token_data_permutation).toarray(),
-            axis=0,
-            norm="l1",
-        ),
+        seq_model.fit_transform(text_token_data_permutation).toarray(),
     )
 
 
@@ -448,6 +456,14 @@ def test_token_cooccurrence_vectorizer_basic():
     assert result[1, 0] == 6
 
 
+def test_em_token_cooccurrence_vectorizer_ngrams():
+    vectorizer = EMTokenCooccurrenceVectorizer(n_iter=0, skip_ngram_size=2)
+    result = vectorizer.fit_transform(text_token_data_ngram)
+    transform = vectorizer.transform(text_token_data_ngram)
+    assert (result != transform).nnz == 0
+    assert np.allclose(result.toarray(), text_token_data_ngram_soln)
+
+
 def test_token_cooccurrence_vectorizer_window_args():
     vectorizer_a = TokenCooccurrenceVectorizer(window_function="variable")
     vectorizer_b = TokenCooccurrenceVectorizer(
@@ -491,12 +507,8 @@ def test_em_cooccurrence_vectorizer_kernel_args():
         window_orientation="directional",
     )
     mat1 = vectorizer_a.fit_transform(token_data).toarray()
-    # mat2 = vectorizer_b.fit_transform(token_data).toarray()
-    mat2 = normalize(
-        vectorizer_b.fit_transform(token_data), axis=0, norm="l1"
-    ).toarray()
-    print("mat1", mat1)
-    print("mat2", mat2)
+    mat2 = vectorizer_b.fit_transform(token_data).toarray()
+
     assert np.allclose(mat1, mat2)
 
 
@@ -513,9 +525,7 @@ def test_em_cooccurrence_vectorizer_window_args():
         window_orientation="directional",
     )
     mat1 = vectorizer_a.fit_transform(token_data).toarray()
-    mat2 = normalize(
-        vectorizer_b.fit_transform(token_data), axis=0, norm="l1"
-    ).toarray()
+    mat2 = vectorizer_b.fit_transform(token_data).toarray()
     assert np.allclose(mat1, mat2)
 
 
@@ -527,9 +537,7 @@ def test_em_cooccurrence_vectorizer_win_arg_type():
         window_functions="variable", window_args={"power": 0.5}, n_iter=1
     )
     mat1 = vectorizer_a.fit_transform(token_data).toarray()
-    mat2 = normalize(
-        vectorizer_b.fit_transform(token_data), axis=0, norm="l1"
-    ).toarray()
+    mat2 = vectorizer_b.fit_transform(token_data).toarray()
     assert np.allclose(mat1, mat2)
 
 
@@ -547,9 +555,11 @@ def test_em_cooccurrence_vectorizer_ker_arg_type():
 
 def test_em_cooccurrence_vectorizer_epsilon():
     vectorizer_a = EMTokenCooccurrenceVectorizer(epsilon=0)
-    vectorizer_b = EMTokenCooccurrenceVectorizer()
+    vectorizer_b = EMTokenCooccurrenceVectorizer(epsilon=1e-11)
     vectorizer_c = EMTokenCooccurrenceVectorizer(epsilon=1)
-    mat1 = vectorizer_a.fit_transform(token_data).toarray()
+    mat1 = normalize(
+        vectorizer_a.fit_transform(token_data).toarray(), axis=0, norm="l1"
+    )
     mat2 = vectorizer_b.fit_transform(token_data).toarray()
     assert np.allclose(mat1, mat2)
     assert vectorizer_c.fit_transform(token_data).nnz == 0
@@ -559,7 +569,7 @@ def test_em_cooccurrence_vectorizer_coo_mem():
     vectorizer_a = EMTokenCooccurrenceVectorizer(
         window_functions="fixed",
         n_iter=0,
-        coo_max_bytes=2 ** 11,
+        coo_max_memory='2k',
         normalize_windows=False,
     )
     vectorizer_b = EMTokenCooccurrenceVectorizer(
@@ -572,25 +582,18 @@ def test_em_cooccurrence_vectorizer_coo_mem():
     )
     mat1 = vectorizer_a.fit_transform(token_data).toarray()
     mat2 = vectorizer_b.fit_transform(token_data).toarray()
-    mat3 = normalize(
-        vectorizer_c.fit_transform(token_data), axis=0, norm="l1"
-    ).toarray()
+    mat3 = vectorizer_c.fit_transform(token_data).toarray()
     assert np.allclose(mat1, mat2)
     assert np.allclose(mat1, mat3)
 
 
-def test_em_cooccurrence_vectorizer_em_iter():
+@pytest.mark.parametrize("skip_grams_size", [1, 2])
+def test_em_cooccurrence_vectorizer_em_iter(skip_grams_size):
     vectorizer_a = EMTokenCooccurrenceVectorizer(
-        kernel_functions=["geometric"],
-        mask_string="MASK",
-        kernel_args=[{"normalize": True, "p": 0.9}],
-        n_iter=0,
+        n_iter=0, skip_ngram_size=skip_grams_size
     )
     vectorizer_b = EMTokenCooccurrenceVectorizer(
-        kernel_functions=["geometric"],
-        mask_string="MASK",
-        kernel_args=[{"normalize": True, "p": 0.9}],
-        n_iter=2,
+        n_iter=2, skip_ngram_size=skip_grams_size
     )
     assert (
         vectorizer_a.fit_transform(token_data).nnz
@@ -642,7 +645,9 @@ def test_token_cooccurrence_vectorizer_offset(kernel_function):
         kernel_function=kernel_function, window_radius=2
     )
     vectorizer_c = TokenCooccurrenceVectorizer(
-        window_radius=2, kernel_function=kernel_function, kernel_args={"offset": 1},
+        window_radius=2,
+        kernel_function=kernel_function,
+        kernel_args={"offset": 1},
     )
     mat1 = (
         vectorizer_a.fit_transform(token_data) + vectorizer_c.fit_transform(token_data)
@@ -653,7 +658,9 @@ def test_token_cooccurrence_vectorizer_offset(kernel_function):
 
 def test_token_cooccurrence_vectorizer_nullify_mask():
     vectorizer_a = TokenCooccurrenceVectorizer(mask_string="MASK", nullify_mask=True)
-    vectorizer_b = TokenCooccurrenceVectorizer(mask_string="MASK",)
+    vectorizer_b = TokenCooccurrenceVectorizer(
+        mask_string="MASK",
+    )
     assert np.allclose(
         vectorizer_a.fit_transform(token_data).toarray()[:-1, :-1],
         vectorizer_b.fit_transform(token_data).toarray()[:-1, :-1],
@@ -664,7 +671,9 @@ def test_token_cooccurrence_vectorizer_nullify_mask():
 
 def test_token_cooccurrence_vectorizer_nullify_mask():
     vectorizer_a = TokenCooccurrenceVectorizer(mask_string="MASK", nullify_mask=True)
-    vectorizer_b = TokenCooccurrenceVectorizer(mask_string="MASK",)
+    vectorizer_b = TokenCooccurrenceVectorizer(
+        mask_string="MASK",
+    )
     assert np.allclose(
         vectorizer_a.fit_transform(token_data).toarray()[:-1, :-1],
         vectorizer_b.fit_transform(token_data).toarray()[:-1, :-1],
@@ -912,7 +921,16 @@ def test_distribution_vectorizer_bad_params():
     vectorizer = DistributionVectorizer()
     with pytest.raises(ValueError):
         vectorizer.fit(
-            [[[1, 2, 3], [1, 2], [1, 2, 3, 4]], [[1, 2], [1,], [1, 2, 3],],]
+            [
+                [[1, 2, 3], [1, 2], [1, 2, 3, 4]],
+                [
+                    [1, 2],
+                    [
+                        1,
+                    ],
+                    [1, 2, 3],
+                ],
+            ]
         )
 
 

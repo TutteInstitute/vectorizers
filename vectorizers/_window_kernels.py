@@ -16,7 +16,10 @@ def window_at_index(token_sequence, window_size, ind, reverse=False):
 
 @numba.njit(nogil=True)
 def variable_window_radii(
-    window_size, token_frequency, mask_index=None, power=0.75,
+    window_size,
+    token_frequency,
+    mask_index=None,
+    power=0.75,
 ):
     radii = np.power(token_frequency, power - 1)
     radii /= np.sum(radii * token_frequency)
@@ -74,7 +77,7 @@ def geometric_kernel(
     offset=0,
     power=0.9,
 ):
-    result = (power ** np.arange(0, len(window)))
+    result = power ** np.arange(0, len(window))
 
     if mask_index is not None:
         result[window == mask_index] = 0.0
