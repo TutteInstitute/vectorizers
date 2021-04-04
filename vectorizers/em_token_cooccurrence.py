@@ -1433,7 +1433,12 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
     def reduce_dimension(self, dimension=150):
         check_is_fitted(self, ["column_label_dictionary_"])
 
-        self.reduced_matrix_ = normalize(self.cooccurrences_, axis=1, norm="l1")
+        if self.n_iter <= 1:
+            self.reduced_matrix_ = normalize(self.cooccurrences_, axis=1, norm="l1")
+            self.reduced_matrix_ = normalize(self.reduced_matrix_, axis=1, norm="l1")
+        else:
+            self.reduced_matrix_ = normalize(self.cooccurrences_, axis=1, norm="l1")
+
         self.reduced_matrix_.data = np.power(self.reduced_matrix_.data, 0.25)
 
         u, s, v = svds(self.reduced_matrix_, k=dimension)
