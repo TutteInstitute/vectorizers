@@ -100,8 +100,7 @@ def information_weight(data, prior_strength=0.1, approximate_prior=False):
         column_kl_divergence_func,
         prior_strength=prior_strength,
     )
-    result = data * scipy.sparse.diags(weights)
-    return result, weights
+    return weights
 
 
 @numba.njit()
@@ -209,6 +208,7 @@ class InformationWeightTransformer(BaseEstimator, TransformerMixin):
             X = scipy.sparse.csc_matrix(X)
 
         self.information_weights_ = information_weight(X, self.prior_strength, self.approx_prior)
+        return self
 
     def transform(self, X):
         result = X @ scipy.sparse.diags(self.information_weights_)
