@@ -84,6 +84,39 @@ def column_weights(
 
 
 def information_weight(data, prior_strength=0.1, approximate_prior=False):
+    """Compute information based weights for columns. The information weight
+    is estimated as the amount of information gained by moving from a baseline
+    model to a model derived from the observed counts. In practice this can be
+    computed as the KL-divergence between distributions. For the baseline model
+    we assume data will be distributed according to the row sums -- i.e.
+    proportional to the frequency of the row. For the observed counts we use
+    a background prior of pseudo counts equal to ``prior_strength`` times the
+    baseline prior distribution. The Bayesian prior can either be computed
+    exactly (the default) at some computational expense, or estimated for a much
+    fast computation, often suitable for large or very sparse datasets.
+
+    Parameters
+    ----------
+    data: scipy sparse matrix (n_samples, n_features)
+        A matrix of count data where rows represent observations and
+        columns represent features. Column weightings will be learned
+        from this data.
+
+    prior_strength: float (optional, default=0.1)
+        How strongly to weight the prior when doing a Bayesian update to
+        derive a model based on observed counts of a column.
+
+    approximate_prior: bool (optional, default=False)
+        Whether to approximate weights based on the Bayesian prior or perform
+        exact computations. Approximations are much faster especialyl for very
+        large or very sparse datasets.
+
+    Returns
+    -------
+    weights: ndarray of shape (n_features,)
+        The learned weights to be applied to columns based on the amount
+        of information provided by the column.
+    """
     baseline_counts = np.squeeze(np.array(data.sum(axis=1)))
     baseline_probabilities = baseline_counts / baseline_counts.sum()
     csc_data = data.tocsc()
@@ -198,12 +231,55 @@ def multinomial_em_sparse(
 
 
 class InformationWeightTransformer(BaseEstimator, TransformerMixin):
+    """A data transformer that re-weights columns of count data. Column weights
+    are computed as information based weights for columns. The information weight
+    is estimated as the amount of information gained by moving from a baseline
+    model to a model derived from the observed counts. In practice this can be
+    computed as the KL-divergence between distributions. For the baseline model
+    we assume data will be distributed according to the row sums -- i.e.
+    proportional to the frequency of the row. For the observed counts we use
+    a background prior of pseudo counts equal to ``prior_strength`` times the
+    baseline prior distribution. The Bayesian prior can either be computed
+    exactly (the default) at some computational expense, or estimated for a much
+    fast computation, often suitable for large or very sparse datasets.
 
+    Parameters
+    ----------
+    prior_strength: float (optional, default=0.1)
+        How strongly to weight the prior when doing a Bayesian update to
+        derive a model based on observed counts of a column.
+
+    approximate_prior: bool (optional, default=False)
+        Whether to approximate weights based on the Bayesian prior or perform
+        exact computations. Approximations are much faster especialyl for very
+        large or very sparse datasets.
+
+    Attributes
+    ----------
+
+    information_weights_: ndarray of shape (n_features,)
+        The learned weights to be applied to columns based on the amount
+        of information provided by the column.
+    """
     def __init__(self, prior_strength=0.1, approx_prior=False):
         self.prior_strength = prior_strength
         self.approx_prior = approx_prior
 
     def fit(self, X, y=None, **fit_kwds):
+        """Learn the appropriate column weighting as information weights
+        from the observed count data ``X``.
+
+        Parameters
+        ----------
+        X: ndarray of scipy sparse matrix of shape (n_samples, n_features)
+            The count data to be trained on. Note that, as count data all
+            entries should be positive or zero.
+
+        Returns
+        -------
+        self:
+            The trained model.
+        """
         if not scipy.sparse.isspmatrix(X):
             X = scipy.sparse.csc_matrix(X)
 
@@ -211,6 +287,19 @@ class InformationWeightTransformer(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X):
+        """Reweight data ``X`` based on learned information weights of columns.
+
+        Parameters
+        ----------
+        X: ndarray of scipy sparse matrix of shape (n_samples, n_features)
+            The count data to be transformed. Note that, as count data all
+            entries should be positive or zero.
+
+        Returns
+        -------
+        result: ndarray of scipy sparse matrix of shape (n_samples, n_features)
+            The reweighted data.
+        """
         result = X @ scipy.sparse.diags(self.information_weights_)
         return result
 
