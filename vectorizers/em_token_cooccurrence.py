@@ -1446,6 +1446,8 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             u, s, v = svds(self.reduced_matrix_, k=dimension)
         elif algorithm == "randomized":
             u, s, v = randomized_svd(self.reduced_matrix_, n_components=dimension, n_iter=n_iter)
+        else:
+            raise ValueError("algorithm should be one of 'arpack' or 'randomized'")
 
         u, v = svd_flip(u, v)
         self.reduced_matrix_ = u * np.power(s, 0.5)
