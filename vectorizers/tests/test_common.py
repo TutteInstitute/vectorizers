@@ -11,22 +11,19 @@ from vectorizers import NgramVectorizer
 from vectorizers import SkipgramVectorizer
 from vectorizers import DistributionVectorizer
 from vectorizers import HistogramVectorizer
-from vectorizers.kde_vectorizer import KDEVectorizer
+from vectorizers import KDEVectorizer
 from vectorizers import LabelledTreeCooccurrenceVectorizer
-from vectorizers.em_token_cooccurrence import EMTokenCooccurrenceVectorizer
 from vectorizers import SequentialDifferenceTransformer
 from vectorizers import Wasserstein1DHistogramTransformer
 from vectorizers.linear_optimal_transport import WassersteinVectorizer
 
 from vectorizers.distances import kantorovich1d
-
+from vectorizers.ngram_vectorizer import ngrams_of
 from vectorizers._vectorizers import (
-    ngrams_of,
     find_bin_boundaries,
-    build_tree_skip_grams,
-    remove_node,
-    sequence_tree_skip_grams,
 )
+from vectorizers.tree_token_cooccurrence import build_tree_skip_grams, sequence_tree_skip_grams
+from vectorizers.preprocessing import remove_node
 from vectorizers._window_kernels import (
     harmonic_kernel,
     flat_kernel,
@@ -221,9 +218,9 @@ def test_equality_of_CooccurrenceVectorizers(
         mask_string=mask_string,
     )
     seq_model = TokenCooccurrenceVectorizer(
-        window_radius=window_radius,
-        window_orientation=window_orientation,
-        kernel_function=kernel_function,
+        window_radii=window_radius,
+        window_orientations=window_orientation,
+        kernel_functions=kernel_function,
         min_occurrences=min_token_occurrences,
         max_occurrences=max_token_occurrences,
         max_document_frequency=max_document_frequency,
@@ -256,7 +253,7 @@ def test_equality_of_CooccurrenceVectorizers(
 @pytest.mark.parametrize("window_function", ["fixed", "variable"])
 @pytest.mark.parametrize("mask_string", [None, "[MASK]"])
 @pytest.mark.parametrize("nullify_mask", [False, True])
-def test_equality_of_EMCooccurrenceVectorizer(
+def test_equality_of_CooccurrenceVectorizer(
     min_token_occurrences,
     max_document_frequency,
     window_radius,
@@ -266,7 +263,7 @@ def test_equality_of_EMCooccurrenceVectorizer(
     mask_string,
     nullify_mask,
 ):
-    em_model = EMTokenCooccurrenceVectorizer(
+    em_model = TokenCooccurrenceVectorizer(
         window_radii=[window_radius],
         kernel_functions=[kernel_function],
         window_functions=[window_function],
@@ -278,9 +275,9 @@ def test_equality_of_EMCooccurrenceVectorizer(
         normalize_windows=False,
     )
     seq_model = TokenCooccurrenceVectorizer(
-        window_radius=window_radius,
-        kernel_function=kernel_function,
-        window_function=window_function,
+        window_radii=window_radius,
+        kernel_functions=kernel_function,
+        window_functions=window_function,
         min_occurrences=min_token_occurrences,
         max_document_frequency=max_document_frequency,
         mask_string=mask_string,

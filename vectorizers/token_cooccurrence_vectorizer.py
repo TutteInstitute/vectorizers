@@ -1,21 +1,18 @@
-from ._vectorizers import (
+from .ngram_vectorizer import (
+    ngrams_of,
+)
+from .preprocessing import (
     prune_token_dictionary,
     preprocess_token_sequences,
-    MOCK_DICT,
-    pair_to_tuple,
-    make_tuple_converter,
-    ngrams_of,
     construct_token_dictionary_and_frequency,
     construct_document_frequency,
 )
-
 from warnings import warn
 from sklearn.utils.validation import check_is_fitted
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.preprocessing import normalize
 from collections.abc import Iterable
 from scipy.sparse.linalg import svds
-
 
 import vectorizers.distances as distances
 
@@ -25,7 +22,9 @@ from .utils import (
     coo_append,
     CooArray,
     coo_sum_duplicates,
-    str_to_bytes
+    str_to_bytes,
+    pair_to_tuple,
+    make_tuple_converter,
 )
 
 import numpy as np
@@ -38,8 +37,8 @@ from ._window_kernels import (
     update_kernel,
 )
 
-
-from numba.np.unsafe.ndarray import to_fixed_tuple
+MOCK_DICT = numba.typed.Dict()
+MOCK_DICT[(-1, -1)] = -1
 
 
 @numba.njit(nogil=True)
@@ -810,7 +809,7 @@ def em_cooccurrence_iteration(
     return posterior_data
 
 
-class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
+class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
     """Given a sequence, or list of sequences of tokens, produce a collection of directed
     co-occurrence count matrix of tokens. If passed a single sequence of tokens it
     will use windows to determine co-occurrence. If passed a list of sequences of
@@ -920,7 +919,7 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
     nullify_mask: bool (optional, default=False)
         Sets all cooccurrences with the mask_string equal to zero by skipping over them during processing.
 
-    n_iter: int (optional, default = 1)
+    n_iter: int (optional, default = 0)
         Number of EM iterations to perform
 
     epsilon: float32 (optional default = 0)
@@ -960,9 +959,9 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         mask_string=None,
         nullify_mask=False,
         normalize_windows=True,
-        n_iter=1,
+        n_iter=0,
         epsilon=0,
-        coo_max_memory='2 GiB',
+        coo_max_memory="2 GiB",
     ):
         self.token_dictionary = token_dictionary
         self.min_occurrences = min_occurrences
@@ -1437,6 +1436,6 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self.reduced_matrix_.data = np.power(self.reduced_matrix_.data, 0.25)
 
         u, s, v = svds(self.reduced_matrix_, k=dimension)
-        self.reduced_matrix_ = u * np.power(v, 0.5)
+        self.reduced_matrix_ = u * np.power(s, 0.5)
 
         return self.reduced_matrix_

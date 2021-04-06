@@ -7,12 +7,25 @@ from collections.abc import Iterable
 from collections import namedtuple
 from sklearn.mixture import GaussianMixture
 from sklearn.preprocessing import normalize, LabelBinarizer
-from typing import Union, Sequence, AnyStr
 from collections import Counter
 import re
 from warnings import warn
+from numba.np.unsafe.ndarray import to_fixed_tuple
 
 CooArray = namedtuple("CooArray", ["row", "col", "val", "key", "ind", "min"])
+
+
+@numba.njit(nogil=True)
+def pair_to_tuple(pair):
+    return to_fixed_tuple(pair, 2)
+
+
+def make_tuple_converter(tuple_size):
+    @numba.njit(nogil=True)
+    def tuple_converter(to_convert):
+        return to_fixed_tuple(to_convert, tuple_size)
+
+    return tuple_converter
 
 def str_to_bytes(size_str):
     """Convert a string description of a memory size (e.g. 1GB, or 100M, or 20kB)
