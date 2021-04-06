@@ -261,7 +261,7 @@ class InformationWeightTransformer(BaseEstimator, TransformerMixin):
         The learned weights to be applied to columns based on the amount
         of information provided by the column.
     """
-    def __init__(self, prior_strength=0.1, approx_prior=False):
+    def __init__(self, prior_strength=1e-4, approx_prior=True):
         self.prior_strength = prior_strength
         self.approx_prior = approx_prior
 
