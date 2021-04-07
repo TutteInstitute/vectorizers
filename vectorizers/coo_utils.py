@@ -4,6 +4,8 @@ from collections import namedtuple
 
 CooArray = namedtuple("CooArray", ["row", "col", "val", "key", "ind", "min", "depth"])
 
+COO_QUICKSORT_LIMIT = 1 << 16
+
 
 @numba.njit(nogil=True)
 def merge_sum_duplicates(coo):
@@ -144,9 +146,9 @@ def coo_append(coo, tup):
     coo.key[coo.ind[0]] = tup[3]
     coo.ind[0] += 1
 
-    if (coo.ind[0] - np.abs(coo.min[0])) >= 1 << 18:
+    if (coo.ind[0] - np.abs(coo.min[0])) >= COO_QUICKSORT_LIMIT:
         coo_sum_duplicates(coo, kind="quicksort")
-        if (coo.key.shape[0] - np.abs(coo.min[0])) <= 1 << 18:
+        if (coo.key.shape[0] - np.abs(coo.min[0])) <= COO_QUICKSORT_LIMIT:
             merge_all_sum_duplicates(coo)
             if coo.ind[0] >= 0.95 * coo.key.shape[0]:
                 raise ValueError(
@@ -154,11 +156,13 @@ def coo_append(coo, tup):
                 )
 
     if coo.ind[0] == coo.key.shape[0]:
-        merge_all_sum_duplicates(coo)
-        if coo.ind[0] >= 0.95 * coo.key.shape[0]:
-            raise ValueError(
-                f"The coo matrix array is over memory limit.  Increase coo_max_bytes to process data."
-            )
+        coo_sum_duplicates(coo, kind="quicksort")
+        if (coo.key.shape[0] - np.abs(coo.min[0])) <= COO_QUICKSORT_LIMIT:
+            merge_all_sum_duplicates(coo)
+            if coo.ind[0] >= 0.95 * coo.key.shape[0]:
+                raise ValueError(
+                    f"The coo matrix array is over memory limit.  Increase coo_max_bytes to process data."
+                )
 
 
 @numba.njit(nogil=True)

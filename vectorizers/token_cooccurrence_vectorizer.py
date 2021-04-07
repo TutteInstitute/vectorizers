@@ -379,6 +379,7 @@ def sequence_multi_skip_grams(
         )
 
     for coo in coo_list:
+        coo_sum_duplicates(coo, kind="quicksort")
         merge_all_sum_duplicates(coo)
 
     return (
@@ -1007,7 +1008,9 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         if isinstance(self.window_orientations, str) or callable(
             self.window_orientations
         ):
-            self.window_orientations = [self.window_orientations]
+            self.window_orientations = [
+                self.window_orientations for _ in self.window_radii
+            ]
 
         self._window_reversals = []
         self._window_orientations = []
@@ -1435,8 +1438,8 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
     def reduce_dimension(self, dimension=150, algorithm="arpack", n_iter=10):
         check_is_fitted(self, ["column_label_dictionary_"])
 
-        if self.n_iter <= 1:
-            self.reduced_matrix_ = normalize(self.cooccurrences_, axis=1, norm="l1")
+        if self.n_iter < 1:
+            self.reduced_matrix_ = normalize(self.cooccurrences_, axis=0, norm="l1")
             self.reduced_matrix_ = normalize(self.reduced_matrix_, axis=1, norm="l1")
         else:
             self.reduced_matrix_ = normalize(self.cooccurrences_, axis=1, norm="l1")
