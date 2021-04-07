@@ -13,6 +13,7 @@ from warnings import warn
 from sklearn.utils.validation import check_is_fitted
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.preprocessing import normalize
+from sklearn.utils.extmath import randomized_svd, svd_flip
 from collections.abc import Iterable
 from scipy.sparse.linalg import svds
 
@@ -469,7 +470,7 @@ def multi_token_cooccurrence_matrix(
 
     Returns
     -------
-    cooccurrence_matrix: scipyr.sparse.csr_matrix
+    cooccurrence_matrix: scipyrsparse.csr_matrix
         A matrix of shape (n_unique_tokens, n_windows*n_unique_tokens) where the i,j entry gives
         the (weighted) count of the number of times token i cooccurs within a
         window with token (j mod n_unique_tokens) for window/kernel function (j // n_unique_tokens).
@@ -488,7 +489,7 @@ def multi_token_cooccurrence_matrix(
         array_to_tuple = make_tuple_converter(ngram_size)
 
     cooccurrence_matrix = scipy.sparse.coo_matrix(
-        (n_rows, window_size_array.shape[0] * n_unique_tokens)
+        (n_rows, window_size_array.shape[0] * n_unique_tokens), dtype=np.float32,
     )
     n_chunks = (len(token_sequences) // chunk_size) + 1
 
@@ -1430,13 +1431,25 @@ class EMTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
         return cooccurrences_
 
-    def reduce_dimension(self, dimension=150):
+    def reduce_dimension(self, dimension=150, algorithm="arpack", n_iter=10):
         check_is_fitted(self, ["column_label_dictionary_"])
 
-        self.reduced_matrix_ = normalize(self.cooccurrences_, axis=1, norm="l1")
+        if self.n_iter <= 1:
+            self.reduced_matrix_ = normalize(self.cooccurrences_, axis=1, norm="l1")
+            self.reduced_matrix_ = normalize(self.reduced_matrix_, axis=1, norm="l1")
+        else:
+            self.reduced_matrix_ = normalize(self.cooccurrences_, axis=1, norm="l1")
+
         self.reduced_matrix_.data = np.power(self.reduced_matrix_.data, 0.25)
 
-        u, s, v = svds(self.reduced_matrix_, k=dimension)
+        if algorithm == "arpack":
+            u, s, v = svds(self.reduced_matrix_, k=dimension)
+        elif algorithm == "randomized":
+            u, s, v = randomized_svd(self.reduced_matrix_, n_components=dimension, n_iter=n_iter)
+        else:
+            raise ValueError("algorithm should be one of 'arpack' or 'randomized'")
+
+        u, v = svd_flip(u, v)
         self.reduced_matrix_ = u * np.power(s, 0.5)
 
         return self.reduced_matrix_
