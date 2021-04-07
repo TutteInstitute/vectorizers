@@ -1,6 +1,3 @@
-"""
-This is a module to be used as a reference for building other modules
-"""
 import numpy as np
 import numba
 
