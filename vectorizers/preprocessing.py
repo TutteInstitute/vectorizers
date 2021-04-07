@@ -1,53 +1,12 @@
 """
 This is a module to be used as a reference for building other modules
 """
-from warnings import warn
-
 import numpy as np
-import numba
 from numba.typed import List
-
-from sklearn.base import BaseEstimator, TransformerMixin
-import itertools
-import pandas as pd
-from sklearn.utils.validation import (
-    check_X_y,
-    check_array,
-    check_is_fitted,
-    check_random_state,
-)
-from sklearn.metrics import pairwise_distances
-from sklearn.mixture import GaussianMixture
-from sklearn.preprocessing import normalize
-
-from collections import defaultdict
 import scipy.linalg
 import scipy.stats
 import scipy.sparse
-from typing import Union, Sequence, AnyStr
-
 import re
-
-from .utils import (
-    flatten,
-    vectorize_diagram,
-    pairwise_gaussian_ground_distance,
-    validate_homogeneous_token_types,
-    sparse_collapse,
-    sum_coo_entries,
-)
-import vectorizers.distances as distances
-
-from ._window_kernels import (
-    _KERNEL_FUNCTIONS,
-    _WINDOW_FUNCTIONS,
-    window_at_index,
-)
-
-from numba.np.unsafe.ndarray import to_fixed_tuple
-
-MOCK_DICT = numba.typed.Dict()
-MOCK_DICT[(-1, -1)] = -1
 
 
 def construct_document_frequency(token_by_doc_sequence, token_dictionary):
@@ -169,7 +128,7 @@ def prune_token_dictionary(
         The minimum frequency of occurrence allowed for tokens. Tokens that occur
         less frequently than this will be pruned.
 
-    max_frequency float (optional, default=1.0)
+    max_frequency: float (optional, default=1.0)
         The maximum frequency of occurrence allowed for tokens. Tokens that occur
         more frequently than this will be pruned.
 
@@ -180,6 +139,7 @@ def prune_token_dictionary(
     max_occurrences: int or None (optional, default=None)
         A constraint on the maximum number of occurrences for a token to be considered
         valid. If None then no constraint will be applied.
+
     min_document_occurrences: int or None (optional, default=None)
         A constraint on the minimum number of documents with occurrences for a token to be considered
         valid. If None then no constraint will be applied.
@@ -195,6 +155,9 @@ def prune_token_dictionary(
     max_document_frequency: float or None (optional, default=None)
         A constraint on the minimum frequency of documents with occurrences for a token to be
         considered valid. If None then no constraint will be applied.
+
+    excluded_token_regex: str (optional, default=None)
+        A regular expression which constrains the vocabulary to exclude tokens that match the expression.
 
     total_tokens: int or None (optional, default=None)
         Must be set if you pass in min_occurrence and max_occurrence.
@@ -230,8 +193,7 @@ def prune_token_dictionary(
         else:
             max_frequency = min(1.0, max_occurrences / total_tokens)
 
-    ## Prune by document frequency
-
+    # Prune by document frequency
     if min_document_occurrences is None:
         if min_document_frequency is None:
             min_document_frequency = 0.0
@@ -334,6 +296,7 @@ def remove_node(adjacency_matrix, node, inplace=True):
     else:
         return adj
 
+
 def preprocess_tree_sequences(
     tree_sequences,
     flat_sequence,
@@ -404,6 +367,9 @@ def preprocess_tree_sequences(
         A constraint on the minimum frequency of trees with occurrences for a token to be
         considered valid. If None then no constraint will be applied.
 
+    excluded_token_regex: str (optional, default=None)
+        A regular expression which constrains the vocabulary to exclude tokens that match the expression.
+
     ignored_tokens: set or None (optional, default=None)
         A set of tokens that should be ignored. If None then no tokens will
         be ignored.
@@ -459,7 +425,8 @@ def preprocess_tree_sequences(
             total_documents=len(tree_sequences),
         )
 
-    # We will prune the edges from any nodes who's labels are to be filtered and reconnect their parents with their children.
+    # We will prune the edges from any nodes who's labels are to be filtered and
+    # reconnect their parents with their children.
     # This will remove them from our computation without having to alter the matrix size or label_sequence.
     if masking is None:
         result_sequence = []
@@ -574,6 +541,9 @@ def preprocess_token_sequences(
         A constraint on the minimum frequency of documents with occurrences for a token to be
         considered valid. If None then no constraint will be applied.
 
+    excluded_token_regex: str (optional, default=None)
+        A regular expression which constrains the vocabulary to exclude tokens that match the expression.
+
     ignored_tokens: set or None (optional, default=None)
         A set of tokens that should be ignored. If None then no tokens will
         be ignored.
@@ -674,5 +644,3 @@ def preprocess_token_sequences(
         inverse_token_dictionary,
         token_frequencies,
     )
-
-

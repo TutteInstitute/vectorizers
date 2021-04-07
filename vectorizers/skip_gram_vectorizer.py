@@ -18,8 +18,9 @@ import scipy.sparse
 from .utils import (
     flatten,
     validate_homogeneous_token_types,
-    sum_coo_entries,
 )
+
+from .coo_utils import sum_coo_entries
 
 from .preprocessing import (
     preprocess_token_sequences,

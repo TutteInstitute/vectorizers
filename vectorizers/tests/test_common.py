@@ -15,14 +15,17 @@ from vectorizers import KDEVectorizer
 from vectorizers import LabelledTreeCooccurrenceVectorizer
 from vectorizers import SequentialDifferenceTransformer
 from vectorizers import Wasserstein1DHistogramTransformer
-from vectorizers.linear_optimal_transport import WassersteinVectorizer
+from vectorizers import WassersteinVectorizer
 
 from vectorizers.distances import kantorovich1d
 from vectorizers.ngram_vectorizer import ngrams_of
 from vectorizers._vectorizers import (
     find_bin_boundaries,
 )
-from vectorizers.tree_token_cooccurrence import build_tree_skip_grams, sequence_tree_skip_grams
+from vectorizers.tree_token_cooccurrence import (
+    build_tree_skip_grams,
+    sequence_tree_skip_grams,
+)
 from vectorizers.preprocessing import remove_node
 from vectorizers._window_kernels import (
     harmonic_kernel,
@@ -191,13 +194,11 @@ def test_LabeledTreeCooccurrenceVectorizer_reduced_vocab():
 @pytest.mark.parametrize("max_token_occurrences", [None, 2])
 @pytest.mark.parametrize("min_document_occurrences", [None, 1])
 @pytest.mark.parametrize("max_document_frequency", [None, 0.7])
-@pytest.mark.parametrize(
-    "window_orientation", ["before", "after", "symmetric", "directional"]
-)
+@pytest.mark.parametrize("window_orientation", ["before", "after", "directional"])
 @pytest.mark.parametrize("window_radius", [1, 2])
 @pytest.mark.parametrize("kernel_function", ["harmonic", "flat", "geometric"])
 @pytest.mark.parametrize("mask_string", [None, "[MASK]"])
-def test_equality_of_CooccurrenceVectorizers(
+def test_equality_of_Tree_and_Token_CooccurrenceVectorizers(
     min_token_occurrences,
     max_token_occurrences,
     min_document_occurrences,
@@ -226,6 +227,7 @@ def test_equality_of_CooccurrenceVectorizers(
         max_document_frequency=max_document_frequency,
         min_document_occurrences=min_document_occurrences,
         mask_string=mask_string,
+        normalize_windows=False,
     )
     assert np.allclose(
         tree_model.fit_transform(seq_tree_sequence).toarray(),
@@ -249,11 +251,13 @@ def test_equality_of_CooccurrenceVectorizers(
 @pytest.mark.parametrize("max_document_frequency", [None, 0.7])
 @pytest.mark.parametrize("window_orientation", ["directional"])
 @pytest.mark.parametrize("window_radius", [1, 2])
-@pytest.mark.parametrize("kernel_function", ["flat", "geometric"])
-@pytest.mark.parametrize("window_function", ["fixed", "variable"])
+@pytest.mark.parametrize("n_iter", [0, 2])
+@pytest.mark.parametrize("kernel_function", ["flat"])
+@pytest.mark.parametrize("window_function", ["fixed"])
 @pytest.mark.parametrize("mask_string", [None, "[MASK]"])
 @pytest.mark.parametrize("nullify_mask", [False, True])
-def test_equality_of_CooccurrenceVectorizer(
+@pytest.mark.parametrize("normalize_windows", [False, True])
+def test_equality_of_TokenCooccurrenceVectorizer(
     min_token_occurrences,
     max_document_frequency,
     window_radius,
@@ -262,65 +266,59 @@ def test_equality_of_CooccurrenceVectorizer(
     window_function,
     mask_string,
     nullify_mask,
+    n_iter,
+    normalize_windows,
 ):
-    em_model = TokenCooccurrenceVectorizer(
+    model1 = TokenCooccurrenceVectorizer(
         window_radii=[window_radius],
         kernel_functions=[kernel_function],
         window_functions=[window_function],
         min_occurrences=min_token_occurrences,
         max_document_frequency=max_document_frequency,
         mask_string=mask_string,
-        n_iter=0,
+        n_iter=n_iter,
         nullify_mask=nullify_mask and mask_string is not None,
-        normalize_windows=False,
+        normalize_windows=normalize_windows,
     )
-    seq_model = TokenCooccurrenceVectorizer(
+    model2 = TokenCooccurrenceVectorizer(
         window_radii=window_radius,
         kernel_functions=kernel_function,
         window_functions=window_function,
         min_occurrences=min_token_occurrences,
         max_document_frequency=max_document_frequency,
         mask_string=mask_string,
+        n_iter=n_iter,
         nullify_mask=nullify_mask and mask_string is not None,
+        normalize_windows=normalize_windows,
     )
     assert np.allclose(
-        em_model.fit_transform(text_token_data_permutation).toarray(),
-        seq_model.fit_transform(text_token_data_permutation).toarray(),
+        model1.fit_transform(text_token_data_permutation).toarray(),
+        model2.fit_transform(text_token_data_permutation).toarray(),
     )
     assert np.allclose(
-        em_model.fit_transform(text_token_data_permutation).toarray(),
-        em_model.transform(text_token_data_permutation).toarray(),
+        model1.fit_transform(text_token_data_permutation).toarray(),
+        model1.transform(text_token_data_permutation).toarray(),
     )
     assert np.allclose(
-        em_model.fit_transform(text_token_data_permutation).toarray(),
-        em_model.transform(text_token_data_permutation).toarray(),
-    )
-    assert np.allclose(
-        em_model.transform(text_token_data_permutation).toarray(),
-        seq_model.fit_transform(text_token_data_permutation).toarray(),
+        model2.fit_transform(text_token_data_permutation).toarray(),
+        model2.transform(text_token_data_permutation).toarray(),
     )
 
 
 def test_reverse_cooccurrence_vectorizer():
     seq_model1 = TokenCooccurrenceVectorizer(
-        window_radius=2,
-        window_orientation="after",
-        kernel_function="harmonic",
-        min_occurrences=None,
-        max_occurrences=None,
-        max_document_frequency=None,
-        min_document_occurrences=None,
+        window_radii=2,
+        window_orientations="after",
+        kernel_functions="harmonic",
         mask_string=None,
+        normalize_windows=False,
     )
     seq_model2 = TokenCooccurrenceVectorizer(
-        window_radius=2,
-        window_orientation="before",
-        kernel_function="harmonic",
-        min_occurrences=None,
-        max_occurrences=None,
-        max_document_frequency=None,
-        min_document_occurrences=None,
+        window_radii=2,
+        window_orientations="before",
+        kernel_functions="harmonic",
         mask_string=None,
+        normalize_windows=False,
     )
     reversed_after = (seq_model1.fit_transform(text_token_data).toarray().T,)
     before = (seq_model2.fit_transform(text_token_data).toarray(),)
@@ -438,13 +436,13 @@ def test_find_boundaries_all_dupes():
 
 
 def test_token_cooccurrence_vectorizer_basic():
-    vectorizer = TokenCooccurrenceVectorizer(window_orientation="symmetric")
+    vectorizer = TokenCooccurrenceVectorizer(window_orientations="directional")
     result = vectorizer.fit_transform(token_data)
     transform = vectorizer.transform(token_data)
     assert (result != transform).nnz == 0
     assert scipy.sparse.issparse(result)
     vectorizer = TokenCooccurrenceVectorizer(
-        window_radius=1, window_orientation="after"
+        window_radii=1, window_orientations="after"
     )
     result = vectorizer.fit_transform(token_data)
     transform = vectorizer.transform(token_data)
@@ -453,8 +451,8 @@ def test_token_cooccurrence_vectorizer_basic():
     assert result[1, 0] == 6
 
 
-def test_em_token_cooccurrence_vectorizer_ngrams():
-    vectorizer = EMTokenCooccurrenceVectorizer(n_iter=0, skip_ngram_size=2)
+def test_token_cooccurrence_vectorizer_ngrams():
+    vectorizer = TokenCooccurrenceVectorizer(n_iter=0, skip_ngram_size=2)
     result = vectorizer.fit_transform(text_token_data_ngram)
     transform = vectorizer.transform(text_token_data_ngram)
     assert (result != transform).nnz == 0
@@ -462,9 +460,9 @@ def test_em_token_cooccurrence_vectorizer_ngrams():
 
 
 def test_token_cooccurrence_vectorizer_window_args():
-    vectorizer_a = TokenCooccurrenceVectorizer(window_function="variable")
+    vectorizer_a = TokenCooccurrenceVectorizer(window_functions="variable")
     vectorizer_b = TokenCooccurrenceVectorizer(
-        window_function="variable", window_args={"power": 0.75}
+        window_functions="variable", window_args={"power": 0.75}
     )
     assert (
         vectorizer_a.fit_transform(token_data) != vectorizer_b.fit_transform(token_data)
@@ -473,12 +471,12 @@ def test_token_cooccurrence_vectorizer_window_args():
 
 def test_token_cooccurrence_vectorizer_kernel_args():
     vectorizer_a = TokenCooccurrenceVectorizer(
-        kernel_function="geometric",
+        kernel_functions="geometric",
         mask_string="MASK",
         kernel_args={"normalize": True},
     )
     vectorizer_b = TokenCooccurrenceVectorizer(
-        kernel_function="geometric",
+        kernel_functions="geometric",
         kernel_args={"normalize": True, "p": 0.9},
         mask_string="MASK",
     )
@@ -487,73 +485,10 @@ def test_token_cooccurrence_vectorizer_kernel_args():
     ).nnz == 0
 
 
-def test_em_cooccurrence_vectorizer_kernel_args():
-    vectorizer_a = EMTokenCooccurrenceVectorizer(
-        kernel_functions="geometric",
-        window_functions="variable",
-        mask_string="MASK",
-        kernel_args={"normalize": True, "p": 0.7},
-        n_iter=0,
-        normalize_windows=False,
-    )
-    vectorizer_b = TokenCooccurrenceVectorizer(
-        kernel_function="geometric",
-        kernel_args={"normalize": True, "p": 0.7},
-        window_function="variable",
-        mask_string="MASK",
-        window_orientation="directional",
-    )
-    mat1 = vectorizer_a.fit_transform(token_data).toarray()
-    mat2 = vectorizer_b.fit_transform(token_data).toarray()
-
-    assert np.allclose(mat1, mat2)
-
-
-def test_em_cooccurrence_vectorizer_window_args():
-    vectorizer_a = EMTokenCooccurrenceVectorizer(
-        window_functions="variable",
-        window_args={"power": 0.5},
-        n_iter=0,
-        normalize_windows=False,
-    )
-    vectorizer_b = TokenCooccurrenceVectorizer(
-        window_function="variable",
-        window_args={"power": 0.5},
-        window_orientation="directional",
-    )
-    mat1 = vectorizer_a.fit_transform(token_data).toarray()
-    mat2 = vectorizer_b.fit_transform(token_data).toarray()
-    assert np.allclose(mat1, mat2)
-
-
-def test_em_cooccurrence_vectorizer_win_arg_type():
-    vectorizer_a = EMTokenCooccurrenceVectorizer(
-        window_functions=["variable"], window_args=[{"power": 0.5}], n_iter=1
-    )
-    vectorizer_b = EMTokenCooccurrenceVectorizer(
-        window_functions="variable", window_args={"power": 0.5}, n_iter=1
-    )
-    mat1 = vectorizer_a.fit_transform(token_data).toarray()
-    mat2 = vectorizer_b.fit_transform(token_data).toarray()
-    assert np.allclose(mat1, mat2)
-
-
-def test_em_cooccurrence_vectorizer_ker_arg_type():
-    vectorizer_a = EMTokenCooccurrenceVectorizer(
-        kernel_functions="geometric", kernel_args={"p": 0.5}, n_iter=1
-    )
-    vectorizer_b = EMTokenCooccurrenceVectorizer(
-        kernel_functions=["geometric"], kernel_args=[{"p": 0.5}], n_iter=1
-    )
-    mat1 = vectorizer_a.fit_transform(token_data).toarray()
-    mat2 = vectorizer_b.fit_transform(token_data).toarray()
-    assert np.allclose(mat1, mat2)
-
-
-def test_em_cooccurrence_vectorizer_epsilon():
-    vectorizer_a = EMTokenCooccurrenceVectorizer(epsilon=0)
-    vectorizer_b = EMTokenCooccurrenceVectorizer(epsilon=1e-11)
-    vectorizer_c = EMTokenCooccurrenceVectorizer(epsilon=1)
+def test_cooccurrence_vectorizer_epsilon():
+    vectorizer_a = TokenCooccurrenceVectorizer(epsilon=0)
+    vectorizer_b = TokenCooccurrenceVectorizer(epsilon=1e-11)
+    vectorizer_c = TokenCooccurrenceVectorizer(epsilon=1)
     mat1 = normalize(
         vectorizer_a.fit_transform(token_data).toarray(), axis=0, norm="l1"
     )
@@ -562,34 +497,30 @@ def test_em_cooccurrence_vectorizer_epsilon():
     assert vectorizer_c.fit_transform(token_data).nnz == 0
 
 
-def test_em_cooccurrence_vectorizer_coo_mem():
-    vectorizer_a = EMTokenCooccurrenceVectorizer(
+def test_cooccurrence_vectorizer_coo_mem():
+    vectorizer_a = TokenCooccurrenceVectorizer(
         window_functions="fixed",
         n_iter=0,
-        coo_max_memory='2k',
+        coo_max_memory="2k",
         normalize_windows=False,
     )
-    vectorizer_b = EMTokenCooccurrenceVectorizer(
+    vectorizer_b = TokenCooccurrenceVectorizer(
         window_functions="fixed",
         n_iter=0,
         normalize_windows=False,
     )
-    vectorizer_c = TokenCooccurrenceVectorizer(
-        window_function="fixed",
-    )
+
     mat1 = vectorizer_a.fit_transform(token_data).toarray()
     mat2 = vectorizer_b.fit_transform(token_data).toarray()
-    mat3 = vectorizer_c.fit_transform(token_data).toarray()
     assert np.allclose(mat1, mat2)
-    assert np.allclose(mat1, mat3)
 
 
 @pytest.mark.parametrize("skip_grams_size", [1, 2])
-def test_em_cooccurrence_vectorizer_em_iter(skip_grams_size):
-    vectorizer_a = EMTokenCooccurrenceVectorizer(
+def test_cooccurrence_vectorizer_em_iter(skip_grams_size):
+    vectorizer_a = TokenCooccurrenceVectorizer(
         n_iter=0, skip_ngram_size=skip_grams_size
     )
-    vectorizer_b = EMTokenCooccurrenceVectorizer(
+    vectorizer_b = TokenCooccurrenceVectorizer(
         n_iter=2, skip_ngram_size=skip_grams_size
     )
     assert (
@@ -598,15 +529,15 @@ def test_em_cooccurrence_vectorizer_em_iter(skip_grams_size):
     )
 
 
-def test_em_cooccurrence_vectorizer_wide_iter():
-    vectorizer_a = EMTokenCooccurrenceVectorizer(
+def test_cooccurrence_vectorizer_wide_iter():
+    vectorizer_a = TokenCooccurrenceVectorizer(
         kernel_functions=["flat", "harmonic"],
         window_radii=[1, 2],
         mix_weights=[1, 1],
         window_functions=("fixed", "variable"),
         n_iter=0,
     )
-    vectorizer_b = EMTokenCooccurrenceVectorizer(
+    vectorizer_b = TokenCooccurrenceVectorizer(
         kernel_functions=["flat", "harmonic"],
         window_radii=[1, 2],
         mix_weights=[1, 1],
@@ -619,8 +550,8 @@ def test_em_cooccurrence_vectorizer_wide_iter():
     )
 
 
-def test_em_cooccurrence_vectorizer_wide_transform():
-    vectorizer_a = EMTokenCooccurrenceVectorizer(
+def test_cooccurrence_vectorizer_wide_transform():
+    vectorizer_a = TokenCooccurrenceVectorizer(
         kernel_functions=["flat", "harmonic"],
         window_radii=[1, 2],
         mix_weights=[1, 1],
@@ -636,15 +567,16 @@ def test_em_cooccurrence_vectorizer_wide_transform():
 @pytest.mark.parametrize("kernel_function", ["harmonic", "flat", "geometric"])
 def test_token_cooccurrence_vectorizer_offset(kernel_function):
     vectorizer_a = TokenCooccurrenceVectorizer(
-        kernel_function=kernel_function, window_radius=1
+        kernel_functions=kernel_function, window_radii=1, normalize_windows=False
     )
     vectorizer_b = TokenCooccurrenceVectorizer(
-        kernel_function=kernel_function, window_radius=2
+        kernel_functions=kernel_function, window_radii=2, normalize_windows=False
     )
     vectorizer_c = TokenCooccurrenceVectorizer(
-        window_radius=2,
-        kernel_function=kernel_function,
+        window_radii=2,
+        kernel_functions=kernel_function,
         kernel_args={"offset": 1},
+        normalize_windows=False,
     )
     mat1 = (
         vectorizer_a.fit_transform(token_data) + vectorizer_c.fit_transform(token_data)
@@ -666,41 +598,25 @@ def test_token_cooccurrence_vectorizer_nullify_mask():
     assert vectorizer_a.fit_transform(token_data).getcol(-1).nnz == 0
 
 
-def test_token_cooccurrence_vectorizer_nullify_mask():
-    vectorizer_a = TokenCooccurrenceVectorizer(mask_string="MASK", nullify_mask=True)
-    vectorizer_b = TokenCooccurrenceVectorizer(
-        mask_string="MASK",
-    )
-    assert np.allclose(
-        vectorizer_a.fit_transform(token_data).toarray()[:-1, :-1],
-        vectorizer_b.fit_transform(token_data).toarray()[:-1, :-1],
-    )
-    assert vectorizer_a.fit_transform(token_data).getrow(-1).nnz == 0
-    assert vectorizer_a.fit_transform(token_data).getcol(-1).nnz == 0
-
-
 def test_token_cooccurrence_vectorizer_orientation():
     vectorizer = TokenCooccurrenceVectorizer(
-        window_radius=1, window_orientation="directional"
+        window_radii=1, window_orientations="directional", normalize_windows=False
     )
     result = vectorizer.fit_transform(text_token_data)
     assert result.shape == (4, 8)
     # Check the pok preceded by wer value is 1
     row = vectorizer.token_label_dictionary_["pok"]
-    col = vectorizer.column_label_dictionary_["pre_wer"]
+    col = vectorizer.column_label_dictionary_["pre_0_wer"]
     assert result[row, col] == 1
     result_before = TokenCooccurrenceVectorizer(
-        window_orientation="before"
+        window_radii=1, window_orientations="before", normalize_windows=False
     ).fit_transform(text_token_data)
     result_after = TokenCooccurrenceVectorizer(
-        window_orientation="after"
+        window_radii=1, window_orientations="after", normalize_windows=False
     ).fit_transform(text_token_data)
     assert np.all(result_after.toarray() == (result_before.transpose()).toarray())
-    result_symmetric = TokenCooccurrenceVectorizer(
-        window_orientation="symmetric"
-    ).fit_transform(text_token_data)
     assert np.all(
-        result_symmetric.toarray() == (result_before + result_after).toarray()
+        result.toarray() == np.hstack([result_before.toarray(), result_after.toarray()])
     )
 
 
@@ -714,11 +630,13 @@ def test_token_cooccurrence_vectorizer_column_order():
 
 
 def test_token_cooccurrence_vectorizer_transform():
-    vectorizer = TokenCooccurrenceVectorizer(window_orientation="symmetric")
+    vectorizer = TokenCooccurrenceVectorizer(
+        window_orientations="directional", normalize_windows=False
+    )
     result = vectorizer.fit_transform(text_token_data_subset)
     transform = vectorizer.transform(text_token_data)
     assert result.shape == transform.shape
-    assert transform[0, 0] == 34
+    assert transform[0, 0] == 17
 
 
 def test_token_cooccurence_vectorizer_transform_new_vocab():
@@ -735,7 +653,7 @@ def test_token_cooccurrence_vectorizer_text():
     transform = vectorizer.transform(text_token_data)
     assert (result != transform).nnz == 0
     vectorizer = TokenCooccurrenceVectorizer(
-        window_radius=1, window_orientation="after"
+        window_radii=1, window_orientations="after", normalize_windows=False
     )
     result = vectorizer.fit_transform(text_token_data)
     transform = vectorizer.transform(text_token_data)
@@ -749,7 +667,7 @@ def test_token_cooccurrence_vectorizer_fixed_tokens():
     result = vectorizer.fit_transform(token_data)
     assert scipy.sparse.issparse(result)
     vectorizer = TokenCooccurrenceVectorizer(
-        window_radius=1, window_orientation="after"
+        window_radii=1, window_orientations="after", normalize_windows=False
     )
     result = vectorizer.fit_transform(token_data)
     assert result[0, 2] == 8
@@ -767,7 +685,7 @@ def test_token_cooccurrence_vectorizer_min_occur():
     result = vectorizer.fit_transform(token_data)
     assert scipy.sparse.issparse(result)
     vectorizer = TokenCooccurrenceVectorizer(
-        window_radius=1, window_orientation="after"
+        window_radii=1, window_orientations="after", normalize_windows=False
     )
     result = vectorizer.fit_transform(token_data)
     assert result[0, 2] == 8
@@ -779,7 +697,7 @@ def test_token_cooccurrence_vectorizer_max_freq():
     result = vectorizer.fit_transform(token_data)
     assert scipy.sparse.issparse(result)
     vectorizer = TokenCooccurrenceVectorizer(
-        window_radius=1, window_orientation="after"
+        window_radii=1, window_orientations="after", normalize_windows=False
     )
     result = vectorizer.fit_transform(token_data)
     assert result[0, 2] == 8
@@ -787,11 +705,11 @@ def test_token_cooccurrence_vectorizer_max_freq():
 
 
 def test_token_cooccurrence_vectorizer_variable_window():
-    vectorizer = TokenCooccurrenceVectorizer(window_function="variable")
+    vectorizer = TokenCooccurrenceVectorizer(window_functions="variable")
     result = vectorizer.fit_transform(token_data)
     assert scipy.sparse.issparse(result)
     vectorizer = TokenCooccurrenceVectorizer(
-        window_radius=1, window_orientation="after"
+        window_radii=1, window_orientations="after", normalize_windows=False
     )
     result = vectorizer.fit_transform(token_data)
     assert result[0, 2] == 8

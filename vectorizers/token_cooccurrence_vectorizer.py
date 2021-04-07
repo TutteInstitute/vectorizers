@@ -7,7 +7,6 @@ from .preprocessing import (
     construct_token_dictionary_and_frequency,
     construct_document_frequency,
 )
-from warnings import warn
 from sklearn.utils.validation import check_is_fitted
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.preprocessing import normalize
@@ -20,13 +19,12 @@ import vectorizers.distances as distances
 from .utils import (
     validate_homogeneous_token_types,
     flatten,
-    coo_append,
-    CooArray,
-    coo_sum_duplicates,
     str_to_bytes,
     pair_to_tuple,
     make_tuple_converter,
 )
+
+from .coo_utils import coo_append, coo_sum_duplicates, CooArray
 
 import numpy as np
 import numba
@@ -459,9 +457,6 @@ def multi_token_cooccurrence_matrix(
     ngram_size: int (optional, default = 1)
         The size of ngrams to encode token cooccurences of.
 
-    array_to_tuple: numba.jitted callable (optional)
-        Function that casts arrays of fixed length to tuples
-
     chunk_size: int (optional, default=1048576)
         When processing token sequences, break the list of sequences into
         chunks of this size to stream the data through, rather than storing all
@@ -488,7 +483,8 @@ def multi_token_cooccurrence_matrix(
         array_to_tuple = make_tuple_converter(ngram_size)
 
     cooccurrence_matrix = scipy.sparse.coo_matrix(
-        (n_rows, window_size_array.shape[0] * n_unique_tokens), dtype=np.float32,
+        (n_rows, window_size_array.shape[0] * n_unique_tokens),
+        dtype=np.float32,
     )
     n_chunks = (len(token_sequences) // chunk_size) + 1
 
@@ -1003,13 +999,11 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         if not isinstance(self.window_radii, Iterable):
             self.window_radii = [self.window_radii]
         if isinstance(self.window_orientations, str):
-            self.window_orientations = [
-                self.window_orientations for i in self.window_radii
-            ]
+            self.window_orientations = [self.window_orientations]
 
         self._window_reversals = []
         self._window_orientations = []
-        if self.mix_weights == None:
+        if self.mix_weights is None:
             self.mix_weights = np.ones(len(self.window_orientations))
         self._mix_weights = []
 
@@ -1077,10 +1071,10 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self._window_args = []
         if isinstance(self.window_args, dict):
             self._window_args = tuple(
-                [tuple(self.window_args.values()) for i in range(self._n_wide)]
+                [tuple(self.window_args.values()) for _ in range(self._n_wide)]
             )
         elif self.window_args is None:
-            self._window_args = tuple([tuple([]) for i in range(self._n_wide)])
+            self._window_args = tuple([tuple([]) for _ in range(self._n_wide)])
         else:
             for i, args in enumerate(self.window_args):
                 self._window_args.append(tuple(args.values()))
@@ -1090,9 +1084,9 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
         # Set initial kernel args
         if isinstance(self.kernel_args, dict):
-            self._kernel_args = [self.kernel_args for i in range(self._n_wide)]
+            self._kernel_args = [self.kernel_args for _ in range(self._n_wide)]
         elif self.kernel_args is None:
-            self._kernel_args = [dict([]) for i in range(self._n_wide)]
+            self._kernel_args = [dict([]) for _ in range(self._n_wide)]
         else:
             self._kernel_args = []
             for i, args in enumerate(self.kernel_args):
@@ -1330,11 +1324,11 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
         self._em_kernel_args = tuple(self._em_kernel_args)
 
-        ## Set the coo_array size
+        # Set the coo_array size
         approx_coo_size = 0
         for t in token_sequences:
             approx_coo_size += len(t)
-        approx_coo_size *= (max(self.window_radii) + 1) * (20 * (self._n_wide))
+        approx_coo_size *= (max(self.window_radii) + 1) * (20 * self._n_wide)
         if approx_coo_size < self.coo_max_bytes:
             if self.skip_ngram_size > 1:
                 self._coo_sizes = np.repeat(
@@ -1444,7 +1438,9 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         if algorithm == "arpack":
             u, s, v = svds(self.reduced_matrix_, k=dimension)
         elif algorithm == "randomized":
-            u, s, v = randomized_svd(self.reduced_matrix_, n_components=dimension, n_iter=n_iter)
+            u, s, v = randomized_svd(
+                self.reduced_matrix_, n_components=dimension, n_iter=n_iter
+            )
         else:
             raise ValueError("algorithm should be one of 'arpack' or 'randomized'")
 
