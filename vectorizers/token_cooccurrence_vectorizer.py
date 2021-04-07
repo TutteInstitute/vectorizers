@@ -24,7 +24,12 @@ from .utils import (
     make_tuple_converter,
 )
 
-from .coo_utils import coo_append, coo_sum_duplicates, CooArray
+from .coo_utils import (
+    coo_append,
+    coo_sum_duplicates,
+    CooArray,
+    merge_all_sum_duplicates,
+)
 
 import numpy as np
 import numba
@@ -118,6 +123,7 @@ def build_multi_skip_ngrams(
             np.zeros(array_lengths[i], dtype=np.float32),
             np.zeros(array_lengths[i], dtype=np.int64),
             np.zeros(1, dtype=np.int64),
+            np.zeros(2 * np.int64(np.ceil(np.log2(array_lengths[i]))), dtype=np.int64),
             np.zeros(1, dtype=np.int64),
         )
         for i in range(n_windows)
@@ -235,6 +241,7 @@ def build_multi_skip_grams(
             np.zeros(array_lengths[i], dtype=np.float32),
             np.zeros(array_lengths[i], dtype=np.int64),
             np.zeros(1, dtype=np.int64),
+            np.zeros(2 * np.int64(np.ceil(np.log2(array_lengths[i]))), dtype=np.int64),
             np.zeros(1, dtype=np.int64),
         )
         for i in range(n_windows)
@@ -372,8 +379,7 @@ def sequence_multi_skip_grams(
         )
 
     for coo in coo_list:
-        coo.min[0] = 0
-        coo_sum_duplicates(coo, kind="mergesort")
+        merge_all_sum_duplicates(coo)
 
     return (
         [coo.row[: coo.ind[0]] for coo in coo_list],
@@ -998,7 +1004,9 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         # Check the window orientations
         if not isinstance(self.window_radii, Iterable):
             self.window_radii = [self.window_radii]
-        if isinstance(self.window_orientations, str) or callable(self.window_orientations):
+        if isinstance(self.window_orientations, str) or callable(
+            self.window_orientations
+        ):
             self.window_orientations = [self.window_orientations]
 
         self._window_reversals = []

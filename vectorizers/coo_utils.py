@@ -2,12 +2,101 @@ import numpy as np
 import numba
 from collections import namedtuple
 
-CooArray = namedtuple("CooArray", ["row", "col", "val", "key", "ind", "min"])
+CooArray = namedtuple("CooArray", ["row", "col", "val", "key", "ind", "min", "depth"])
+
+
+@numba.njit(nogil=True)
+def merge_sum_duplicates(coo):
+    new_depth = True
+    for i in range(coo.depth[0]):
+        if coo.min[i] <= 0:
+            coo.min[:i] = -coo.ind[0]
+            coo.min[i] = coo.ind[0]
+            new_depth = False
+            break
+        else:
+            array_len = coo.ind[0] - np.abs(coo.min[i + 1]) + 1
+            result_row = np.zeros(array_len)
+            result_col = np.zeros(array_len)
+            result_val = np.zeros(array_len)
+            result_key = np.zeros(array_len)
+            ptr1 = np.abs(coo.min[i + 1])
+            ptr2 = coo.min[i]
+            result_ptr = 0
+            result_key[0] = -1
+
+            while ptr1 < coo.min[i] and ptr2 < coo.ind[0]:
+                if coo.key[ptr1] <= coo.key[ptr2]:
+                    this_ptr = ptr1
+                    ptr1 += 1
+                else:
+                    this_ptr = ptr2
+                    ptr2 += 1
+
+                if coo.key[this_ptr] == result_key[result_ptr]:
+                    result_val[result_ptr] += coo.val[this_ptr]
+                else:
+                    result_ptr += 1
+                    result_val[result_ptr] = coo.val[this_ptr]
+                    result_row[result_ptr] = coo.row[this_ptr]
+                    result_col[result_ptr] = coo.col[this_ptr]
+                    result_key[result_ptr] = coo.key[this_ptr]
+
+            if ptr1 >= coo.min[i]:
+                while ptr2 < coo.ind[0]:
+                    this_ptr = ptr2
+                    ptr2 += 1
+
+                    if coo.key[this_ptr] == result_key[result_ptr]:
+                        result_val[result_ptr] += coo.val[this_ptr]
+                    else:
+                        result_ptr += 1
+                        result_val[result_ptr] = coo.val[this_ptr]
+                        result_row[result_ptr] = coo.row[this_ptr]
+                        result_col[result_ptr] = coo.col[this_ptr]
+                        result_key[result_ptr] = coo.key[this_ptr]
+            else:
+                while ptr1 < coo.min[i]:
+                    this_ptr = ptr1
+                    ptr1 += 1
+
+                    if coo.key[this_ptr] == result_key[result_ptr]:
+                        result_val[result_ptr] += coo.val[this_ptr]
+                    else:
+                        result_ptr += 1
+                        result_val[result_ptr] = coo.val[this_ptr]
+                        result_row[result_ptr] = coo.row[this_ptr]
+                        result_col[result_ptr] = coo.col[this_ptr]
+                        result_key[result_ptr] = coo.key[this_ptr]
+
+            coo.row[np.abs(coo.min[i + 1]) : coo.ind[0]] = result_row[1:]
+            coo.col[np.abs(coo.min[i + 1]) : coo.ind[0]] = result_col[1:]
+            coo.val[np.abs(coo.min[i + 1]) : coo.ind[0]] = result_val[1:]
+            coo.key[np.abs(coo.min[i + 1]) : coo.ind[0]] = result_key[1:]
+            coo.ind[0] = np.abs(coo.min[i + 1]) + result_ptr
+
+    if new_depth:
+        coo.min[: coo.depth[0]] = -coo.ind[0]
+        coo.min[coo.depth[0]] = coo.ind[0]
+        coo.depth[0] += 1
+
+
+@numba.njit(nogil=True)
+def merge_all_sum_duplicates(coo):
+    new_min = np.zeros(coo.depth[0])
+    ptr = 0
+    for i in range(coo.depth[0]):
+        if coo.min[i] > 0:
+            new_min[ptr] = coo.min[i]
+            ptr += 1
+    coo.min[: coo.depth[0]] = new_min
+    merge_sum_duplicates(coo)
+
 
 @numba.njit(nogil=True)
 def coo_sum_duplicates(coo, kind):
     upper_lim = coo.ind[0]
-    lower_lim = coo.min[0]
+    lower_lim = np.abs(coo.min[0])
 
     perm = np.argsort(coo.key[lower_lim:upper_lim], kind=kind)
 
@@ -44,7 +133,7 @@ def coo_sum_duplicates(coo, kind):
         sum_ind += 1
 
     coo.ind[0] = sum_ind
-    coo.min[0] = coo.ind[0]
+    merge_sum_duplicates(coo)
 
 
 @numba.njit(nogil=True)
@@ -55,19 +144,17 @@ def coo_append(coo, tup):
     coo.key[coo.ind[0]] = tup[3]
     coo.ind[0] += 1
 
-    if (coo.ind[0] - coo.min[0]) >= 1 << 18:
+    if (coo.ind[0] - np.abs(coo.min[0])) >= 1 << 18:
         coo_sum_duplicates(coo, kind="quicksort")
-        if coo.key.shape[0] - coo.min[0] <= 1 << 18:
-            coo.min[0] = 0.0
-            coo_sum_duplicates(coo, kind="mergesort")
+        if (coo.key.shape[0] - np.abs(coo.min[0])) <= 1 << 18:
+            merge_all_sum_duplicates(coo)
             if coo.ind[0] >= 0.95 * coo.key.shape[0]:
                 raise ValueError(
                     f"The coo matrix array is over memory limit.  Increase coo_max_bytes to process data."
                 )
 
     if coo.ind[0] == coo.key.shape[0]:
-        coo.min[0] = 0.0
-        coo_sum_duplicates(coo, kind="mergesort")
+        merge_all_sum_duplicates(coo)
         if coo.ind[0] >= 0.95 * coo.key.shape[0]:
             raise ValueError(
                 f"The coo matrix array is over memory limit.  Increase coo_max_bytes to process data."
