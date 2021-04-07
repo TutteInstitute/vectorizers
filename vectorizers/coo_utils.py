@@ -4,7 +4,7 @@ from collections import namedtuple
 
 CooArray = namedtuple("CooArray", ["row", "col", "val", "key", "ind", "min"])
 
-@numba.njit(nogil=True, inline="always")
+@numba.njit(nogil=True)
 def coo_sum_duplicates(coo, kind):
     upper_lim = coo.ind[0]
     lower_lim = coo.min[0]
@@ -47,7 +47,7 @@ def coo_sum_duplicates(coo, kind):
     coo.min[0] = coo.ind[0]
 
 
-@numba.njit(nogil=True, inline="always")
+@numba.njit(nogil=True)
 def coo_append(coo, tup):
     coo.row[coo.ind[0]] = tup[0]
     coo.col[coo.ind[0]] = tup[1]

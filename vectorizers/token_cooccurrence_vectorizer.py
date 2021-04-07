@@ -998,7 +998,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         # Check the window orientations
         if not isinstance(self.window_radii, Iterable):
             self.window_radii = [self.window_radii]
-        if isinstance(self.window_orientations, str):
+        if isinstance(self.window_orientations, str) or callable(self.window_orientations):
             self.window_orientations = [self.window_orientations]
 
         self._window_reversals = []
