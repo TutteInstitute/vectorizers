@@ -535,6 +535,7 @@ def test_cooccurrence_vectorizer_wide_iter():
         window_radii=[1, 2],
         mix_weights=[1, 1],
         window_functions=("fixed", "variable"),
+        window_orientations=['directional', 'directional'],
         n_iter=0,
     )
     vectorizer_b = TokenCooccurrenceVectorizer(
@@ -542,6 +543,7 @@ def test_cooccurrence_vectorizer_wide_iter():
         window_radii=[1, 2],
         mix_weights=[1, 1],
         window_functions=["fixed", "variable"],
+        window_orientations=['directional', 'directional'],
         n_iter=2,
     )
     assert (
@@ -556,6 +558,7 @@ def test_cooccurrence_vectorizer_wide_transform():
         window_radii=[1, 2],
         mix_weights=[1, 1],
         window_functions=("fixed", "variable"),
+        window_orientations=['directional', 'directional'],
         n_iter=2,
     )
     assert (
