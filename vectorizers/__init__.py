@@ -4,9 +4,6 @@ from ._vectorizers import HistogramVectorizer
 from .skip_gram_vectorizer import SkipgramVectorizer
 from .ngram_vectorizer import NgramVectorizer
 from .kde_vectorizer import KDEVectorizer
-from ._vectorizers import ProductDistributionVectorizer
-from ._vectorizers import Wasserstein1DHistogramTransformer
-from ._vectorizers import SequentialDifferenceTransformer
 from .tree_token_cooccurrence import LabelledTreeCooccurrenceVectorizer
 from .linear_optimal_transport import WassersteinVectorizer
 
