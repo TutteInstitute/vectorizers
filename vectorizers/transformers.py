@@ -59,7 +59,7 @@ def column_kl_divergence_approx_prior(
                 observed_probability / baseline_probabilities[idx]
             )
 
-    return result
+    return result**2
 
 
 @numba.njit(nogil=True, parallel=True)
