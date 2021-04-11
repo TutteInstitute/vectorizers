@@ -59,7 +59,7 @@ def column_kl_divergence_approx_prior(
                 observed_probability / baseline_probabilities[idx]
             )
 
-    return result**2
+    return result
 
 
 @numba.njit(nogil=True, parallel=True)
@@ -284,6 +284,8 @@ class InformationWeightTransformer(BaseEstimator, TransformerMixin):
             X = scipy.sparse.csc_matrix(X)
 
         self.information_weights_ = information_weight(X, self.prior_strength, self.approx_prior)
+        self.information_weights_ /= np.mean(self.information_weights_)
+        self.information_weights_ = self.information_weights_ ** 2
         return self
 
     def transform(self, X):
