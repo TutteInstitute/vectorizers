@@ -5,7 +5,7 @@ from .skip_gram_vectorizer import SkipgramVectorizer
 from .ngram_vectorizer import NgramVectorizer
 from .kde_vectorizer import KDEVectorizer
 from .tree_token_cooccurrence import LabelledTreeCooccurrenceVectorizer
-from .linear_optimal_transport import WassersteinVectorizer
+from .linear_optimal_transport import WassersteinVectorizer, ApproximateWassersteinVectorizer
 
 from .utils import cast_tokens_to_strings
 
@@ -20,5 +20,6 @@ __all__ = [
     "KDEVectorizer",
     "LabelledTreeCooccurrenceVectorizer",
     "WassersteinVectorizer",
+    "ApproximateWassersteinVectorizer",
     "__version__",
 ]

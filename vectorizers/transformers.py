@@ -7,10 +7,12 @@ import scipy.sparse
 
 from warnings import warn
 
+MOCK_TARGET = np.ones(1, dtype=np.int64)
+
 
 @numba.njit(nogil=True)
 def column_kl_divergence_exact_prior(
-    count_indices, count_data, baseline_probabilities, prior_strength=0.1
+    count_indices, count_data, baseline_probabilities, prior_strength=0.1, target=None,
 ):
     observed_norm = count_data.sum() + prior_strength
     observed_zero_constant = (prior_strength / observed_norm) * np.log(
@@ -36,7 +38,7 @@ def column_kl_divergence_exact_prior(
 
 @numba.njit(nogil=True)
 def column_kl_divergence_approx_prior(
-    count_indices, count_data, baseline_probabilities, prior_strength=0.1
+    count_indices, count_data, baseline_probabilities, prior_strength=0.1, target=None,
 ):
     observed_norm = count_data.sum() + prior_strength
     observed_zero_constant = (prior_strength / observed_norm) * np.log(
@@ -61,6 +63,21 @@ def column_kl_divergence_approx_prior(
 
     return result
 
+@numba.njit(nogil=True)
+def supervised_column_kl(
+        count_indices, count_data, baseline_probabilities, prior_strength=0.1, target=MOCK_TARGET,
+):
+    observed = np.zeros_like(baseline_probabilities)
+    for i in range(count_indices.shape[0]):
+        idx = count_indices[i]
+        label = target[idx]
+        observed[label] += count_data[i]
+
+    observed += prior_strength * baseline_probabilities
+    observed /= observed.sum()
+
+    return np.sum(observed * np.log(observed / baseline_probabilities))
+
 
 @numba.njit(nogil=True, parallel=True)
 def column_weights(
@@ -70,6 +87,7 @@ def column_weights(
     baseline_probabilities,
     column_kl_divergence_func,
     prior_strength=0.1,
+    target=None,
 ):
     n_cols = indptr.shape[0] - 1
     weights = np.ones(n_cols)
@@ -79,11 +97,12 @@ def column_weights(
             data[indptr[i] : indptr[i + 1]],
             baseline_probabilities,
             prior_strength=prior_strength,
+            target=target,
         )
     return weights
 
 
-def information_weight(data, prior_strength=0.1, approximate_prior=False):
+def information_weight(data, prior_strength=0.1, approximate_prior=False, target=None):
     """Compute information based weights for columns. The information weight
     is estimated as the amount of information gained by moving from a baseline
     model to a model derived from the observed counts. In practice this can be
@@ -111,6 +130,11 @@ def information_weight(data, prior_strength=0.1, approximate_prior=False):
         exact computations. Approximations are much faster especialyl for very
         large or very sparse datasets.
 
+    target: ndarray or None (optional, default=None)
+        If supervised target labels are available, these can be used to define distributions
+        over the target classes rather than over rows, allowing weights to be
+        supervised and target based. If None then unsupervised weighting is used.
+
     Returns
     -------
     weights: ndarray of shape (n_features,)
@@ -125,6 +149,10 @@ def information_weight(data, prior_strength=0.1, approximate_prior=False):
         column_kl_divergence_func = column_kl_divergence_approx_prior
     else:
         column_kl_divergence_func = column_kl_divergence_exact_prior
+
+    if target is not None:
+        column_kl_divergence_func = supervised_column_kl
+
     weights = column_weights(
         csc_data.indptr,
         csc_data.indices,
@@ -132,6 +160,7 @@ def information_weight(data, prior_strength=0.1, approximate_prior=False):
         baseline_probabilities,
         column_kl_divergence_func,
         prior_strength=prior_strength,
+        target=target,
     )
     return weights
 
@@ -286,6 +315,17 @@ class InformationWeightTransformer(BaseEstimator, TransformerMixin):
         self.information_weights_ = information_weight(X, self.prior_strength, self.approx_prior)
         self.information_weights_ /= np.mean(self.information_weights_)
         self.information_weights_ = self.information_weights_ ** 2
+
+        if y is not None:
+            target_classes = np.unique(y)
+            target_dict = dict(np.vstack((target_classes, np.arange(target_classes))).T)
+            target = np.array(target_dict[label] for label in y)
+            self.supervised_weights_ = information_weight(X, self.prior_strength, self.approx_prior, target=target)
+            self.supervised_weights_ /= np.mean(self.supervised_weights_)
+            self.supervised_weights_ = self.supervised_weights_ ** 2
+
+            self.information_weights_ = self.information_weights_ * self.supervised_weights_
+
         return self
 
     def transform(self, X):

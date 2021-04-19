@@ -1204,3 +1204,156 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
             raise ValueError(
                 "Input data not in a recognized format for WassersteinVectorizer"
             )
+
+
+class ApproximateWassersteinVectorizer(BaseEstimator, TransformerMixin):
+    """Transform finite distributions over a metric space into vectors in a linear space
+     such that euclidean or cosine distance approximates the Wasserstein distance
+     between the distributions. Unlike the WassersteinVectorizer we use simple
+     linear algebra methods that are poor approximations, but are extremely efficient
+     to compute.
+
+     Parameters
+     ----------
+     n_components: int or None (optional, default=None)
+         Dimensionality of the transformed vectors up to a maximum of the dimensionality
+         of the input vectors of the metric space beign approxmated over. If None, use the
+         full dimensionality available.
+
+     normalization_power: float (optional, default=1.0)
+        When normalizing vectors relative to the total apparent weight of the unnormalized
+        distribution, raise the apparent weight to this power. A default of 1.0 means that
+        we are treating input rows as distributions. Values between 0.0 and 1.0 will give
+        greater weight to unnormalized distributions with larger values. A value of 0.5
+        or 0.66 may be useful, for example, in document embeddings where document length
+        should have some ipact on the resulting embedding.
+
+     n_svd_iter: int (optional, default=10)
+         How many iterations of randomized SVD to run to get compressed vectors. More
+         iterations will produce better results at greater computational cost.
+
+     random_state: numpy.random.random_state or int or None (optional, default=None)
+         A random state to use. A fixed integer seed can be used for reproducibility.
+     """
+
+    def __init__(
+        self,
+        n_components=None,
+        normalization_power=1.0,
+        n_svd_iter=10,
+        random_state=None,
+    ):
+        self.n_components = n_components
+        self.normalization_power = normalization_power
+        self.n_svd_iter = n_svd_iter
+        self.random_state = random_state
+
+
+    def fit(
+        self,
+        X,
+        y=None,
+        vectors=None,
+        **fit_params,
+    ):
+        """Train the transformer on a set of distributions ``X`` with associated
+        vectors ``vectors``.
+
+        Parameters
+        ----------
+        X: scipy sparse matrix or list of ndarrays
+            The distributions to train on.
+
+        y: None (optional, default=None)
+            Ignored.
+
+        vectors: ndarray or list of ndarrays
+            The vectors over which the distributions lie.
+
+        fit_params:
+            Other params to pass on for fitting.
+
+        Returns
+        -------
+        self:
+            The trained model.
+        """
+        self.fit_transform(X, y, vectors=vectors, **fit_params)
+        return self
+
+    def fit_transform(
+        self,
+        X,
+        y=None,
+        vectors=None,
+        **fit_params,
+    ):
+        """Train the transformer on a set of distributions ``X`` with associated
+        vectors ``vectors``, and return the resulting transformed training data.
+
+        Parameters
+        ----------
+        X: scipy sparse matrix or list of ndarrays
+            The distributions to train on.
+
+        y: None (optional, default=None)
+            Ignored.
+
+        vectors: ndarray or list of ndarrays
+            The vectors over which the distributions lie.
+
+        fit_params:
+            Other params to pass on for fitting.
+
+        Returns
+        -------
+        lot_vectors:
+            The transformed training data.
+        """
+        if self.n_components is None:
+            n_components = vectors.shape[1]
+        else:
+            n_components = self.n_components
+
+        if type(X) is np.ndarray:
+            X = scipy.sparse.csr_matrix(X)
+
+        self.vectors_ = vectors
+
+        basis_transformed_matrix = X @ vectors
+        basis_transformed_matrix /= np.power(np.array(X.sum(axis=1)), self.normalization_power)
+        u, s, v = randomized_svd(basis_transformed_matrix, n_components, n_iter=self.n_svd_iter)
+        result = u * np.sqrt(s)
+        self.components_ = np.sqrt(s) * v
+
+        return result
+
+    def transform(self, X, y=None, **transform_params):
+        """Transform distributions ``X`` over the metric space given by
+        ``vectors`` trained on in ``fit`` using very inexpensive heuritsic
+        linear algebra approximations to linearised Wasserstein space.
+
+        X: scipy sparse matrix or list of ndarrays
+            The distributions to be transformed.
+
+        y: None (optional, default=None)
+            Ignored.
+
+        transform_params:
+            Other params to pass on for transformation.
+
+        Returns
+        -------
+        lat_vectors:
+            The transformed data.
+        """
+        check_is_fitted(
+            self, ["components_"]
+        )
+        if type(X) is np.ndarray:
+            X = scipy.sparse.csr_matrix(X)
+
+        basis_transformed_matrix = (X @ self.vectors_)
+        basis_transformed_matrix /= np.power(np.array(X.sum(axis=1)), self.normalization_power)
+
+        return basis_transformed_matrix @ self.components_.T
