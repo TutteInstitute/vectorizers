@@ -141,17 +141,23 @@ def information_weight(data, prior_strength=0.1, approximate_prior=False, target
         The learned weights to be applied to columns based on the amount
         of information provided by the column.
     """
-    baseline_counts = np.squeeze(np.array(data.sum(axis=1)))
-    baseline_probabilities = baseline_counts / baseline_counts.sum()
-    csc_data = data.tocsc()
-    csc_data.sort_indices()
     if approximate_prior:
         column_kl_divergence_func = column_kl_divergence_approx_prior
     else:
         column_kl_divergence_func = column_kl_divergence_exact_prior
 
-    if target is not None:
+    baseline_counts = np.squeeze(np.array(data.sum(axis=1)))
+    if target is None:
+        baseline_probabilities = baseline_counts / baseline_counts.sum()
+    else:
+        baseline_probabilities = np.zeros(target.max() + 1)
+        for i in range(baseline_probabilities.shape[0]):
+            baseline_probabilities[i] = baseline_counts[target == i].sum()
+        baseline_probabilities /= baseline_probabilities.sum()
         column_kl_divergence_func = supervised_column_kl
+
+    csc_data = data.tocsc()
+    csc_data.sort_indices()
 
     weights = column_weights(
         csc_data.indptr,
