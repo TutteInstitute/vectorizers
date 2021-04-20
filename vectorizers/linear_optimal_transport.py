@@ -25,6 +25,7 @@ import scipy.sparse
 import os
 import tempfile
 
+
 @numba.njit(nogil=True, fastmath=True)
 def project_to_sphere_tangent_space(euclidean_vectors, sphere_basepoints):
     """Given arrays of vectors in euclidean space and a corresponding array of
@@ -332,7 +333,9 @@ def lot_vectors_sparse_internal(
                         transport_vectors, reference_vectors
                     )
                     l2_normalize(tangent_vectors)
-                    scaling = tangent_vectors_scales(transport_images, reference_vectors)
+                    scaling = tangent_vectors_scales(
+                        transport_images, reference_vectors
+                    )
                     transport_vectors = tangent_vectors * scaling
 
                 result[i] = transport_vectors.flatten()
@@ -341,7 +344,7 @@ def lot_vectors_sparse_internal(
     if spherical_vectors:
         for i in range(result.shape[0]):
             for j in range(result.shape[1]):
-                result[i, j] = np.sign(result[i,j]) * np.sqrt(np.abs(result[i, j]))
+                result[i, j] = np.sign(result[i, j]) * np.sqrt(np.abs(result[i, j]))
 
     return result
 
@@ -444,7 +447,9 @@ def lot_vectors_dense_internal(
                         transport_vectors, reference_vectors
                     )
                     l2_normalize(tangent_vectors)
-                    scaling = tangent_vectors_scales(transport_images, reference_vectors)
+                    scaling = tangent_vectors_scales(
+                        transport_images, reference_vectors
+                    )
                     transport_vectors = tangent_vectors * scaling
 
                 result[i] = transport_vectors.flatten()
@@ -453,7 +458,7 @@ def lot_vectors_dense_internal(
     if spherical_vectors:
         for i in range(result.shape[0]):
             for j in range(result.shape[1]):
-                result[i, j] = np.sign(result[i,j]) * np.sqrt(np.abs(result[i, j]))
+                result[i, j] = np.sign(result[i, j]) * np.sqrt(np.abs(result[i, j]))
 
     return result
 
@@ -557,7 +562,7 @@ def lot_vectors_sparse(
             metric=metric,
             max_distribution_size=max_distribution_size,
             chunk_size=chunk_size,
-            spherical_vectors=(metric == cosine)
+            spherical_vectors=(metric == cosine),
         )
         u, singular_values, v = randomized_svd(
             lot_vectors,
@@ -594,7 +599,7 @@ def lot_vectors_sparse(
             metric=metric,
             max_distribution_size=max_distribution_size,
             chunk_size=chunk_size,
-            spherical_vectors=(metric == cosine)
+            spherical_vectors=(metric == cosine),
         )
 
         if singular_values is not None:
@@ -720,7 +725,7 @@ def lot_vectors_dense(
             metric=metric,
             max_distribution_size=max_distribution_size,
             chunk_size=chunk_size,
-            spherical_vectors=(metric == cosine)
+            spherical_vectors=(metric == cosine),
         )
         u, singular_values, v = randomized_svd(
             lot_vectors,
@@ -756,7 +761,7 @@ def lot_vectors_dense(
             metric=metric,
             max_distribution_size=max_distribution_size,
             chunk_size=chunk_size,
-            spherical_vectors=(metric == cosine)
+            spherical_vectors=(metric == cosine),
         )
 
         if singular_values is not None:
@@ -1248,13 +1253,8 @@ class ApproximateWassersteinVectorizer(BaseEstimator, TransformerMixin):
         self.n_svd_iter = n_svd_iter
         self.random_state = random_state
 
-
     def fit(
-        self,
-        X,
-        y=None,
-        vectors=None,
-        **fit_params,
+        self, X, y=None, vectors=None, **fit_params,
     ):
         """Train the transformer on a set of distributions ``X`` with associated
         vectors ``vectors``.
@@ -1282,11 +1282,7 @@ class ApproximateWassersteinVectorizer(BaseEstimator, TransformerMixin):
         return self
 
     def fit_transform(
-        self,
-        X,
-        y=None,
-        vectors=None,
-        **fit_params,
+        self, X, y=None, vectors=None, **fit_params,
     ):
         """Train the transformer on a set of distributions ``X`` with associated
         vectors ``vectors``, and return the resulting transformed training data.
@@ -1321,8 +1317,15 @@ class ApproximateWassersteinVectorizer(BaseEstimator, TransformerMixin):
         self.vectors_ = vectors
 
         basis_transformed_matrix = X @ vectors
-        basis_transformed_matrix /= np.power(np.array(X.sum(axis=1)), self.normalization_power)
-        u, s, v = randomized_svd(basis_transformed_matrix, n_components, n_iter=self.n_svd_iter)
+        basis_transformed_matrix /= np.power(
+            np.array(X.sum(axis=1)), self.normalization_power
+        )
+        u, s, v = randomized_svd(
+            basis_transformed_matrix,
+            n_components,
+            n_iter=self.n_svd_iter,
+            random_state=self.random_state,
+        )
         result = u * np.sqrt(s)
         self.components_ = np.sqrt(s) * v
 
@@ -1347,13 +1350,13 @@ class ApproximateWassersteinVectorizer(BaseEstimator, TransformerMixin):
         lat_vectors:
             The transformed data.
         """
-        check_is_fitted(
-            self, ["components_"]
-        )
+        check_is_fitted(self, ["components_"])
         if type(X) is np.ndarray:
             X = scipy.sparse.csr_matrix(X)
 
-        basis_transformed_matrix = (X @ self.vectors_)
-        basis_transformed_matrix /= np.power(np.array(X.sum(axis=1)), self.normalization_power)
+        basis_transformed_matrix = X @ self.vectors_
+        basis_transformed_matrix /= np.power(
+            np.array(X.sum(axis=1)), self.normalization_power
+        )
 
         return basis_transformed_matrix @ self.components_.T
