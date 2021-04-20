@@ -318,7 +318,7 @@ class InformationWeightTransformer(BaseEstimator, TransformerMixin):
 
         if y is not None:
             target_classes = np.unique(y)
-            target_dict = dict(np.vstack((target_classes, np.arange(target_classes))).T)
+            target_dict = dict(np.vstack((target_classes, np.arange(target_classes.shape[0]))).T)
             target = np.array(target_dict[label] for label in y)
             self.supervised_weights_ = information_weight(X, self.prior_strength, self.approx_prior, target=target)
             self.supervised_weights_ /= np.mean(self.supervised_weights_)
