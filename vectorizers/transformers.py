@@ -12,7 +12,7 @@ MOCK_TARGET = np.ones(1, dtype=np.int64)
 
 @numba.njit(nogil=True)
 def column_kl_divergence_exact_prior(
-    count_indices, count_data, baseline_probabilities, prior_strength=0.1, target=None,
+    count_indices, count_data, baseline_probabilities, prior_strength=0.1, target=MOCK_TARGET,
 ):
     observed_norm = count_data.sum() + prior_strength
     observed_zero_constant = (prior_strength / observed_norm) * np.log(
@@ -38,7 +38,7 @@ def column_kl_divergence_exact_prior(
 
 @numba.njit(nogil=True)
 def column_kl_divergence_approx_prior(
-    count_indices, count_data, baseline_probabilities, prior_strength=0.1, target=None,
+    count_indices, count_data, baseline_probabilities, prior_strength=0.1, target=MOCK_TARGET,
 ):
     observed_norm = count_data.sum() + prior_strength
     observed_zero_constant = (prior_strength / observed_norm) * np.log(
@@ -87,7 +87,7 @@ def column_weights(
     baseline_probabilities,
     column_kl_divergence_func,
     prior_strength=0.1,
-    target=None,
+    target=MOCK_TARGET,
 ):
     n_cols = indptr.shape[0] - 1
     weights = np.ones(n_cols)
@@ -319,7 +319,7 @@ class InformationWeightTransformer(BaseEstimator, TransformerMixin):
         if y is not None:
             target_classes = np.unique(y)
             target_dict = dict(np.vstack((target_classes, np.arange(target_classes.shape[0]))).T)
-            target = np.array(target_dict[label] for label in y)
+            target = np.array([np.int64(target_dict[label]) for label in y], dtype=np.int64)
             self.supervised_weights_ = information_weight(X, self.prior_strength, self.approx_prior, target=target)
             self.supervised_weights_ /= np.mean(self.supervised_weights_)
             self.supervised_weights_ = self.supervised_weights_ ** 2
