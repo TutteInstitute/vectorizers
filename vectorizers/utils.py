@@ -312,3 +312,37 @@ def pairwise_gaussian_ground_distance(
             result[j, i] = result[i, j]
 
     return result
+
+
+def procrustes_align(e1, e2):
+    """Given two embeddings ``e1`` and ``e2`` attempt to align them
+    via a combination of shift, uniform scaling, and orthogonal
+    transformations.
+
+    Note that ``e1`` and ``e2`` are assumed to be matched row by row
+    with each other, and thus must have the same shape.
+
+    Parameters
+    ----------
+    e1: ndarray
+        An embedding with a row per sample.
+
+    e2: ndarray
+        An embedding with a row per sample.
+
+    Returns
+    -------
+    e1_aligned, e2_aligned: ndarray
+        The aligned copies of embeddings ``e1`` and ``e2``
+    """
+    e1_shift = e1 - np.mean(e1, axis=0)
+    e2_shift = e2 - np.mean(e2, axis=0)
+    e1_scale_factor = np.sqrt(np.mean(e1_shift**2))
+    e2_scale_factor = np.sqrt(np.mean(e2_shift**2))
+    rescale_factor = np.sqrt(e1_scale_factor * e2_scale_factor)
+    e1_scaled = e1_shift / e1_scale_factor
+    e2_scaled = e2_shift / e2_scale_factor
+    covariance = e2_scaled.T @ e1_scaled
+    u, s, v = np.linalg.svd(covariance)
+    rotation = u @ v
+    return e1_scaled * rescale_factor, (e2_scaled @ rotation) * rescale_factor

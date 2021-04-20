@@ -94,8 +94,18 @@ def test_iw_transformer(prior_strength, approx_prior):
     )
     result = IWT.fit_transform(test_matrix)
     transform = IWT.transform(test_matrix)
-    print(transform.toarray())
-    print(result.toarray())
+    assert np.allclose(result.toarray(), transform.toarray())
+
+
+@pytest.mark.parametrize("prior_strength", [0.1, 1.0])
+@pytest.mark.parametrize("approx_prior", [True, False])
+def test_iw_transformer_supervised(prior_strength, approx_prior):
+    IWT = InformationWeightTransformer(
+        prior_strength=prior_strength,
+        approx_prior=approx_prior,
+    )
+    result = IWT.fit_transform(test_matrix, np.array([0, 1, 1]))
+    transform = IWT.transform(test_matrix)
     assert np.allclose(result.toarray(), transform.toarray())
 
 
@@ -108,20 +118,16 @@ def test_iw_transformer_zero_column(prior_strength, approx_prior):
     )
     result = IWT.fit_transform(test_matrix_zero_column)
     transform = IWT.transform(test_matrix_zero_column)
-    print(transform.toarray())
-    print(result.toarray())
     assert np.allclose(result.toarray(), transform.toarray())
 
 
 @pytest.mark.parametrize("prior_strength", [0.1, 1.0])
 @pytest.mark.parametrize("approx_prior", [True, False])
-def test_iw_transformer_zero_row_plsa(prior_strength, approx_prior):
+def test_iw_transformer_zero_row(prior_strength, approx_prior):
     IWT = InformationWeightTransformer(
         prior_strength=prior_strength,
         approx_prior=approx_prior,
     )
     result = IWT.fit_transform(test_matrix_zero_row)
     transform = IWT.transform(test_matrix_zero_row)
-    print(transform.toarray())
-    print(result.toarray())
     assert np.allclose(result.toarray(), transform.toarray())
