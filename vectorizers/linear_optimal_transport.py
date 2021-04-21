@@ -1320,14 +1320,13 @@ class ApproximateWassersteinVectorizer(BaseEstimator, TransformerMixin):
         basis_transformed_matrix /= np.power(
             np.array(X.sum(axis=1)), self.normalization_power
         )
-        u, s, v = randomized_svd(
+        u, self.singular_values_, self.components_ = randomized_svd(
             basis_transformed_matrix,
             n_components,
             n_iter=self.n_svd_iter,
             random_state=self.random_state,
         )
-        result = u * np.sqrt(s)
-        self.components_ = np.sqrt(s) * v
+        result = u * np.sqrt(self.singular_values_)
 
         return result
 
@@ -1359,4 +1358,4 @@ class ApproximateWassersteinVectorizer(BaseEstimator, TransformerMixin):
             np.array(X.sum(axis=1)), self.normalization_power
         )
 
-        return basis_transformed_matrix @ self.components_.T
+        return (basis_transformed_matrix @ self.components_.T) / np.sqrt(self.singular_values_)
