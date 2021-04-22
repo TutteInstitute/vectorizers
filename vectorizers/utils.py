@@ -163,7 +163,7 @@ def validate_homogeneous_token_types(data):
 
 
 def gmm_component_likelihood(
-    component_mean: np.ndarray, component_covar: np.ndarray, diagram: np.ndarray
+        component_mean: np.ndarray, component_covar: np.ndarray, diagram: np.ndarray
 ) -> np.ndarray:
     """Generate the vector of likelihoods of observing points in a diagram
     for a single gmm components (i.e. a single Gaussian). That is, evaluate
@@ -245,7 +245,7 @@ def mat_sqrt(mat: np.ndarray) -> np.ndarray:
 
 @numba.njit()
 def wasserstein2_gaussian(
-    m1: np.ndarray, C1: np.ndarray, m2: np.ndarray, C2: np.ndarray
+        m1: np.ndarray, C1: np.ndarray, m2: np.ndarray, C2: np.ndarray
 ) -> float:
     """Compute the Wasserstein_2 distance between two 2D Gaussians. This can be
     computed via the closed form formula:
@@ -282,7 +282,7 @@ def wasserstein2_gaussian(
 
 @numba.njit()
 def pairwise_gaussian_ground_distance(
-    means: np.ndarray, covariances: np.ndarray
+        means: np.ndarray, covariances: np.ndarray
 ) -> np.ndarray:
     """Compute pairwise distances between a list of Gaussians. This can be
     used as the ground distance for an earth-mover distance computation on
@@ -314,7 +314,7 @@ def pairwise_gaussian_ground_distance(
     return result
 
 
-def procrustes_align(e1, e2):
+def procrustes_align(e1, e2, scale_to="both"):
     """Given two embeddings ``e1`` and ``e2`` attempt to align them
     via a combination of shift, uniform scaling, and orthogonal
     transformations.
@@ -330,6 +330,14 @@ def procrustes_align(e1, e2):
     e2: ndarray
         An embedding with a row per sample.
 
+    scale_to: string (optional, default="both")
+        When scaling the results, scale to match either the
+        first argument, the second argument, or both. Should
+        be one of:
+            * "first"
+            * "second"
+            * "both"
+
     Returns
     -------
     e1_aligned, e2_aligned: ndarray
@@ -337,9 +345,17 @@ def procrustes_align(e1, e2):
     """
     e1_shift = e1 - np.mean(e1, axis=0)
     e2_shift = e2 - np.mean(e2, axis=0)
-    e1_scale_factor = np.sqrt(np.mean(e1_shift**2))
-    e2_scale_factor = np.sqrt(np.mean(e2_shift**2))
-    rescale_factor = np.sqrt(e1_scale_factor * e2_scale_factor)
+    e1_scale_factor = np.sqrt(np.mean(e1_shift ** 2))
+    e2_scale_factor = np.sqrt(np.mean(e2_shift ** 2))
+    if scale_to == "first":
+        rescale_factor = e1_scale_factor
+    elif scale_to == "second":
+        rescale_factor = e2_scale_factor
+    elif scale_to == "both":
+        rescale_factor = np.sqrt(e1_scale_factor * e2_scale_factor)
+    else:
+        raise ValueError(
+            f"Invalid value {scale_to} for scale_to. scale_to should be one of 'first', 'second', or 'both'")
     e1_scaled = e1_shift / e1_scale_factor
     e2_scaled = e2_shift / e2_scale_factor
     covariance = e2_scaled.T @ e1_scaled
