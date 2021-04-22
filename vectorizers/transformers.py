@@ -7,10 +7,12 @@ import scipy.sparse
 
 from warnings import warn
 
+MOCK_TARGET = np.ones(1, dtype=np.int64)
+
 
 @numba.njit(nogil=True)
 def column_kl_divergence_exact_prior(
-    count_indices, count_data, baseline_probabilities, prior_strength=0.1
+    count_indices, count_data, baseline_probabilities, prior_strength=0.1, target=MOCK_TARGET,
 ):
     observed_norm = count_data.sum() + prior_strength
     observed_zero_constant = (prior_strength / observed_norm) * np.log(
@@ -36,7 +38,7 @@ def column_kl_divergence_exact_prior(
 
 @numba.njit(nogil=True)
 def column_kl_divergence_approx_prior(
-    count_indices, count_data, baseline_probabilities, prior_strength=0.1
+    count_indices, count_data, baseline_probabilities, prior_strength=0.1, target=MOCK_TARGET,
 ):
     observed_norm = count_data.sum() + prior_strength
     observed_zero_constant = (prior_strength / observed_norm) * np.log(
@@ -61,6 +63,21 @@ def column_kl_divergence_approx_prior(
 
     return result
 
+@numba.njit(nogil=True)
+def supervised_column_kl(
+        count_indices, count_data, baseline_probabilities, prior_strength=0.1, target=MOCK_TARGET,
+):
+    observed = np.zeros_like(baseline_probabilities)
+    for i in range(count_indices.shape[0]):
+        idx = count_indices[i]
+        label = target[idx]
+        observed[label] += count_data[i]
+
+    observed += prior_strength * baseline_probabilities
+    observed /= observed.sum()
+
+    return np.sum(observed * np.log(observed / baseline_probabilities))
+
 
 @numba.njit(nogil=True, parallel=True)
 def column_weights(
@@ -70,6 +87,7 @@ def column_weights(
     baseline_probabilities,
     column_kl_divergence_func,
     prior_strength=0.1,
+    target=MOCK_TARGET,
 ):
     n_cols = indptr.shape[0] - 1
     weights = np.ones(n_cols)
@@ -79,11 +97,12 @@ def column_weights(
             data[indptr[i] : indptr[i + 1]],
             baseline_probabilities,
             prior_strength=prior_strength,
+            target=target,
         )
     return weights
 
 
-def information_weight(data, prior_strength=0.1, approximate_prior=False):
+def information_weight(data, prior_strength=0.1, approximate_prior=False, target=None):
     """Compute information based weights for columns. The information weight
     is estimated as the amount of information gained by moving from a baseline
     model to a model derived from the observed counts. In practice this can be
@@ -111,20 +130,35 @@ def information_weight(data, prior_strength=0.1, approximate_prior=False):
         exact computations. Approximations are much faster especialyl for very
         large or very sparse datasets.
 
+    target: ndarray or None (optional, default=None)
+        If supervised target labels are available, these can be used to define distributions
+        over the target classes rather than over rows, allowing weights to be
+        supervised and target based. If None then unsupervised weighting is used.
+
     Returns
     -------
     weights: ndarray of shape (n_features,)
         The learned weights to be applied to columns based on the amount
         of information provided by the column.
     """
-    baseline_counts = np.squeeze(np.array(data.sum(axis=1)))
-    baseline_probabilities = baseline_counts / baseline_counts.sum()
-    csc_data = data.tocsc()
-    csc_data.sort_indices()
     if approximate_prior:
         column_kl_divergence_func = column_kl_divergence_approx_prior
     else:
         column_kl_divergence_func = column_kl_divergence_exact_prior
+
+    baseline_counts = np.squeeze(np.array(data.sum(axis=1)))
+    if target is None:
+        baseline_probabilities = baseline_counts / baseline_counts.sum()
+    else:
+        baseline_probabilities = np.zeros(target.max() + 1)
+        for i in range(baseline_probabilities.shape[0]):
+            baseline_probabilities[i] = baseline_counts[target == i].sum()
+        baseline_probabilities /= baseline_probabilities.sum()
+        column_kl_divergence_func = supervised_column_kl
+
+    csc_data = data.tocsc()
+    csc_data.sort_indices()
+
     weights = column_weights(
         csc_data.indptr,
         csc_data.indices,
@@ -132,6 +166,7 @@ def information_weight(data, prior_strength=0.1, approximate_prior=False):
         baseline_probabilities,
         column_kl_divergence_func,
         prior_strength=prior_strength,
+        target=target,
     )
     return weights
 
@@ -284,6 +319,19 @@ class InformationWeightTransformer(BaseEstimator, TransformerMixin):
             X = scipy.sparse.csc_matrix(X)
 
         self.information_weights_ = information_weight(X, self.prior_strength, self.approx_prior)
+        self.information_weights_ /= np.mean(self.information_weights_)
+        self.information_weights_ = self.information_weights_ ** 2
+
+        if y is not None:
+            target_classes = np.unique(y)
+            target_dict = dict(np.vstack((target_classes, np.arange(target_classes.shape[0]))).T)
+            target = np.array([np.int64(target_dict[label]) for label in y], dtype=np.int64)
+            self.supervised_weights_ = information_weight(X, self.prior_strength, self.approx_prior, target=target)
+            self.supervised_weights_ /= np.mean(self.supervised_weights_)
+            self.supervised_weights_ = self.supervised_weights_ ** 2
+
+            self.information_weights_ = self.information_weights_ * self.supervised_weights_
+
         return self
 
     def transform(self, X):
@@ -426,3 +474,34 @@ class RemoveEffectsTransformer(BaseEstimator, TransformerMixin):
         if X.nnz == 0:
             return X
         return self.transform(X)
+
+
+class Wasserstein1DHistogramTransformer(BaseEstimator, TransformerMixin):
+    def __init__(self):
+        pass
+
+    def fit_transform(self, X, y=None, **fit_params):
+        X = check_array(X)
+        normalized_X = normalize(X, norm="l1")
+        result = np.cumsum(normalized_X, axis=1)
+        self.metric_ = "l1"
+        return result
+
+
+class SequentialDifferenceTransformer(BaseEstimator, TransformerMixin):
+
+    def __init__(self, offset=1):
+        self.offset = offset
+
+    def fit(self, X, y=None, **fit_params):
+        self.fit_transform(X, y, **fit_params)
+        return self
+
+    def fit_transform(self, X, y=None, **fit_params):
+        result = []
+
+        for sequence in X:
+            seq = np.array(sequence)
+            result.append(seq[self.offset:] - seq[: -self.offset])
+
+        return result

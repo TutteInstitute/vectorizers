@@ -13,9 +13,10 @@ from vectorizers import DistributionVectorizer
 from vectorizers import HistogramVectorizer
 from vectorizers import KDEVectorizer
 from vectorizers import LabelledTreeCooccurrenceVectorizer
-from vectorizers import SequentialDifferenceTransformer
-from vectorizers import Wasserstein1DHistogramTransformer
+from vectorizers.transformers import SequentialDifferenceTransformer
+from vectorizers.transformers import Wasserstein1DHistogramTransformer
 from vectorizers import WassersteinVectorizer
+from vectorizers import ApproximateWassersteinVectorizer
 
 from vectorizers.distances import kantorovich1d
 from vectorizers.ngram_vectorizer import ngrams_of
@@ -949,6 +950,13 @@ def test_wasserstein_vectorizer_list_compared_to_sparse():
         reference_vectors=vectorizer_sparse.reference_vectors_,
     )
     assert np.allclose(result_sparse, result_list, rtol=1e-3, atol=1e-6)
+
+
+def test_approx_wasserstein_vectorizer_basic():
+    vectorizer = ApproximateWassersteinVectorizer(random_state=42)
+    result = vectorizer.fit_transform(distributions_data, vectors=vectors_data)
+    transform_result = vectorizer.transform(distributions_data, vectors=vectors_data)
+    assert np.allclose(result, transform_result, rtol=1e-3, atol=1e-6)
 
 
 def test_node_removal():
