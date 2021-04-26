@@ -314,7 +314,7 @@ def pairwise_gaussian_ground_distance(
     return result
 
 
-def procrustes_align(e1, e2, scale_to="both"):
+def procrustes_align(e1: np.ndarray, e2: np.ndarray, scale_to: str="both") -> np.ndarray:
     """Given two embeddings ``e1`` and ``e2`` attempt to align them
     via a combination of shift, uniform scaling, and orthogonal
     transformations.
