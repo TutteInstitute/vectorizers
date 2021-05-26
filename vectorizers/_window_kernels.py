@@ -1,14 +1,17 @@
 import numpy as np
 import numba
 
+from vectorizers.utils import flatten
+
+
 # The window function
 
 
 @numba.njit(nogil=True)
 def window_at_index(token_sequence, window_size, ind, reverse=False):
     if reverse:
-        return np.flip(token_sequence[max(ind - window_size, 0) : ind])
-    return token_sequence[ind + 1 : min(ind + window_size + 1, len(token_sequence))]
+        return np.flip(token_sequence[max(ind - window_size, 0): ind])
+    return token_sequence[ind + 1: min(ind + window_size + 1, len(token_sequence))]
 
 
 # Window width functions
@@ -16,10 +19,10 @@ def window_at_index(token_sequence, window_size, ind, reverse=False):
 
 @numba.njit(nogil=True)
 def variable_window_radii(
-    window_size,
-    token_frequency,
-    mask_index=None,
-    power=0.75,
+        window_size,
+        token_frequency,
+        mask_index=None,
+        power=0.75,
 ):
     radii = np.power(token_frequency, power - 1)
     radii /= np.sum(radii * token_frequency)
@@ -48,7 +51,7 @@ def flat_kernel(window, mask_index=None, normalize=False, offset=0):
     result = np.ones(len(window), dtype=np.float64)
     if mask_index is not None:
         result[window == mask_index] = 0.0
-    result[0 : min(offset, len(result))] = 0
+    result[0: min(offset, len(result))] = 0
     if normalize:
         temp = result.sum()
         if temp > 0:
@@ -61,7 +64,7 @@ def harmonic_kernel(window, mask_index=None, normalize=False, offset=0):
     result = 1.0 / np.arange(1, len(window) + 1)
     if mask_index is not None:
         result[window == mask_index] = 0.0
-    result[0 : min(offset, len(result))] = 0
+    result[0: min(offset, len(result))] = 0
     if normalize:
         temp = result.sum()
         if temp > 0:
@@ -71,17 +74,17 @@ def harmonic_kernel(window, mask_index=None, normalize=False, offset=0):
 
 @numba.njit(nogil=True)
 def geometric_kernel(
-    window,
-    mask_index=None,
-    normalize=False,
-    offset=0,
-    power=0.9,
+        window,
+        mask_index=None,
+        normalize=False,
+        offset=0,
+        power=0.9,
 ):
     result = power ** np.arange(0, len(window))
 
     if mask_index is not None:
         result[window == mask_index] = 0.0
-    result[0 : min(offset, len(result))] = 0
+    result[0: min(offset, len(result))] = 0
     if normalize:
         temp = result.sum()
         if temp > 0:
@@ -91,10 +94,10 @@ def geometric_kernel(
 
 @numba.njit(nogil=True)
 def update_kernel(
-    window,
-    kernel,
-    mask_index,
-    normalize,
+        window,
+        kernel,
+        mask_index,
+        normalize,
 ):
     result = kernel[: len(window)].astype(np.float64)
     if mask_index is not None:
@@ -104,6 +107,31 @@ def update_kernel(
         if temp > 0:
             result /= temp
     return result
+
+
+# @numba.njit(nogil=True)
+def document_contexts(
+        doc_window,
+        target_doc,
+        kernel_array,
+        kernel_masks,
+        kernel_normalize,
+):
+    window_result = flatten(doc_window)
+    kernel_result = np.zeros_like(window_result)
+    ind = 0
+    for d_i, doc in enumerate(doc_window):
+        kernel_result[ind: ind + len(doc)] = np.repeat(kernel_array[np.abs(d_i - target_doc)], len(doc))
+        ind += len(doc)
+
+    if kernel_masks is not None:
+        window_result[window_result == kernel_masks] = 0
+    if kernel_normalize:
+        temp = kernel_result.sum()
+        if temp > 0:
+            kernel_result /= temp
+
+    return window_result, kernel_result
 
 
 # Parameter lists

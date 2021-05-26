@@ -567,6 +567,13 @@ def test_cooccurrence_vectorizer_wide_transform():
         == vectorizer_a.transform(token_data).nnz
     )
 
+def test_set_sequence_token_cooccurrence():
+    vectorizer_a = TokenCooccurrenceVectorizer(document_context=True)
+    assert (
+        vectorizer_a.fit_transform(multi_token_cooccurrence_matrix).nnz
+        == vectorizer_a.transform(multi_token_cooccurrence_matrix).nnz
+    )
+
 
 @pytest.mark.parametrize("kernel_function", ["harmonic", "flat", "geometric"])
 def test_token_cooccurrence_vectorizer_offset(kernel_function):
