@@ -177,7 +177,7 @@ def build_multi_skip_ngrams(
     return coo_data
 
 
-@numba.njit(nogil=True)
+# @numba.njit(nogil=True)
 def build_multi_skip_grams(
     token_sequences,
     window_size_array,
@@ -188,7 +188,118 @@ def build_multi_skip_grams(
     normalize_windows,
     n_unique_tokens,
     array_lengths,
-    document_context,
+):
+    """Generate a matrix of (weighted) counts of co-occurrences of tokens within
+    windows in a set of sequences of tokens. Each sequence in the collection of
+    sequences provides an effective boundary over which skip-grams may not pass
+    (such as sentence boundaries in an NLP context). This is done for a collection
+    of different window and kernel types simultaneously.
+
+    Parameters
+    ----------
+    token_sequences: Iterable of Iterables
+        The collection of token sequences to generate skip-gram data for.
+
+    n_unique_tokens: int
+        The number of unique tokens in the token_dictionary.
+
+    window_size_array: numpy.ndarray(float, size = (n_windows, n_unique_tokens))
+        A collection of window sizes per vocabulary index per window function
+
+    window_reversals: numpy.array(bool, size = (n_windows,))
+        Array indicating whether the window is after or not.
+
+    kernel_array: numpy.ndarray(float, size = (n_windows, max_window_radius))
+        A collection of kernel values per window index per window funciton
+
+    kernel_args: tuple of tuples
+        Arguments to pass through to the kernel functions per function
+
+    mix_weights: numpy.array(bool, size = (n_windows,))
+        The scalars values used to combine the values of the kernel functions
+
+    normalize_windows: bool
+        Indicates whether or nor to L_1 normalize the kernel values per window occurrence
+
+    array_lengths: numpy.array(int, size = (n_windows,))
+        The lengths of the arrays per window used to the store the coo matrix triples.
+
+
+    Returns
+    -------
+    cooccurrence_matrix: CooArray
+        Weight counts of values (kernel weighted counts) that token_head[i] cooccurred with token_tail[i]
+    """
+
+    n_windows = window_size_array.shape[0]
+    array_mul = n_windows * n_unique_tokens + 1
+    kernel_masks = [ker[0] for ker in kernel_args]
+    kernel_normalize = [ker[1] for ker in kernel_args]
+
+    coo_data = [
+        CooArray(
+            np.zeros(array_lengths[i], dtype=np.int32),
+            np.zeros(array_lengths[i], dtype=np.int32),
+            np.zeros(array_lengths[i], dtype=np.float32),
+            np.zeros(array_lengths[i], dtype=np.int64),
+            np.zeros(1, dtype=np.int64),
+            np.zeros(2 * np.int64(np.ceil(np.log2(array_lengths[i]))), dtype=np.int64),
+            np.zeros(1, dtype=np.int64),
+        )
+        for i in range(n_windows)
+    ]
+
+    for d_i, seq in enumerate(token_sequences):
+        for w_i, target_word in enumerate(seq):
+            #Sequence of tokens
+            windows = [
+                window_at_index(
+                    seq,
+                    window_size_array[i, target_word],
+                    w_i,
+                    reverse=window_reversals[i],
+                )
+                for i in range(n_windows)
+            ]
+
+            kernels = [
+                mix_weights[i]
+                * update_kernel(
+                    windows[i], kernel_array[i], kernel_masks[i], kernel_normalize[i]
+                )
+                for i in range(n_windows)
+            ]
+
+
+            total = 0
+            if normalize_windows:
+                sums = np.array([np.sum(ker) for ker in kernels])
+                total = np.sum(sums)
+            if total <= 0:
+                total = 1
+
+            for i, window in enumerate(windows):
+                this_ker = kernels[i]
+                for j, context in enumerate(window):
+                    val = np.float32(this_ker[j] / total)
+                    if val > 0:
+                        row = target_word
+                        col = context + i * n_unique_tokens
+                        key = col + array_mul * row
+                        coo_append(coo_data[i], (row, col, val, key))
+
+    return coo_data
+
+def build_multi_sequence_grams(
+    token_sequences,
+    window_size_array,
+    window_reversals,
+    kernel_array,
+    kernel_args,
+    mix_weights,
+    normalize_windows,
+    n_unique_tokens,
+    array_lengths,
 ):
     """Generate a matrix of (weighted) counts of co-occurrences of tokens within
     windows in a set of sequences of tokens. Each sequence in the collection of
@@ -251,61 +362,38 @@ def build_multi_skip_grams(
         )
         for i in range(n_windows)
     ]
+
     for d_i, seq in enumerate(token_sequences):
+        print("new document")
         for w_i, target_word in enumerate(seq):
             #Sequence of tokens
-            if(~document_context):
-                windows = [
-                    window_at_index(
-                        seq,
-                        window_size_array[i, target_word],
-                        w_i,
-                        reverse=window_reversals[i],
-                    )
-                    for i in range(n_windows)
-                ]
-
-                kernels = [
-                    mix_weights[i]
-                    * update_kernel(
-                        windows[i], kernel_array[i], kernel_masks[i], kernel_normalize[i]
-                    )
-                    for i in range(n_windows)
-                ]
             # Document context: we have a sequence of documents (bags of tokens)
-            else:
-                windows = []
-                kernels = []
-                print("I'm in the new code!")
-                for i in range(n_windows):
-                    # This is the windows at.
-                    if window_reversals[i] == False:
-                        # forwards
-                        doc_window = token_sequences[
-                                     d_i: min([len(token_sequences), d_i + window_size_array[i, 0] + 1])]
-                        target_doc = 0
-                    elif window_reversals[i] == True:
-                        # backwards
-                        #Colin suggests this should be window_size_array[i, w_i] instead of window_size_array[i, 0]
-                        doc_window = token_sequences[max([0, d_i - window_size_array[i, 0]]): d_i + 1]
-                        target_doc = len(doc_window) - 1
-                    else:
-                        # symmetric
-                        #Colin suggests this should be window_size_array[i, w_i] instead of window_size_array[i, 0]
-                        doc_window = token_sequences[max([0, d_i - window_size_array[i, 0]]):
-                                                     min([len(token_sequences), d_i + window_size_array[i, 0] + 1])]
-                        target_doc = window_size_array[i, 0]
+            windows = []
+            kernels = []
+            print("new target word")
+            for i in range(n_windows):
+                # This is the windows at.
+                if window_reversals[i] == False:
+                    # forwards
+                    doc_window = token_sequences[
+                                 d_i: min([len(token_sequences), d_i + window_size_array[i, 0] + 1])]
+                elif window_reversals[i] == True:
+                    # backwards
+                    #Colin suggests this should be window_size_array[i, w_i] instead of window_size_array[i, 0]
+                    doc_window = np.flip(token_sequences[max([0, d_i - window_size_array[i, 0]]): d_i + 1],0)
 
-                    this_window, this_kernel = document_contexts(
-                        doc_window=doc_window,
-                        target_doc=target_doc,
-                        kernel_array=kernel_array[i],
-                        kernel_masks=kernel_masks[i],
-                        kernel_normalize=kernel_normalize[i],
-                    )
-                    windows.append(this_window)
-                    kernels.append(this_kernel)
+                this_window, this_kernel = document_contexts(
+                    doc_window=doc_window,
+                    target_index=w_i,
+                    kernel_array=kernel_array[i],
+                    kernel_masks=kernel_masks[i],
+                    kernel_normalize=kernel_normalize[i],
+                )
+                windows.append(this_window)
+                kernels.append(this_kernel)
 
+            print(f'windows {windows}')
+            print(f'kernels {kernels}')
             total = 0
             if normalize_windows:
                 sums = np.array([np.sum(ker) for ker in kernels])
@@ -325,11 +413,8 @@ def build_multi_skip_grams(
 
     return coo_data
 
-#def build_multi_sequence_grams(
 
-
-
-@numba.njit(nogil=True)
+# @numba.njit(nogil=True)
 def sequence_multi_skip_grams(
     token_sequences,
     window_size_array,
@@ -417,18 +502,30 @@ def sequence_multi_skip_grams(
             array_to_tuple=array_to_tuple,
         )
     else:
-        coo_list = build_multi_skip_grams(
-            token_sequences=token_sequences,
-            window_size_array=window_size_array,
-            window_reversals=window_reversals,
-            kernel_array=kernel_array,
-            kernel_args=kernel_args,
-            mix_weights=mix_weights,
-            normalize_windows=normalize_windows,
-            n_unique_tokens=n_unique_tokens,
-            array_lengths=array_lengths,
-            document_context=document_context,
-        )
+        if document_context:
+            coo_list = build_multi_sequence_grams(
+                token_sequences=token_sequences,
+                window_size_array=window_size_array,
+                window_reversals=window_reversals,
+                kernel_array=kernel_array,
+                kernel_args=kernel_args,
+                mix_weights=mix_weights,
+                normalize_windows=normalize_windows,
+                n_unique_tokens=n_unique_tokens,
+                array_lengths=array_lengths,
+            )
+        else:
+            coo_list = build_multi_skip_grams(
+                token_sequences=token_sequences,
+                window_size_array=window_size_array,
+                window_reversals=window_reversals,
+                kernel_array=kernel_array,
+                kernel_args=kernel_args,
+                mix_weights=mix_weights,
+                normalize_windows=normalize_windows,
+                n_unique_tokens=n_unique_tokens,
+                array_lengths=array_lengths,
+            )
 
     for coo in coo_list:
         coo_sum_duplicates(coo, kind="quicksort")
@@ -1365,7 +1462,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         # Set the kernel array and adjust args
         self._em_kernel_args = []
         self._initial_kernel_args = []
-        max_ker_len = np.max(self._window_array)
+        max_ker_len = np.max(self._window_array)+1
         self._kernel_array = np.zeros((self._n_wide, max_ker_len), dtype=np.float64)
 
         for i, args in enumerate(self._kernel_args):
@@ -1400,23 +1497,24 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         for t in token_sequences:
             approx_coo_size += len(t)
         approx_coo_size *= (max(self.window_radii) + 1) * (20 * self._n_wide)
-        if approx_coo_size < self.coo_max_bytes:
-            if self.skip_ngram_size > 1:
-                self._coo_sizes = np.repeat(
-                    approx_coo_size // self._n_wide, self._n_wide
-                ).astype(np.int64)
-            else:
-                self._coo_sizes = set_array_size(
-                    token_sequences,
-                    self._window_array,
-                )
-        else:
-            offsets = np.array(
-                [self._initial_kernel_args[i][2] for i in range(self._n_wide)]
-            )
-            average_window = self._window_radii - offsets
-            self._coo_sizes = (self.coo_max_bytes // 20) // np.sum(average_window)
-            self._coo_sizes = np.array(self._coo_sizes * average_window, dtype=np.int64)
+
+        # if approx_coo_size < self.coo_max_bytes:
+        #     if self.skip_ngram_size > 1:
+        #         self._coo_sizes = np.repeat(
+        #             approx_coo_size // self._n_wide, self._n_wide
+        #         ).astype(np.int64)
+        #     else:
+        #         self._coo_sizes = set_array_size(
+        #             token_sequences,
+        #             self._window_array,
+        #         )
+        # else:
+        offsets = np.array(
+            [self._initial_kernel_args[i][2] for i in range(self._n_wide)]
+        )
+        average_window = self._window_radii - offsets
+        self._coo_sizes = (self.coo_max_bytes // 20) // np.sum(average_window)
+        self._coo_sizes = np.array(self._coo_sizes * average_window, dtype=np.int64)
 
         if np.any(self._coo_sizes == 0):
             raise ValueError(f"The coo_max_mem is too small to process the data.")

@@ -567,12 +567,26 @@ def test_cooccurrence_vectorizer_wide_transform():
         == vectorizer_a.transform(token_data).nnz
     )
 
-def test_set_sequence_token_cooccurrence():
-    vectorizer_a = TokenCooccurrenceVectorizer(document_context=True)
-    assert (
-        vectorizer_a.fit_transform(multi_token_cooccurrence_matrix).nnz
-        == vectorizer_a.transform(multi_token_cooccurrence_matrix).nnz
+def test_multi_label_token_cooccurrence():
+    vectorizer_a = TokenCooccurrenceVectorizer(
+        document_context=True,
+        window_radii=[1,2],
+        window_functions=['fixed','fixed'],
+        kernel_functions=['flat','flat'],
+        window_orientations=['before','before'],
+        normalize_windows=False,
+        coo_max_memory='1G'
     )
+
+    print(vectorizer_a.fit_transform(text_token_data_permutation).todense())
+    print(text_token_data_permutation)
+    print(vectorizer_a.token_label_dictionary_)
+    print(vectorizer_a.column_label_dictionary_)
+    assert (
+        vectorizer_a.fit_transform(text_token_data_permutation).nnz
+        == vectorizer_a.transform(text_token_data_permutation).nnz
+    )
+    assert (0==1)
 
 
 @pytest.mark.parametrize("kernel_function", ["harmonic", "flat", "geometric"])

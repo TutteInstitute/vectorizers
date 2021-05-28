@@ -108,24 +108,31 @@ def update_kernel(
             result /= temp
     return result
 
+#@numba.njit(nogil=True)
+#def flatten_doc_window(doc_window):
+#    []
 
 # @numba.njit(nogil=True)
 def document_contexts(
         doc_window,
-        target_doc,
+        target_index,
         kernel_array,
         kernel_masks,
         kernel_normalize,
 ):
-    window_result = flatten(doc_window)
-    kernel_result = np.zeros_like(window_result)
+    #This can't be numba
+    #window_result = flatten(doc_window)
+    window_result = [x for window in doc_window for x in window]
+    kernel_result = np.zeros(len(window_result))
     ind = 0
     for d_i, doc in enumerate(doc_window):
-        kernel_result[ind: ind + len(doc)] = np.repeat(kernel_array[np.abs(d_i - target_doc)], len(doc))
+        kernel_result[ind: ind + len(doc)] = np.repeat(kernel_array[np.abs(d_i)], len(doc))
         ind += len(doc)
-
+    kernel_result[target_index] = 0
     if kernel_masks is not None:
-        window_result[window_result == kernel_masks] = 0
+        print("Kernel masks are not implemented")
+#    if kernel_masks is not None:
+#        window_result[window_result == kernel_masks] = 0
     if kernel_normalize:
         temp = kernel_result.sum()
         if temp > 0:

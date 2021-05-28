@@ -77,6 +77,7 @@ def flatten(list_of_seq):
         return list_of_seq
 
 
+
 def sparse_collapse(matrix, labels, sparse=True):
     """
     Groups the rows and columns of a matrix by the the labels array.
