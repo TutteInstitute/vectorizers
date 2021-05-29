@@ -7,6 +7,7 @@ CooArray = namedtuple("CooArray", ["row", "col", "val", "key", "ind", "min", "de
 COO_QUICKSORT_LIMIT = 1 << 16
 COO_MEM_MULTIPLIER = 2.0
 
+
 @numba.njit(nogil=True)
 def set_array_size(token_sequences, window_array):
     tot_len = np.zeros(window_array.shape[0]).astype(np.float64)
@@ -18,6 +19,7 @@ def set_array_size(token_sequences, window_array):
         ).T  # NOTE: numba only does dot products with floats
     tot_len[tot_len <= COO_QUICKSORT_LIMIT] = COO_QUICKSORT_LIMIT + 1
     return tot_len.astype(np.int64)
+
 
 @numba.njit(nogil=True)
 def merge_sum_duplicates(coo):
@@ -156,27 +158,27 @@ def coo_increase_mem(coo):
     temp = coo.row
     new_size = np.int32(np.round(COO_MEM_MULTIPLIER * temp.shape[0]))
     new_row = np.zeros(new_size, dtype=np.int32)
-    new_row[:temp.shape[0]] = temp
+    new_row[: temp.shape[0]] = temp
 
     temp = coo.col
     new_size = np.int32(np.round(COO_MEM_MULTIPLIER * temp.shape[0]))
     new_col = np.zeros(new_size, dtype=np.int32)
-    new_col[:temp.shape[0]] = temp
+    new_col[: temp.shape[0]] = temp
 
     temp = coo.val
     new_size = np.int32(np.round(COO_MEM_MULTIPLIER * temp.shape[0]))
     new_val = np.zeros(new_size, dtype=np.float32)
-    new_val[:temp.shape[0]] = temp
+    new_val[: temp.shape[0]] = temp
 
     temp = coo.key
     new_size = np.int32(np.round(COO_MEM_MULTIPLIER * temp.shape[0]))
     new_key = np.zeros(new_size, dtype=np.int64)
-    new_key[:temp.shape[0]] = temp
+    new_key[: temp.shape[0]] = temp
 
     temp = coo.min
     new_size = np.int32(np.round(COO_MEM_MULTIPLIER * temp.shape[0]))
     new_min = np.zeros(new_size, dtype=np.int64)
-    new_min[:temp.shape[0]] = temp
+    new_min[: temp.shape[0]] = temp
 
     coo = CooArray(
         new_row,
@@ -189,7 +191,6 @@ def coo_increase_mem(coo):
     )
 
     return coo
-
 
 
 @numba.njit(nogil=True)
@@ -215,6 +216,7 @@ def coo_append(coo, tup):
                 coo = coo_increase_mem(coo)
 
     return coo
+
 
 @numba.njit(nogil=True)
 def sum_coo_entries(seq):

@@ -282,7 +282,7 @@ def test_equality_of_TokenCooccurrenceVectorizer(
         n_iter=n_iter,
         nullify_mask=nullify_mask and mask_string is not None,
         normalize_windows=normalize_windows,
-        normalization=normalization
+        normalization=normalization,
     )
     model2 = TokenCooccurrenceVectorizer(
         window_radii=window_radius,
@@ -294,7 +294,7 @@ def test_equality_of_TokenCooccurrenceVectorizer(
         n_iter=n_iter,
         nullify_mask=nullify_mask and mask_string is not None,
         normalize_windows=normalize_windows,
-        normalization=normalization
+        normalization=normalization,
     )
     assert np.allclose(
         model1.fit_transform(text_token_data_permutation).toarray(),
@@ -491,9 +491,11 @@ def test_token_cooccurrence_vectorizer_kernel_args():
 
 
 def test_cooccurrence_vectorizer_epsilon():
-    vectorizer_a = TokenCooccurrenceVectorizer(epsilon=0, normalization='frequentist')
-    vectorizer_b = TokenCooccurrenceVectorizer(epsilon=1e-11, normalization='frequentist')
-    vectorizer_c = TokenCooccurrenceVectorizer(epsilon=1, normalization='frequentist')
+    vectorizer_a = TokenCooccurrenceVectorizer(epsilon=0, normalization="frequentist")
+    vectorizer_b = TokenCooccurrenceVectorizer(
+        epsilon=1e-11, normalization="frequentist"
+    )
+    vectorizer_c = TokenCooccurrenceVectorizer(epsilon=1, normalization="frequentist")
     mat1 = normalize(
         vectorizer_a.fit_transform(token_data).toarray(), axis=0, norm="l1"
     )
@@ -544,7 +546,7 @@ def test_cooccurrence_vectorizer_em_iter(skip_grams_size):
         n_iter=0, skip_ngram_size=skip_grams_size
     )
     vectorizer_b = TokenCooccurrenceVectorizer(
-        n_iter=2, skip_ngram_size=skip_grams_size, normalization='frequentist'
+        n_iter=2, skip_ngram_size=skip_grams_size, normalization="frequentist"
     )
     assert (
         vectorizer_a.fit_transform(token_data).nnz
@@ -558,7 +560,7 @@ def test_cooccurrence_vectorizer_wide_iter():
         window_radii=[1, 2],
         mix_weights=[1, 1],
         window_functions=("fixed", "variable"),
-        window_orientations=['directional', 'directional'],
+        window_orientations=["directional", "directional"],
         n_iter=0,
     )
     vectorizer_b = TokenCooccurrenceVectorizer(
@@ -566,8 +568,8 @@ def test_cooccurrence_vectorizer_wide_iter():
         window_radii=[1, 2],
         mix_weights=[1, 1],
         window_functions=["fixed", "variable"],
-        window_orientations=['directional', 'directional'],
-        normalization = 'frequentist',
+        window_orientations=["directional", "directional"],
+        normalization="frequentist",
         n_iter=2,
     )
     assert (
@@ -582,7 +584,7 @@ def test_cooccurrence_vectorizer_wide_transform():
         window_radii=[1, 2],
         mix_weights=[1, 1],
         window_functions=("fixed", "variable"),
-        window_orientations=['directional', 'directional'],
+        window_orientations=["directional", "directional"],
         n_iter=2,
     )
     assert (

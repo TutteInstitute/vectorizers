@@ -22,7 +22,7 @@ from .utils import (
     str_to_bytes,
     pair_to_tuple,
     make_tuple_converter,
-    dirichlet_process_normalize
+    dirichlet_process_normalize,
 )
 
 from .coo_utils import (
@@ -30,7 +30,7 @@ from .coo_utils import (
     coo_sum_duplicates,
     CooArray,
     merge_all_sum_duplicates,
-    set_array_size
+    set_array_size,
 )
 
 import numpy as np
@@ -390,6 +390,7 @@ def sequence_multi_skip_grams(
         [coo.val[: coo.ind[0]] for coo in coo_list],
     )
 
+
 def multi_token_cooccurrence_matrix(
     token_sequences,
     n_unique_tokens,
@@ -526,7 +527,6 @@ def multi_token_cooccurrence_matrix(
         cooccurrence_matrix.data[cooccurrence_matrix.data < epsilon] = 0
         cooccurrence_matrix.eliminate_zeros()
 
-
     # Do the EM
     n_chunks = (len(token_sequences) // chunk_size) + 1
 
@@ -554,7 +554,6 @@ def multi_token_cooccurrence_matrix(
         cooccurrence_matrix = normalizer(cooccurrence_matrix, axis=0, norm="l1").tocsr()
         cooccurrence_matrix.data[cooccurrence_matrix.data < epsilon] = 0
         cooccurrence_matrix.eliminate_zeros()
-
 
     return cooccurrence_matrix.tocsr()
 
@@ -1443,7 +1442,14 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
         return cooccurrences_
 
-    def reduce_dimension(self, dimension=150, algorithm="arpack", n_iter=10, row_norm='frequentist', power=0.25):
+    def reduce_dimension(
+        self,
+        dimension=150,
+        algorithm="arpack",
+        n_iter=10,
+        row_norm="frequentist",
+        power=0.25,
+    ):
         check_is_fitted(self, ["column_label_dictionary_"])
         if row_norm == "Bayesian":
             row_normalize = dirichlet_process_normalize
@@ -1451,8 +1457,12 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             row_normalize = normalize
 
         if self.n_iter < 1:
-            self.reduced_matrix_ = self._normalize(self.cooccurrences_, axis=0, norm="l1")
-            self.reduced_matrix_ = row_normalize(self.reduced_matrix_, axis=1, norm="l1")
+            self.reduced_matrix_ = self._normalize(
+                self.cooccurrences_, axis=0, norm="l1"
+            )
+            self.reduced_matrix_ = row_normalize(
+                self.reduced_matrix_, axis=1, norm="l1"
+            )
         else:
             self.reduced_matrix_ = row_normalize(self.cooccurrences_, axis=1, norm="l1")
 
