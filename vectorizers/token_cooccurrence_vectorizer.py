@@ -30,6 +30,7 @@ from .coo_utils import (
     coo_sum_duplicates,
     CooArray,
     merge_all_sum_duplicates,
+    set_array_size
 )
 
 import numpy as np
@@ -172,7 +173,7 @@ def build_multi_skip_ngrams(
                             row = target_gram_ind
                             col = context + i * n_unique_tokens
                             key = col + array_mul * row
-                            coo_append(coo_data[i], (row, col, val, key))
+                            coo_data[i] = coo_append(coo_data[i], (row, col, val, key))
 
     return coo_data
 
@@ -282,7 +283,7 @@ def build_multi_skip_grams(
                         row = target_word
                         col = context + i * n_unique_tokens
                         key = col + array_mul * row
-                        coo_append(coo_data[i], (row, col, val, key))
+                        coo_data[i] = coo_append(coo_data[i], (row, col, val, key))
 
     return coo_data
 
@@ -388,19 +389,6 @@ def sequence_multi_skip_grams(
         [coo.col[: coo.ind[0]] for coo in coo_list],
         [coo.val[: coo.ind[0]] for coo in coo_list],
     )
-
-
-@numba.njit(nogil=True)
-def set_array_size(token_sequences, window_array):
-    tot_len = np.zeros(window_array.shape[0]).astype(np.float64)
-    window_array = window_array.astype(np.float64)
-    for seq in token_sequences:
-        counts = np.bincount(seq, minlength=window_array.shape[1]).astype(np.float64)
-        tot_len += np.dot(
-            window_array, counts
-        ).T  # NOTE: numba only does dot products with floats
-    return tot_len.astype(np.int64)
-
 
 def multi_token_cooccurrence_matrix(
     token_sequences,
@@ -537,7 +525,7 @@ def multi_token_cooccurrence_matrix(
         cooccurrence_matrix = normalizer(cooccurrence_matrix, axis=0, norm="l1").tocsr()
         cooccurrence_matrix.data[cooccurrence_matrix.data < epsilon] = 0
         cooccurrence_matrix.eliminate_zeros()
-        #cooccurrence_matrix = normalizer(cooccurrence_matrix, axis=0, norm="l1").tocsr()
+
 
     # Do the EM
     n_chunks = (len(token_sequences) // chunk_size) + 1
@@ -566,7 +554,7 @@ def multi_token_cooccurrence_matrix(
         cooccurrence_matrix = normalizer(cooccurrence_matrix, axis=0, norm="l1").tocsr()
         cooccurrence_matrix.data[cooccurrence_matrix.data < epsilon] = 0
         cooccurrence_matrix.eliminate_zeros()
-        #cooccurrence_matrix = normalizer(cooccurrence_matrix, axis=0, norm="l1").tocsr()
+
 
     return cooccurrence_matrix.tocsr()
 
@@ -940,11 +928,12 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
     normalization: str ("Bayesian" or "frequentist")
         Sets the feature normalization to be the frequentist L_1 norm or the Bayesian (Dirichlet Process) normalization
 
-    coo_max_memory: str (optional, default = "2 GiB")
-        This value, giving a memory size in k, M, G or T, describes how much memory to set for acculumating the
+    coo_max_memory: str (optional, default = "0.5 GiB")
+        This value, giving a memory size in k, M, G or T, describes how much memory to initialize for acculumating the
         (row, col, val) triples of larger data sets.  This should be at least 2 times the number of non-zero
-        entries in the final cooccurrence matrix for near optimal performance.  Optimizations to use
-        significantly less memory are made for data sets with small expected numbers of non zeros.
+        entries in the final cooccurrence matrix for near optimal speed in performance.  Optimizations to use
+        significantly less memory are made for data sets with small expected numbers of non zeros, and more memory
+        will be allocated during processing if need be.
     """
 
     def __init__(
@@ -977,7 +966,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         n_iter=0,
         epsilon=0,
         normalization="Bayesian",
-        coo_max_memory="2 GiB",
+        coo_max_memory="0.5 GiB",
     ):
         self.token_dictionary = token_dictionary
         self.min_occurrences = min_occurrences

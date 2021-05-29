@@ -520,6 +520,24 @@ def test_cooccurrence_vectorizer_coo_mem():
     assert np.allclose(mat1, mat2)
 
 
+def test_cooccurrence_vectorizer_coo_mem_limit():
+    vectorizer_a = TokenCooccurrenceVectorizer(
+        window_functions="fixed",
+        n_iter=0,
+        coo_max_memory="1k",
+        normalize_windows=False,
+    )
+    vectorizer_b = TokenCooccurrenceVectorizer(
+        window_functions="fixed",
+        n_iter=0,
+        normalize_windows=False,
+    )
+    data = [[np.random.randint(0, 10) for i in range(100)]]
+    mat1 = vectorizer_a.fit_transform(data).toarray()
+    mat2 = vectorizer_b.fit_transform(data).toarray()
+    assert np.allclose(mat1, mat2)
+
+
 @pytest.mark.parametrize("skip_grams_size", [1, 2])
 def test_cooccurrence_vectorizer_em_iter(skip_grams_size):
     vectorizer_a = TokenCooccurrenceVectorizer(
