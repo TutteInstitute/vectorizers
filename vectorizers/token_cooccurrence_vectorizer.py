@@ -22,6 +22,7 @@ from .utils import (
     str_to_bytes,
     pair_to_tuple,
     make_tuple_converter,
+    dirichlet_process_normalize
 )
 
 from .coo_utils import (
@@ -413,6 +414,7 @@ def multi_token_cooccurrence_matrix(
     array_lengths,
     n_iter,
     epsilon,
+    normalizer,
     ngram_dictionary=MOCK_DICT,
     ngram_size=1,
     chunk_size=1 << 20,
@@ -457,6 +459,9 @@ def multi_token_cooccurrence_matrix(
 
     epsilon: float
         Set to zero all coooccurrence matrix values less than epsilon
+
+    normalizer: function
+        The function to perform feature normalization
 
     ngram_dictionary: dict (optional)
         The dictionary from tuples of token indices to an n_gram index
@@ -529,10 +534,10 @@ def multi_token_cooccurrence_matrix(
     cooccurrence_matrix = cooccurrence_matrix.tocsr()
 
     if n_iter > 0 or epsilon > 0:
-        cooccurrence_matrix = normalize(cooccurrence_matrix, axis=0, norm="l1").tocsr()
+        cooccurrence_matrix = normalizer(cooccurrence_matrix, axis=0, norm="l1").tocsr()
         cooccurrence_matrix.data[cooccurrence_matrix.data < epsilon] = 0
         cooccurrence_matrix.eliminate_zeros()
-        cooccurrence_matrix = normalize(cooccurrence_matrix, axis=0, norm="l1").tocsr()
+        #cooccurrence_matrix = normalizer(cooccurrence_matrix, axis=0, norm="l1").tocsr()
 
     # Do the EM
     n_chunks = (len(token_sequences) // chunk_size) + 1
@@ -558,10 +563,10 @@ def multi_token_cooccurrence_matrix(
                 array_to_tuple=array_to_tuple,
             )
         cooccurrence_matrix.data = new_data
-        cooccurrence_matrix = normalize(cooccurrence_matrix, axis=0, norm="l1").tocsr()
+        cooccurrence_matrix = normalizer(cooccurrence_matrix, axis=0, norm="l1").tocsr()
         cooccurrence_matrix.data[cooccurrence_matrix.data < epsilon] = 0
         cooccurrence_matrix.eliminate_zeros()
-        cooccurrence_matrix = normalize(cooccurrence_matrix, axis=0, norm="l1").tocsr()
+        #cooccurrence_matrix = normalizer(cooccurrence_matrix, axis=0, norm="l1").tocsr()
 
     return cooccurrence_matrix.tocsr()
 
@@ -926,8 +931,14 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
     n_iter: int (optional, default = 0)
         Number of EM iterations to perform
 
+    context_document_width: 2-tuple  (optional, default = (0,0) )
+        The number of additional documents before and after the target to potentially include in the context windows
+
     epsilon: float32 (optional default = 0)
         Sets values in the cooccurrence matrix (after l_1 normalizing the columns) less than epsilon to zero
+
+    normalization: str ("Bayesian" or "frequentist")
+        Sets the feature normalization to be the frequentist L_1 norm or the Bayesian (Dirichlet Process) normalization
 
     coo_max_memory: str (optional, default = "2 GiB")
         This value, giving a memory size in k, M, G or T, describes how much memory to set for acculumating the
@@ -965,6 +976,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         normalize_windows=True,
         n_iter=0,
         epsilon=0,
+        normalization="Bayesian",
         coo_max_memory="2 GiB",
     ):
         self.token_dictionary = token_dictionary
@@ -995,7 +1007,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self.n_iter = n_iter
         self.epsilon = epsilon
         self.coo_max_memory = coo_max_memory
-
+        self.normalization = normalization
         self.token_label_dictionary_ = {}
         self.token_index_dictionary_ = {}
         self._token_frequencies_ = np.array([])
@@ -1123,6 +1135,11 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         assert len(self._window_functions) == self._n_wide
         assert len(self._kernel_functions) == self._n_wide
         assert len(self._kernel_args) == self._n_wide
+
+        if self.normalization == "Bayesian":
+            self._normalize = dirichlet_process_normalize
+        else:
+            self._normalize = normalize
 
     def _set_column_dicts(self):
         self.column_label_dictionary_ = {}
@@ -1375,6 +1392,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             array_lengths=self._coo_sizes,
             n_iter=self.n_iter,
             epsilon=self.epsilon,
+            normalizer=self._normalize,
             ngram_dictionary=self._raw_ngram_dictionary_,
             ngram_size=self.skip_ngram_size,
         )
@@ -1429,22 +1447,27 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             array_lengths=self._coo_sizes,
             n_iter=self.n_iter,
             epsilon=self.epsilon,
+            normalizer=self._normalize,
             ngram_dictionary=self._raw_ngram_dictionary_,
             ngram_size=self.skip_ngram_size,
         )
 
         return cooccurrences_
 
-    def reduce_dimension(self, dimension=150, algorithm="arpack", n_iter=10):
+    def reduce_dimension(self, dimension=150, algorithm="arpack", n_iter=10, row_norm='frequentist', power=0.25):
         check_is_fitted(self, ["column_label_dictionary_"])
+        if row_norm == "Bayesian":
+            row_normalize = dirichlet_process_normalize
+        else:
+            row_normalize = normalize
 
         if self.n_iter < 1:
-            self.reduced_matrix_ = normalize(self.cooccurrences_, axis=0, norm="l1")
-            self.reduced_matrix_ = normalize(self.reduced_matrix_, axis=1, norm="l1")
+            self.reduced_matrix_ = self._normalize(self.cooccurrences_, axis=0, norm="l1")
+            self.reduced_matrix_ = row_normalize(self.reduced_matrix_, axis=1, norm="l1")
         else:
-            self.reduced_matrix_ = normalize(self.cooccurrences_, axis=1, norm="l1")
+            self.reduced_matrix_ = row_normalize(self.cooccurrences_, axis=1, norm="l1")
 
-        self.reduced_matrix_.data = np.power(self.reduced_matrix_.data, 0.25)
+        self.reduced_matrix_.data = np.power(self.reduced_matrix_.data, power)
 
         if algorithm == "arpack":
             u, s, v = svds(self.reduced_matrix_, k=dimension)

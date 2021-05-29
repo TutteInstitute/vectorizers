@@ -10,7 +10,45 @@ from collections import Counter
 import re
 from warnings import warn
 from numba.np.unsafe.ndarray import to_fixed_tuple
+from scipy.special import digamma
 
+@numba.vectorize()
+def digamma(x):
+    if x <= 0:
+        return -np.inf
+    result = 0.0;
+    for i in range(x,7):
+        result -= 1 / x
+        x +=1
+    x -= 0.5
+    xx = 1.0 / x
+    xx2 = xx * xx
+    xx4 = xx2 * xx2
+    result += np.log(x) + (1.0 / 24.0) * xx2 - (7.0 / 960.0) * xx4 + (
+        (31.0 / 8064.0) * xx4 * xx2 - (127.0 / 30720.0) * xx4 * xx4)
+    return result
+
+@numba.njit()
+def dp_normalize(indptr, data, sums):
+    data = digamma(data)
+    sums = digamma(sums)
+    for i, this_sum in enumerate(sums):
+        for j in range(indptr[i], indptr[i+1]):
+            data[j] = np.exp(data[j]-this_sum)
+    return data
+
+def dirichlet_process_normalize(X, axis = 0, norm = 'l1'):
+    sums = np.array(X.sum(axis=axis)).flatten()
+    if axis == 0:
+        X = X.tocsc()
+        new_data = dp_normalize(X.indptr, X.data, sums)
+        X.data = new_data
+        return X.tocsr()
+    else:
+        X = X.tocsr()
+        new_data = dp_normalize(X.indptr, X.data, sums)
+        X.data = new_data
+        return X.tocsr()
 
 @numba.njit(nogil=True)
 def pair_to_tuple(pair):
