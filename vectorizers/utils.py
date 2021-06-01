@@ -12,7 +12,7 @@ from warnings import warn
 
 import os
 
-if "NUMBA_DISABLE_JIT" in os.environ and os.environ["NUMBA_DISABLE_JIT"] is not in (0, "0"):
+if "NUMBA_DISABLE_JIT" in os.environ and not os.environ["NUMBA_DISABLE_JIT"] is in (0, "0"):
     def to_fixed_tuple(iterable, size):
         return tuple(iterable)[:size]
 else:
