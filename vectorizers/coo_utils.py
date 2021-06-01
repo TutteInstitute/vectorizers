@@ -5,6 +5,20 @@ from collections import namedtuple
 CooArray = namedtuple("CooArray", ["row", "col", "val", "key", "ind", "min", "depth"])
 
 COO_QUICKSORT_LIMIT = 1 << 16
+COO_MEM_MULTIPLIER = 2.0
+
+
+@numba.njit(nogil=True)
+def set_array_size(token_sequences, window_array):
+    tot_len = np.zeros(window_array.shape[0]).astype(np.float64)
+    window_array = window_array.astype(np.float64)
+    for seq in token_sequences:
+        counts = np.bincount(seq, minlength=window_array.shape[1]).astype(np.float64)
+        tot_len += np.dot(
+            window_array, counts
+        ).T  # NOTE: numba only does dot products with floats
+    tot_len[tot_len <= COO_QUICKSORT_LIMIT] = COO_QUICKSORT_LIMIT + 1
+    return tot_len.astype(np.int64)
 
 
 @numba.njit(nogil=True)
@@ -139,6 +153,47 @@ def coo_sum_duplicates(coo, kind):
 
 
 @numba.njit(nogil=True)
+def coo_increase_mem(coo):
+
+    temp = coo.row
+    new_size = np.int32(np.round(COO_MEM_MULTIPLIER * temp.shape[0]))
+    new_row = np.zeros(new_size, dtype=np.int32)
+    new_row[: temp.shape[0]] = temp
+
+    temp = coo.col
+    new_size = np.int32(np.round(COO_MEM_MULTIPLIER * temp.shape[0]))
+    new_col = np.zeros(new_size, dtype=np.int32)
+    new_col[: temp.shape[0]] = temp
+
+    temp = coo.val
+    new_size = np.int32(np.round(COO_MEM_MULTIPLIER * temp.shape[0]))
+    new_val = np.zeros(new_size, dtype=np.float32)
+    new_val[: temp.shape[0]] = temp
+
+    temp = coo.key
+    new_size = np.int32(np.round(COO_MEM_MULTIPLIER * temp.shape[0]))
+    new_key = np.zeros(new_size, dtype=np.int64)
+    new_key[: temp.shape[0]] = temp
+
+    temp = coo.min
+    new_size = np.int32(np.round(COO_MEM_MULTIPLIER * temp.shape[0]))
+    new_min = np.zeros(new_size, dtype=np.int64)
+    new_min[: temp.shape[0]] = temp
+
+    coo = CooArray(
+        new_row,
+        new_col,
+        new_val,
+        new_key,
+        coo.ind,
+        new_min,
+        coo.depth,
+    )
+
+    return coo
+
+
+@numba.njit(nogil=True)
 def coo_append(coo, tup):
     coo.row[coo.ind[0]] = tup[0]
     coo.col[coo.ind[0]] = tup[1]
@@ -151,18 +206,16 @@ def coo_append(coo, tup):
         if (coo.key.shape[0] - np.abs(coo.min[0])) <= COO_QUICKSORT_LIMIT:
             merge_all_sum_duplicates(coo)
             if coo.ind[0] >= 0.95 * coo.key.shape[0]:
-                raise ValueError(
-                    f"The coo matrix array is over memory limit.  Increase coo_max_bytes to process data."
-                )
+                coo = coo_increase_mem(coo)
 
     if coo.ind[0] == coo.key.shape[0]:
         coo_sum_duplicates(coo, kind="quicksort")
         if (coo.key.shape[0] - np.abs(coo.min[0])) <= COO_QUICKSORT_LIMIT:
             merge_all_sum_duplicates(coo)
             if coo.ind[0] >= 0.95 * coo.key.shape[0]:
-                raise ValueError(
-                    f"The coo matrix array is over memory limit.  Increase coo_max_bytes to process data."
-                )
+                coo = coo_increase_mem(coo)
+
+    return coo
 
 
 @numba.njit(nogil=True)
