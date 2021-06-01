@@ -17,6 +17,53 @@ if "NUMBA_DISABLE_JIT" in os.environ and os.environ["NUMBA_DISABLE_JIT"] is not 
         return tuple(iterable)[:size]
 else:
     from numba.np.unsafe.ndarray import to_fixed_tuple
+    
+from scipy.special import digamma
+
+
+@numba.vectorize()
+def digamma(x):
+    if x <= 0:
+        return -np.inf
+    result = 0.0
+    for i in range(x, 7):
+        result -= 1 / x
+        x += 1
+    x -= 0.5
+    xx = 1.0 / x
+    xx2 = xx * xx
+    xx4 = xx2 * xx2
+    result += (
+        np.log(x)
+        + (1.0 / 24.0) * xx2
+        - (7.0 / 960.0) * xx4
+        + ((31.0 / 8064.0) * xx4 * xx2 - (127.0 / 30720.0) * xx4 * xx4)
+    )
+    return result
+
+
+@numba.njit()
+def dp_normalize(indptr, data, sums):
+    data = digamma(data)
+    sums = digamma(sums)
+    for i, this_sum in enumerate(sums):
+        for j in range(indptr[i], indptr[i + 1]):
+            data[j] = np.exp(data[j] - this_sum)
+    return data
+
+
+def dirichlet_process_normalize(X, axis=0, norm="l1"):
+    sums = np.array(X.sum(axis=axis)).flatten()
+    if axis == 0:
+        X = X.tocsc()
+        new_data = dp_normalize(X.indptr, X.data, sums)
+        X.data = new_data
+        return X.tocsr()
+    else:
+        X = X.tocsr()
+        new_data = dp_normalize(X.indptr, X.data, sums)
+        X.data = new_data
+        return X.tocsr()
 
 
 @numba.njit(nogil=True)
@@ -170,7 +217,7 @@ def validate_homogeneous_token_types(data):
 
 
 def gmm_component_likelihood(
-        component_mean: np.ndarray, component_covar: np.ndarray, diagram: np.ndarray
+    component_mean: np.ndarray, component_covar: np.ndarray, diagram: np.ndarray
 ) -> np.ndarray:
     """Generate the vector of likelihoods of observing points in a diagram
     for a single gmm components (i.e. a single Gaussian). That is, evaluate
@@ -252,7 +299,7 @@ def mat_sqrt(mat: np.ndarray) -> np.ndarray:
 
 @numba.njit()
 def wasserstein2_gaussian(
-        m1: np.ndarray, C1: np.ndarray, m2: np.ndarray, C2: np.ndarray
+    m1: np.ndarray, C1: np.ndarray, m2: np.ndarray, C2: np.ndarray
 ) -> float:
     """Compute the Wasserstein_2 distance between two 2D Gaussians. This can be
     computed via the closed form formula:
@@ -289,7 +336,7 @@ def wasserstein2_gaussian(
 
 @numba.njit()
 def pairwise_gaussian_ground_distance(
-        means: np.ndarray, covariances: np.ndarray
+    means: np.ndarray, covariances: np.ndarray
 ) -> np.ndarray:
     """Compute pairwise distances between a list of Gaussians. This can be
     used as the ground distance for an earth-mover distance computation on
@@ -362,7 +409,8 @@ def procrustes_align(e1: np.ndarray, e2: np.ndarray, scale_to: str="both") -> np
         rescale_factor = np.sqrt(e1_scale_factor * e2_scale_factor)
     else:
         raise ValueError(
-            f"Invalid value {scale_to} for scale_to. scale_to should be one of 'first', 'second', or 'both'")
+            f"Invalid value {scale_to} for scale_to. scale_to should be one of 'first', 'second', or 'both'"
+        )
     e1_scaled = e1_shift / e1_scale_factor
     e2_scaled = e2_shift / e2_scale_factor
     covariance = e2_scaled.T @ e1_scaled
