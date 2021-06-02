@@ -9,7 +9,15 @@ from sklearn.preprocessing import normalize, LabelBinarizer
 from collections import Counter
 import re
 from warnings import warn
-from numba.np.unsafe.ndarray import to_fixed_tuple
+
+import os
+
+if "NUMBA_DISABLE_JIT" in os.environ and not os.environ["NUMBA_DISABLE_JIT"] in (0, "0"):
+    def to_fixed_tuple(iterable, size):
+        return tuple(iterable)[:size]
+else:
+    from numba.np.unsafe.ndarray import to_fixed_tuple
+    
 from scipy.special import digamma
 
 
@@ -361,7 +369,7 @@ def pairwise_gaussian_ground_distance(
     return result
 
 
-def procrustes_align(e1, e2, scale_to="both"):
+def procrustes_align(e1: np.ndarray, e2: np.ndarray, scale_to: str="both") -> np.ndarray:
     """Given two embeddings ``e1`` and ``e2`` attempt to align them
     via a combination of shift, uniform scaling, and orthogonal
     transformations.
