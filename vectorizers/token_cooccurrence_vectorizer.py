@@ -41,7 +41,6 @@ from ._window_kernels import (
     _WINDOW_FUNCTIONS,
     window_at_index,
     update_kernel,
-    document_contexts,
 )
 
 MOCK_DICT = numba.typed.Dict()
@@ -288,6 +287,8 @@ def build_multi_skip_grams(
 
     return coo_data
 
+
+@numba.njit(nogil=True)
 def build_multi_sequence_grams(
     token_sequences,
     window_size_array,
@@ -362,36 +363,78 @@ def build_multi_sequence_grams(
     ]
 
     for d_i, seq in enumerate(token_sequences):
-        print("new document")
         for w_i, target_word in enumerate(seq):
-            #Sequence of tokens
-            # Document context: we have a sequence of documents (bags of tokens)
-            windows = []
-            kernels = []
-            print("new target word")
+
             for i in range(n_windows):
+                # Sequence of tokens
+                # Document context: we have a sequence of documents (bags of tokens)
                 # This is the windows at.
                 if window_reversals[i] == False:
                     # forwards
+
                     doc_window = token_sequences[
-                                 d_i: min([len(token_sequences), d_i + window_size_array[i, 0] + 1])]
+                        d_i : min(
+                            [len(token_sequences), d_i + window_size_array[i, 0] + 1]
+                        )
+                    ]
                 elif window_reversals[i] == True:
                     # backwards
-                    #Colin suggests this should be window_size_array[i, w_i] instead of window_size_array[i, 0]
-                    doc_window = np.flip(token_sequences[max([0, d_i - window_size_array[i, 0]]): d_i + 1],0)
+                    # Colin suggests this should be window_size_array[i, w_i] instead of window_size_array[i, 0]
+                    doc_window = token_sequences[
+                        max([0, d_i - window_size_array[i, 0]]) : d_i + 1
+                    ]
+                    # doc_window = List([d[len(d)-i-1] for i in range(len(d))])
 
-                this_window, this_kernel = document_contexts(
-                    doc_window=doc_window,
-                    target_index=w_i,
-                    kernel_array=kernel_array[i],
-                    kernel_masks=kernel_masks[i],
-                    kernel_normalize=kernel_normalize[i],
-                )
-                windows.append(this_window)
-                kernels.append(this_kernel)
+                # this_window, this_kernel = document_contexts(
+                #     doc_window=doc_window,
+                #     target_index=w_i,
+                #     kernel_array=kernel_array[i],
+                #     kernel_masks=kernel_masks[i],
+                #     kernel_normalize=kernel_normalize[i],
+                # )
+                result_len = 0
+                for window in doc_window:
+                    result_len += window.shape[0]
+                window_result = np.zeros(result_len).astype(np.int32)
+                j = 0
+                for window in doc_window:
+                    for x in window:
+                        window_result[j] = x
+                        j += 1
 
-            print(f'windows {windows}')
-            print(f'kernels {kernels}')
+                # window_result = np.array([x for window in doc_window for x in window]).astype(np.int32)
+                kernel_result = np.zeros(len(window_result)).astype(np.float64)
+                ind = 0
+                if window_reversals[i] == False:
+                    for doc_index, doc in enumerate(doc_window):
+                        kernel_result[ind : ind + len(doc)] = np.repeat(
+                            kernel_array[i][np.abs(doc_index)], len(doc)
+                        )
+                        ind += len(doc)
+                    kernel_result[w_i] = 0
+                else:
+                    for doc_index, doc in enumerate(doc_window):
+                        kernel_result[ind : ind + len(doc)] = np.repeat(
+                            kernel_array[i][len(doc_window) - doc_index - 1], len(doc)
+                        )
+                        ind += len(doc)
+                    kernel_result[ind - len(doc_window[-1]) + w_i] = 0
+                if kernel_masks[i] is not None:
+                    print("Kernel masks are not implemented")
+                #    if kernel_masks is not None:
+                #        window_result[window_result == kernel_masks] = 0
+                if kernel_normalize[i]:
+                    temp = kernel_result.sum()
+                    if temp > 0:
+                        kernel_result /= temp
+
+                if i == 0:
+                    windows = [window_result]
+                    kernels = [kernel_result]
+                else:
+                    windows.append(window_result)
+                    kernels.append(kernel_result)
+
             total = 0
             if normalize_windows:
                 sums = np.array([np.sum(ker) for ker in kernels])
@@ -412,7 +455,7 @@ def build_multi_sequence_grams(
     return coo_data
 
 
-# @numba.njit(nogil=True)
+@numba.njit(nogil=True)
 def sequence_multi_skip_grams(
     token_sequences,
     window_size_array,
@@ -481,7 +524,7 @@ def sequence_multi_skip_grams(
         Weight counts of values (kernel weighted counts) that token_head[i] cooccurred with token_tail[i]
     """
     if ngram_size > 1:
-        if(document_context==True):
+        if document_context == True:
             raise ValueError(
                 f"Document contexts are not supported for ngrams at this time.  Please set document_context=False."
             )
@@ -1463,7 +1506,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         # Set the kernel array and adjust args
         self._em_kernel_args = []
         self._initial_kernel_args = []
-        max_ker_len = np.max(self._window_array)
+        max_ker_len = np.max(self._window_array) + 1
         self._kernel_array = np.zeros((self._n_wide, max_ker_len), dtype=np.float64)
 
         for i, args in enumerate(self._kernel_args):

@@ -109,7 +109,7 @@ def merge_all_sum_duplicates(coo):
     merge_sum_duplicates(coo)
 
 
-# @numba.njit(nogil=True)
+@numba.njit(nogil=True)
 def coo_sum_duplicates(coo, kind):
     upper_lim = coo.ind[0]
     lower_lim = np.abs(coo.min[0])

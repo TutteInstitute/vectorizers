@@ -20,9 +20,7 @@ from vectorizers import ApproximateWassersteinVectorizer
 
 from vectorizers.distances import kantorovich1d
 from vectorizers.ngram_vectorizer import ngrams_of
-from vectorizers._vectorizers import (
-    find_bin_boundaries,
-)
+from vectorizers._vectorizers import find_bin_boundaries
 from vectorizers.tree_token_cooccurrence import (
     build_tree_skip_grams,
     sequence_tree_skip_grams,
@@ -592,27 +590,6 @@ def test_cooccurrence_vectorizer_wide_transform():
         == vectorizer_a.transform(token_data).nnz
     )
 
-def test_multi_label_token_cooccurrence():
-    vectorizer_a = TokenCooccurrenceVectorizer(
-        document_context=True,
-        window_radii=[1,2],
-        window_functions=['fixed','fixed'],
-        kernel_functions=['flat','flat'],
-        window_orientations=['before','before'],
-        normalize_windows=False,
-        coo_max_memory='1G'
-    )
-
-    print(vectorizer_a.fit_transform(text_token_data_permutation).todense())
-    print(text_token_data_permutation)
-    print(vectorizer_a.token_label_dictionary_)
-    print(vectorizer_a.column_label_dictionary_)
-    assert (
-        vectorizer_a.fit_transform(text_token_data_permutation).nnz
-        == vectorizer_a.transform(text_token_data_permutation).nnz
-    )
-    assert (0==1)
-
 
 @pytest.mark.parametrize("kernel_function", ["harmonic", "flat", "geometric"])
 def test_token_cooccurrence_vectorizer_offset(kernel_function):
@@ -1032,3 +1009,87 @@ def test_node_removal():
                 np.unique(np.hstack([row, orig_graph.rows[node_to_remove]]))
                 == np.unique(np.hstack([inplace_graph.rows[i], [node_to_remove]]))
             )
+
+
+def test_multi_label_token_cooccurrence():
+    vectorizer_a = TokenCooccurrenceVectorizer(
+        document_context=True,
+        window_radii=[0, 1, 2],
+        window_functions=["fixed", "fixed", "fixed"],
+        kernel_functions=["flat", "flat", "flat"],
+        window_orientations=["before", "before", "after"],
+        normalize_windows=False,
+        coo_max_memory="1G",
+    )
+
+    expected_result = scipy.sparse.csr_matrix(
+        np.array(
+            [
+                [0, 0, 1, 0, 0, 0, 2, 1, 0, 1, 2, 1],
+                [0, 0, 1, 1, 1, 0, 2, 1, 0, 0, 1, 1],
+                [1, 1, 0, 2, 2, 1, 2, 3, 2, 3, 3, 4],
+                [0, 1, 2, 0, 1, 1, 3, 0, 1, 2, 4, 1],
+            ]
+        )
+    )
+
+    result = vectorizer_a.fit_transform(text_token_data_permutation)
+    assert np.allclose(expected_result.toarray(), result.toarray())
+    assert (
+        vectorizer_a.fit_transform(text_token_data_permutation).nnz
+        == vectorizer_a.transform(text_token_data_permutation).nnz
+    )
+
+
+def test_multi_label_token_cooccurrence_range():
+    vectorizer_a = TokenCooccurrenceVectorizer(
+        document_context=True,
+        window_radii=[1, 1],
+        window_functions=["fixed", "fixed"],
+        kernel_functions=["flat", "flat"],
+        window_orientations=["before", "after"],
+        kernel_args=[{"offset": 1}, {"offset": 1}],
+        normalize_windows=False,
+        coo_max_memory="1G",
+    )
+
+    expected_result = scipy.sparse.csr_matrix(
+        np.array(
+            [
+                [0, 0, 1, 1, 0, 1, 1, 1],
+                [1, 0, 1, 0, 0, 0, 0, 0],
+                [1, 0, 2, 1, 1, 1, 2, 1],
+                [1, 0, 1, 0, 1, 0, 1, 0],
+            ]
+        )
+    )
+
+    result = vectorizer_a.fit_transform(text_token_data_permutation)
+    assert np.allclose(expected_result.toarray(), result.toarray())
+
+
+def test_multi_label_token_cooccurrence_harmonic():
+    vectorizer_a = TokenCooccurrenceVectorizer(
+        document_context=True,
+        window_radii=2,
+        window_functions="fixed",
+        kernel_functions="harmonic",
+        window_orientations="after",
+        # kernel_args={'offset': 1},
+        normalize_windows=False,
+        coo_max_memory="1G",
+    )
+
+    expected_result = scipy.sparse.csr_matrix(
+        np.array(
+            [
+                [0.0, 0.5, 1.5, 0.5],
+                [0.0, 0.0, 1.0, 1.0],
+                [1.5, 1.8333334, 1.3333334, 2.8333335],
+                [0.5, 1.3333334, 2.8333335, 0.33333334],
+            ]
+        )
+    )
+
+    result = vectorizer_a.fit_transform(text_token_data_permutation)
+    assert np.allclose(expected_result.toarray(), result.toarray())
