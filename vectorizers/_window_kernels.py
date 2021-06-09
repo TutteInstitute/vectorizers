@@ -1,6 +1,9 @@
 import numpy as np
 import numba
 
+from vectorizers.utils import flatten
+
+
 # The window function
 
 
