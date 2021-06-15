@@ -1118,7 +1118,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
     epsilon: float32 (optional default = 0)
         Sets values in the cooccurrence matrix (after l_1 normalizing the columns) less than epsilon to zero
 
-    normalization: str ("Bayesian" or "frequentist")
+    normalization: str ("bayesian" or "frequentist")
         Sets the feature normalization to be the frequentist L_1 norm or the Bayesian (Dirichlet Process) normalization
 
     coo_max_memory: str (optional, default = "0.5 GiB")
@@ -1158,7 +1158,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         normalize_windows=True,
         n_iter=0,
         epsilon=0,
-        normalization="Bayesian",
+        normalization="frequentist",
         coo_max_memory="0.5 GiB",
         document_context=False,
     ):
@@ -1320,7 +1320,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         assert len(self._kernel_functions) == self._n_wide
         assert len(self._kernel_args) == self._n_wide
 
-        if self.normalization == "Bayesian":
+        if self.normalization == "bayesian":
             self._normalize = dirichlet_process_normalize
         else:
             self._normalize = normalize
@@ -1649,7 +1649,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         power=0.25,
     ):
         check_is_fitted(self, ["column_label_dictionary_"])
-        if row_norm == "Bayesian":
+        if row_norm == "bayesian":
             row_normalize = dirichlet_process_normalize
         else:
             row_normalize = normalize
