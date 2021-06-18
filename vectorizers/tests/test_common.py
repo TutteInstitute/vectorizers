@@ -256,7 +256,7 @@ def test_equality_of_Tree_and_Token_CooccurrenceVectorizers(
 @pytest.mark.parametrize("mask_string", [None, "[MASK]"])
 @pytest.mark.parametrize("nullify_mask", [False, True])
 @pytest.mark.parametrize("normalize_windows", [False, True])
-@pytest.mark.parametrize("normalization", ["Bayesian", "frequentist"])
+@pytest.mark.parametrize("normalization", ["bayesian", "frequentist"])
 def test_equality_of_TokenCooccurrenceVectorizer(
     min_token_occurrences,
     max_document_frequency,
@@ -460,6 +460,22 @@ def test_token_cooccurrence_vectorizer_ngrams():
     transform = vectorizer.transform(text_token_data_ngram)
     assert (result != transform).nnz == 0
     assert np.allclose(result.toarray(), text_token_data_ngram_soln)
+
+
+def test_token_cooccurrence_vectorizer_window_normalization():
+    vectorizer = TokenCooccurrenceVectorizer(
+        n_iter=1, normalize_windows=True, window_normalization="bayesian"
+    )
+    result = vectorizer.fit_transform(token_data)
+    transform = vectorizer.transform(token_data)
+    assert (result != transform).nnz == 0
+
+    vectorizer = TokenCooccurrenceVectorizer(
+        n_iter=1, normalize_windows=True, window_normalization="frequentist"
+    )
+    result = vectorizer.fit_transform(token_data)
+    transform = vectorizer.transform(token_data)
+    assert (result != transform).nnz == 0
 
 
 def test_token_cooccurrence_vectorizer_window_args():
