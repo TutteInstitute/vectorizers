@@ -25,3 +25,7 @@ Vectorizers
 ===========
 
 Vectorizers for a range of different common data types as scikit-learn compatible transformers. This provides a suite of tools for making a wider range of datasets available to tools such as UMAP and HDBSCAN, among others.
+
+To get started on using this library for text we recommend checking out the documentation written up in the EasyData reproducible data science framework by some of our colleagues over at:
+https://github.com/hackalog/vectorizers_playground
+
