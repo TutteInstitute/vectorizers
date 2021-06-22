@@ -1109,3 +1109,39 @@ def test_multi_label_token_cooccurrence_harmonic():
 
     result = vectorizer_a.fit_transform(text_token_data_permutation)
     assert np.allclose(expected_result.toarray(), result.toarray())
+
+
+def test_multi_label_token_cooccurrence_em():
+    vectorizer_a = TokenCooccurrenceVectorizer(
+        document_context=True,
+        window_radii=[1, 1],
+        window_functions=["fixed", "fixed"],
+        kernel_functions=["flat", "flat"],
+        window_orientations=["before", "after"],
+        kernel_args=[{"offset": 1}, {"offset": 1}],
+        n_iter=1,
+    )
+
+    result = vectorizer_a.fit_transform(text_token_data_permutation)
+    result2 = vectorizer_a.transform(text_token_data_permutation)
+    assert np.allclose(result2.toarray(), result.toarray())
+
+
+@pytest.mark.parametrize("null", [True, False])
+def test_multi_label_token_cooccurrence_masking(null):
+    vectorizer_a = TokenCooccurrenceVectorizer(
+        document_context=True,
+        window_radii=[1, 1],
+        window_functions=["fixed", "fixed"],
+        kernel_functions=["flat", "flat"],
+        window_orientations=["before", "after"],
+        kernel_args=[{"offset": 1}, {"offset": 1}],
+        n_iter=1,
+        max_occurrences=2,
+        mask_string="xxx",
+        nullify_mask=null,
+    )
+
+    result = vectorizer_a.fit_transform(text_token_data_permutation)
+    result2 = vectorizer_a.transform(text_token_data_permutation)
+    assert np.allclose(result2.toarray(), result.toarray())
