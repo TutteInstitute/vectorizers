@@ -531,7 +531,7 @@ def sequence_multi_skip_grams(
             array_to_tuple=array_to_tuple,
         )
     else:
-        if document_context == True:
+        if document_context:
             coo_list = build_multi_sequence_grams(
                 token_sequences=token_sequences,
                 window_size_array=window_size_array,
