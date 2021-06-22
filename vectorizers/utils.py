@@ -12,12 +12,18 @@ from warnings import warn
 
 import os
 
-if "NUMBA_DISABLE_JIT" in os.environ and not os.environ["NUMBA_DISABLE_JIT"] in (0, "0"):
+if "NUMBA_DISABLE_JIT" in os.environ and not os.environ["NUMBA_DISABLE_JIT"] in (
+    0,
+    "0",
+):
+
     def to_fixed_tuple(iterable, size):
         return tuple(iterable)[:size]
+
+
 else:
     from numba.np.unsafe.ndarray import to_fixed_tuple
-    
+
 from scipy.special import digamma
 
 
@@ -50,6 +56,18 @@ def dp_normalize(indptr, data, sums):
         for j in range(indptr[i], indptr[i + 1]):
             data[j] = np.exp(data[j] - this_sum)
     return data
+
+
+@numba.njit()
+def dp_normalize_vector(vec):
+    data = digamma(vec)
+    this_sum = digamma(np.sum(vec))
+    return np.exp(data - this_sum)
+
+
+@numba.njit()
+def l1_normalize_vector(vec):
+    return vec / np.sum(vec)
 
 
 def dirichlet_process_normalize(X, axis=0, norm="l1"):
@@ -129,7 +147,6 @@ def flatten(list_of_seq):
         return tuple(itertools.chain.from_iterable(list_of_seq))
     else:
         return list_of_seq
-
 
 
 def sparse_collapse(matrix, labels, sparse=True):
@@ -369,7 +386,9 @@ def pairwise_gaussian_ground_distance(
     return result
 
 
-def procrustes_align(e1: np.ndarray, e2: np.ndarray, scale_to: str="both") -> np.ndarray:
+def procrustes_align(
+    e1: np.ndarray, e2: np.ndarray, scale_to: str = "both"
+) -> np.ndarray:
     """Given two embeddings ``e1`` and ``e2`` attempt to align them
     via a combination of shift, uniform scaling, and orthogonal
     transformations.

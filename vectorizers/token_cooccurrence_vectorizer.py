@@ -23,6 +23,8 @@ from .utils import (
     pair_to_tuple,
     make_tuple_converter,
     dirichlet_process_normalize,
+    dp_normalize_vector,
+    l1_normalize_vector,
 )
 
 from .coo_utils import (
@@ -364,34 +366,18 @@ def build_multi_sequence_grams(
 
     for d_i, seq in enumerate(token_sequences):
         for w_i, target_word in enumerate(seq):
-
             for i in range(n_windows):
-                # Sequence of tokens
-                # Document context: we have a sequence of documents (bags of tokens)
-                # This is the windows at.
                 if window_reversals[i] == False:
-                    # forwards
-
                     doc_window = token_sequences[
                         d_i : min(
                             [len(token_sequences), d_i + window_size_array[i, 0] + 1]
                         )
                     ]
                 elif window_reversals[i] == True:
-                    # backwards
-                    # Colin suggests this should be window_size_array[i, w_i] instead of window_size_array[i, 0]
                     doc_window = token_sequences[
                         max([0, d_i - window_size_array[i, 0]]) : d_i + 1
                     ]
-                    # doc_window = List([d[len(d)-i-1] for i in range(len(d))])
 
-                # this_window, this_kernel = document_contexts(
-                #     doc_window=doc_window,
-                #     target_index=w_i,
-                #     kernel_array=kernel_array[i],
-                #     kernel_masks=kernel_masks[i],
-                #     kernel_normalize=kernel_normalize[i],
-                # )
                 result_len = 0
                 for window in doc_window:
                     result_len += window.shape[0]
@@ -402,7 +388,6 @@ def build_multi_sequence_grams(
                         window_result[j] = x
                         j += 1
 
-                # window_result = np.array([x for window in doc_window for x in window]).astype(np.int32)
                 kernel_result = np.zeros(len(window_result)).astype(np.float64)
                 ind = 0
                 if window_reversals[i] == False:
@@ -419,10 +404,12 @@ def build_multi_sequence_grams(
                         )
                         ind += len(doc)
                     kernel_result[ind - len(doc_window[-1]) + w_i] = 0
+
                 if kernel_masks[i] is not None:
-                    print("Kernel masks are not implemented")
-                #    if kernel_masks is not None:
-                #        window_result[window_result == kernel_masks] = 0
+                    for w in range(window_result.shape[0]):
+                        if window_result[w] == kernel_masks[i]:
+                            kernel_result[w] = 0
+
                 if kernel_normalize[i]:
                     temp = kernel_result.sum()
                     if temp > 0:
@@ -430,12 +417,13 @@ def build_multi_sequence_grams(
 
                 if i == 0:
                     windows = [window_result]
-                    kernels = [kernel_result]
+                    kernels = [mix_weights[i] * kernel_result]
                 else:
                     windows.append(window_result)
-                    kernels.append(kernel_result)
+                    kernels.append(mix_weights[i] * kernel_result)
 
             total = 0
+
             if normalize_windows:
                 sums = np.array([np.sum(ker) for ker in kernels])
                 total = np.sum(sums)
@@ -592,6 +580,7 @@ def multi_token_cooccurrence_matrix(
     n_iter,
     epsilon,
     normalizer,
+    window_normalizer,
     ngram_dictionary=MOCK_DICT,
     ngram_size=1,
     chunk_size=1 << 20,
@@ -743,6 +732,8 @@ def multi_token_cooccurrence_matrix(
                 ngram_dictionary=ngram_dictionary,
                 ngram_size=ngram_size,
                 array_to_tuple=array_to_tuple,
+                window_normalizer=window_normalizer,
+                document_context=document_context,
             )
         cooccurrence_matrix.data = new_data
         cooccurrence_matrix = normalizer(cooccurrence_matrix, axis=0, norm="l1").tocsr()
@@ -762,6 +753,7 @@ def em_update_matrix(
     target_gram_ind,
     windows,
     kernels,
+    window_normalizer,
 ):
     """
     Updated the csr matrix from one round of EM on the given (hstack of) n cooccurrence matrices provided in csr format.
@@ -832,7 +824,7 @@ def em_update_matrix(
 
     temp = window_posterior.sum()
     if temp > 0:
-        window_posterior /= temp
+        window_posterior = window_normalizer(window_posterior)
 
     # Partial M_step - Update the posteriors
     for w, window in enumerate(windows):
@@ -854,6 +846,7 @@ def em_cooccurrence_iteration(
     kernel_array,
     kernel_args,
     mix_weights,
+    window_normalizer,
     n_unique_tokens,
     prior_indices,
     prior_indptr,
@@ -861,6 +854,7 @@ def em_cooccurrence_iteration(
     ngram_dictionary=MOCK_DICT,
     ngram_size=1,
     array_to_tuple=pair_to_tuple,
+    document_context=False,
 ):
     """
     Performs one round of EM on the given (hstack of) n cooccurrence matrices provided in csr format.
@@ -959,42 +953,118 @@ def em_cooccurrence_iteration(
                         target_gram_ind,
                         windows,
                         kernels,
+                        window_normalizer,
                     )
 
     else:
+        if document_context:
+            for d_i, seq in enumerate(token_sequences):
+                for w_i, target_word in enumerate(seq):
+                    for i in range(n_windows):
+                        if window_reversals[i] == False:
+                            doc_window = token_sequences[
+                                d_i : min(
+                                    [
+                                        len(token_sequences),
+                                        d_i + window_size_array[i, 0] + 1,
+                                    ]
+                                )
+                            ]
+                        elif window_reversals[i] == True:
+                            doc_window = token_sequences[
+                                max([0, d_i - window_size_array[i, 0]]) : d_i + 1
+                            ]
 
-        for d_i, seq in enumerate(token_sequences):
-            for w_i, target_word in enumerate(seq):
-                windows = [
-                    window_at_index(
-                        seq,
-                        window_size_array[i, target_word],
-                        w_i,
-                        reverse=window_reversals[i],
-                    )
-                    for i in range(n_windows)
-                ]
+                        result_len = 0
+                        for window in doc_window:
+                            result_len += window.shape[0]
+                        window_result = np.zeros(result_len).astype(np.int32)
+                        j = 0
+                        for window in doc_window:
+                            for x in window:
+                                window_result[j] = x
+                                j += 1
 
-                kernels = [
-                    mix_weights[i]
-                    * update_kernel(
-                        windows[i],
-                        kernel_array[i],
-                        kernel_masks[i],
-                        kernel_normalize[i],
+                        kernel_result = np.zeros(len(window_result)).astype(np.float64)
+                        ind = 0
+                        if window_reversals[i] == False:
+                            for doc_index, doc in enumerate(doc_window):
+                                kernel_result[ind : ind + len(doc)] = np.repeat(
+                                    kernel_array[i][np.abs(doc_index)], len(doc)
+                                )
+                                ind += len(doc)
+                            kernel_result[w_i] = 0
+                        else:
+                            for doc_index, doc in enumerate(doc_window):
+                                kernel_result[ind : ind + len(doc)] = np.repeat(
+                                    kernel_array[i][len(doc_window) - doc_index - 1],
+                                    len(doc),
+                                )
+                                ind += len(doc)
+                            kernel_result[ind - len(doc_window[-1]) + w_i] = 0
+
+                        if kernel_masks[i] is not None:
+                            for w in range(window_result.shape[0]):
+                                if window_result[w] == kernel_masks[i]:
+                                    kernel_result[w] = 0
+
+                        if kernel_normalize[i]:
+                            temp = kernel_result.sum()
+                            if temp > 0:
+                                kernel_result /= temp
+
+                        if i == 0:
+                            windows = [window_result]
+                            kernels = [mix_weights[i] * kernel_result]
+                        else:
+                            windows.append(window_result)
+                            kernels.append(mix_weights[i] * kernel_result)
+
+                    posterior_data = em_update_matrix(
+                        posterior_data,
+                        prior_indices,
+                        prior_indptr,
+                        prior_data,
+                        n_unique_tokens,
+                        target_word,
+                        windows,
+                        kernels,
+                        window_normalizer,
                     )
-                    for i in range(n_windows)
-                ]
-                posterior_data = em_update_matrix(
-                    posterior_data,
-                    prior_indices,
-                    prior_indptr,
-                    prior_data,
-                    n_unique_tokens,
-                    target_word,
-                    windows,
-                    kernels,
-                )
+        else:
+            for d_i, seq in enumerate(token_sequences):
+                for w_i, target_word in enumerate(seq):
+                    windows = [
+                        window_at_index(
+                            seq,
+                            window_size_array[i, target_word],
+                            w_i,
+                            reverse=window_reversals[i],
+                        )
+                        for i in range(n_windows)
+                    ]
+
+                    kernels = [
+                        mix_weights[i]
+                        * update_kernel(
+                            windows[i],
+                            kernel_array[i],
+                            kernel_masks[i],
+                            kernel_normalize[i],
+                        )
+                        for i in range(n_windows)
+                    ]
+                    posterior_data = em_update_matrix(
+                        posterior_data,
+                        prior_indices,
+                        prior_indptr,
+                        prior_data,
+                        n_unique_tokens,
+                        target_word,
+                        windows,
+                        kernels,
+                        window_normalizer,
+                    )
 
     return posterior_data
 
@@ -1121,11 +1191,14 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
     normalization: str ("bayesian" or "frequentist")
         Sets the feature normalization to be the frequentist L_1 norm or the Bayesian (Dirichlet Process) normalization
 
+    window_normalization: str ("bayesian" or "frequentist")
+        Sets the window normalization to be the frequentist L_1 norm or the Bayesian (Dirichlet Process) normalization
+
     coo_max_memory: str (optional, default = "0.5 GiB")
         This value, giving a memory size in k, M, G or T, describes how much memory to initialize for acculumating the
         (row, col, val) triples of larger data sets.  This should be at least 2 times the number of non-zero
         entries in the final cooccurrence matrix for near optimal speed in performance.  Optimizations to use
-        significantly less memory are made for data sets with small expected numbers of non zeros, and more memory
+        significantly less memory are made for data sets with small expected numbers of non zeros. More memory
         will be allocated during processing if need be.
     """
 
@@ -1159,6 +1232,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         n_iter=0,
         epsilon=0,
         normalization="frequentist",
+        window_normalization="frequentist",
         coo_max_memory="0.5 GiB",
         document_context=False,
     ):
@@ -1191,6 +1265,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self.epsilon = epsilon
         self.coo_max_memory = coo_max_memory
         self.normalization = normalization
+        self.window_normalization = window_normalization
         self.token_label_dictionary_ = {}
         self.token_index_dictionary_ = {}
         self._token_frequencies_ = np.array([])
@@ -1324,6 +1399,11 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             self._normalize = dirichlet_process_normalize
         else:
             self._normalize = normalize
+
+        if self.window_normalization == "bayesian":
+            self._window_normalize = dp_normalize_vector
+        else:
+            self._window_normalize = l1_normalize_vector
 
     def _set_column_dicts(self):
         self.column_label_dictionary_ = {}
@@ -1577,6 +1657,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             n_iter=self.n_iter,
             epsilon=self.epsilon,
             normalizer=self._normalize,
+            window_normalizer=self._window_normalize,
             ngram_dictionary=self._raw_ngram_dictionary_,
             ngram_size=self.skip_ngram_size,
             document_context=self.document_context,
@@ -1629,6 +1710,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             mix_weights=self._mix_weights,
             chunk_size=self.chunk_size,
             normalize_windows=self.normalize_windows,
+            window_normalizer=self._window_normalize,
             array_lengths=self._coo_sizes,
             n_iter=self.n_iter,
             epsilon=self.epsilon,

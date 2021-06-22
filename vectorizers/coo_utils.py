@@ -208,7 +208,7 @@ def coo_append(coo, tup):
             if coo.ind[0] >= 0.95 * coo.key.shape[0]:
                 coo = coo_increase_mem(coo)
 
-    if coo.ind[0] == coo.key.shape[0]:
+    if coo.ind[0] == coo.key.shape[0] - 1:
         coo_sum_duplicates(coo, kind="quicksort")
         if (coo.key.shape[0] - np.abs(coo.min[0])) <= COO_QUICKSORT_LIMIT:
             merge_all_sum_duplicates(coo)

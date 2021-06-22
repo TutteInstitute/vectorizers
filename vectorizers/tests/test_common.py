@@ -256,7 +256,7 @@ def test_equality_of_Tree_and_Token_CooccurrenceVectorizers(
 @pytest.mark.parametrize("mask_string", [None, "[MASK]"])
 @pytest.mark.parametrize("nullify_mask", [False, True])
 @pytest.mark.parametrize("normalize_windows", [False, True])
-@pytest.mark.parametrize("normalization", ["Bayesian", "frequentist"])
+@pytest.mark.parametrize("normalization", ["bayesian", "frequentist"])
 def test_equality_of_TokenCooccurrenceVectorizer(
     min_token_occurrences,
     max_document_frequency,
@@ -460,6 +460,22 @@ def test_token_cooccurrence_vectorizer_ngrams():
     transform = vectorizer.transform(text_token_data_ngram)
     assert (result != transform).nnz == 0
     assert np.allclose(result.toarray(), text_token_data_ngram_soln)
+
+
+def test_token_cooccurrence_vectorizer_window_normalization():
+    vectorizer = TokenCooccurrenceVectorizer(
+        n_iter=1, normalize_windows=True, window_normalization="bayesian"
+    )
+    result = vectorizer.fit_transform(token_data)
+    transform = vectorizer.transform(token_data)
+    assert (result != transform).nnz == 0
+
+    vectorizer = TokenCooccurrenceVectorizer(
+        n_iter=1, normalize_windows=True, window_normalization="frequentist"
+    )
+    result = vectorizer.fit_transform(token_data)
+    transform = vectorizer.transform(token_data)
+    assert (result != transform).nnz == 0
 
 
 def test_token_cooccurrence_vectorizer_window_args():
@@ -1093,3 +1109,39 @@ def test_multi_label_token_cooccurrence_harmonic():
 
     result = vectorizer_a.fit_transform(text_token_data_permutation)
     assert np.allclose(expected_result.toarray(), result.toarray())
+
+
+def test_multi_label_token_cooccurrence_em():
+    vectorizer_a = TokenCooccurrenceVectorizer(
+        document_context=True,
+        window_radii=[1, 1],
+        window_functions=["fixed", "fixed"],
+        kernel_functions=["flat", "flat"],
+        window_orientations=["before", "after"],
+        kernel_args=[{"offset": 1}, {"offset": 1}],
+        n_iter=1,
+    )
+
+    result = vectorizer_a.fit_transform(text_token_data_permutation)
+    result2 = vectorizer_a.transform(text_token_data_permutation)
+    assert np.allclose(result2.toarray(), result.toarray())
+
+
+@pytest.mark.parametrize("null", [True, False])
+def test_multi_label_token_cooccurrence_masking(null):
+    vectorizer_a = TokenCooccurrenceVectorizer(
+        document_context=True,
+        window_radii=[1, 1],
+        window_functions=["fixed", "fixed"],
+        kernel_functions=["flat", "flat"],
+        window_orientations=["before", "after"],
+        kernel_args=[{"offset": 1}, {"offset": 1}],
+        n_iter=1,
+        max_occurrences=2,
+        mask_string="xxx",
+        nullify_mask=null,
+    )
+
+    result = vectorizer_a.fit_transform(text_token_data_permutation)
+    result2 = vectorizer_a.transform(text_token_data_permutation)
+    assert np.allclose(result2.toarray(), result.toarray())
