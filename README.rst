@@ -13,7 +13,7 @@
 .. _AppVeyor: https://ci.appveyor.com/project/glemaitre/project-template
 
 .. |Codecov| image:: https://codecov.io/gh/TutteInstitute/vectorizers/branch/master/graph/badge.svg
-.. _Codecov: https://codecov.io/gh/scikit-learn-contrib/project-template
+.. _Codecov: https://codecov.io/gh/TutteInstitute/vectorizers
 
 .. |Coveralls| image:: https://coveralls.io/repos/github/TutteInstitute/vectorizers/badge.svg
 .. _Coveralls: https://coveralls.io/github/TutteInstitute/vectorizers?branch=master
