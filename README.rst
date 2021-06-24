@@ -2,8 +2,8 @@
 
 |Travis|_ |AppVeyor|_ |Codecov|_ |Coveralls|_ |CircleCI|_ |ReadTheDocs|_
 
-.. |Travis| image:: https://travis-ci.org/TutteInstitute/vectorizers.svg?branch=master
-.. _Travis: https://travis-ci.org/TutteInstitute/vectorizers
+.. |Travis| image:: https://travis-ci.com/TutteInstitute/vectorizers.svg?branch=master
+.. _Travis: https://travis-ci.com/TutteInstitute/vectorizers
 
 .. |AppVeyor| image:: https://ci.appveyor.com/api/projects/status/coy2qqaqr1rnnt5y/branch/master?svg=true
 .. _AppVeyor: https://ci.appveyor.com/project/glemaitre/project-template
@@ -13,7 +13,6 @@
 
 .. |Coveralls| image:: https://coveralls.io/repos/github/TutteInstitute/vectorizers/badge.svg?branch=master
 .. _Coveralls: https://coveralls.io/github/TutteInstitute/vectorizers?branch=master
-
 
 .. |CircleCI| image:: https://circleci.com/gh/TutteInstitute/vectorizers.svg?style=shield&circle-token=:circle-token
 .. _CircleCI: https://circleci.com/gh/scikit-learn-contrib/project-template/tree/master
