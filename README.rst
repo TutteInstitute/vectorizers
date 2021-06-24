@@ -1,7 +1,7 @@
 .. -*- mode: rst -*-
 
 .. image:: doc/vectorizers_logo_text.png
-  :width: 400
+  :width: 600
   :alt: Vectorizers Logo
 
 |Travis|_ |AppVeyor|_ |Codecov|_ |Coveralls|_ |CircleCI|_ |ReadTheDocs|_
