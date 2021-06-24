@@ -15,7 +15,7 @@
 .. |Codecov| image:: https://codecov.io/gh/TutteInstitute/vectorizers/branch/master/graph/badge.svg
 .. _Codecov: https://codecov.io/gh/scikit-learn-contrib/project-template
 
-.. |Coveralls| image:: https://coveralls.io/repos/github/TutteInstitute/vectorizers/badge.svg?branch=master
+.. |Coveralls| image:: https://coveralls.io/repos/github/TutteInstitute/vectorizers/badge.png?branch=master
 .. _Coveralls: https://coveralls.io/github/TutteInstitute/vectorizers?branch=master
 
 .. |CircleCI| image:: https://circleci.com/gh/TutteInstitute/vectorizers.svg?style=shield&circle-token=:circle-token
