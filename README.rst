@@ -1,5 +1,9 @@
 .. -*- mode: rst -*-
 
+.. image:: doc/vectorizers_logo_text.png
+  :width: 400
+  :alt: Vectorizers Logo
+
 |Travis|_ |AppVeyor|_ |Codecov|_ |Coveralls|_ |CircleCI|_ |ReadTheDocs|_
 
 .. |Travis| image:: https://travis-ci.com/TutteInstitute/vectorizers.svg?branch=master
