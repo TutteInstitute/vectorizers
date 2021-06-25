@@ -9,8 +9,8 @@
 .. |Travis| image:: https://travis-ci.com/TutteInstitute/vectorizers.svg?branch=master
 .. _Travis: https://travis-ci.com/TutteInstitute/vectorizers
 
-.. |AppVeyor| image:: https://ci.appveyor.com/api/projects/status/coy2qqaqr1rnnt5y/branch/master?svg=true
-.. _AppVeyor: https://ci.appveyor.com/project/glemaitre/project-template
+.. |AppVeyor| image:: https://ci.appveyor.com/api/projects/status/sjawsgwo7g4k3jon?svg=true
+.. _AppVeyor: https://ci.appveyor.com/project/lmcinnes/vectorizers
 
 .. |Codecov| image:: https://codecov.io/gh/TutteInstitute/vectorizers/branch/master/graph/badge.svg
 .. _Codecov: https://codecov.io/gh/TutteInstitute/vectorizers
