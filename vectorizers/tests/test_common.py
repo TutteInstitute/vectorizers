@@ -30,6 +30,7 @@ from vectorizers._window_kernels import (
     harmonic_kernel,
     flat_kernel,
 )
+from vectorizers.utils import summarize_embedding
 
 token_data = (
     (1, 3, 1, 4, 2),
@@ -1145,3 +1146,87 @@ def test_multi_label_token_cooccurrence_masking(null):
     result = vectorizer_a.fit_transform(text_token_data_permutation)
     result2 = vectorizer_a.transform(text_token_data_permutation)
     assert np.allclose(result2.toarray(), result.toarray())
+
+
+@pytest.mark.parametrize("dense", [True, False])
+@pytest.mark.parametrize("include_values", [True, False])
+def test_summarize_embedding_list(dense, include_values):
+    vect = NgramVectorizer()
+    weight_matrix = vect.fit_transform(text_token_data)
+    if dense:
+        weight_matrix = weight_matrix.todense()
+    summary = summarize_embedding(
+        weight_matrix, vect.column_index_dictionary_, include_values=include_values
+    )
+    expected_result = (
+        [
+            ["foo", "wer", "pok"],
+            [],
+            ["bar", "foo", "wer"],
+            ["wer", "foo", "bar"],
+            ["bar", "foo", "wer"],
+            ["wer", "pok", "foo"],
+            ["wer", "foo", "pok"],
+        ],
+        [
+            [2.0, 1.0, 1.0],
+            [],
+            [4.0, 3.0, 2.0],
+            [2.0, 2.0, 2.0],
+            [4.0, 3.0, 2.0],
+            [3.0, 3.0, 3.0],
+            [4.0, 4.0, 2.0],
+        ],
+    )
+
+    if include_values:
+        if dense:
+            assert summary[0][2:7] == expected_result[0][2:7]
+            assert summary[1][2:7] == expected_result[1][2:7]
+        else:
+            assert summary == expected_result
+    else:
+        if dense:
+            assert summary[2:7] == expected_result[0][2:7]
+        else:
+            assert summary == expected_result[0]
+
+
+@pytest.mark.parametrize("dense", [True, False])
+@pytest.mark.parametrize("include_values", [True, False])
+def test_summarize_embedding_string(dense, include_values):
+    vect = NgramVectorizer()
+    weight_matrix = vect.fit_transform(text_token_data)
+    if dense:
+        weight_matrix = weight_matrix.todense()
+    summary = summarize_embedding(
+        weight_matrix,
+        vect.column_index_dictionary_,
+        k=2,
+        return_type="string",
+        include_values=include_values,
+    )
+    if include_values:
+        expected_result = [
+            "foo:2.0 wer:1.0",
+            "",
+            "bar:4.0 foo:3.0",
+            "wer:2.0 foo:2.0",
+            "bar:4.0 foo:3.0",
+            "wer:3.0 pok:3.0",
+            "wer:4.0 foo:4.0",
+        ]
+    else:
+        expected_result = [
+            "foo wer",
+            "",
+            "bar foo",
+            "wer foo",
+            "bar foo",
+            "wer pok",
+            "wer foo",
+        ]
+    if dense:
+        assert summary[2:7] == expected_result[2:7]
+    else:
+        assert summary == expected_result

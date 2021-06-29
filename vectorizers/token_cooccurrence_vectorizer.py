@@ -1200,6 +1200,10 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         entries in the final cooccurrence matrix for near optimal speed in performance.  Optimizations to use
         significantly less memory are made for data sets with small expected numbers of non zeros. More memory
         will be allocated during processing if need be.
+
+    document_context: bool (optional, default=False)
+        Indicates whether your contexts are a sequence of bags of tokens with the context co-occurrence
+        spanning the bags.
     """
 
     def __init__(
