@@ -337,9 +337,6 @@ def build_multi_sequence_grams(
     array_lengths: numpy.array(int, size = (n_windows,))
         The lengths of the arrays per window used to the store the coo matrix triples.
 
-    document_context: bool
-        Indicates whether we have a sequence of tokens or a sequence of documents.
-
     Returns
     -------
     cooccurrence_matrix: CooArray
@@ -457,7 +454,7 @@ def sequence_multi_skip_grams(
     ngram_dictionary=MOCK_DICT,
     ngram_size=1,
     array_to_tuple=pair_to_tuple,
-    document_context=False,
+    multi_labelled_tokens=False,
 ):
     """Generate a sequence of (weighted) counts of co-occurrences of tokens within
     windows in a set of sequences of tokens. Each sequence in the collection of
@@ -503,8 +500,9 @@ def sequence_multi_skip_grams(
     array_to_tuple: numba.jitted callable (optional)
         Function that casts arrays of fixed length to tuples
 
-    document_context: bool (optional, default = False)
-        indicates whether we are an iterable of iterables (False) or an iterable of iterables of iterables (True)
+    multi_labelled_tokens: bool (optional, default = False)
+        Indicates whether we are an iterable of iterables (False) or an iterable of iterables of iterables (True)
+        That is it indicates whether we have a sequence of tokens or a sequence of bags of labels.
 
     Returns
     -------
@@ -512,9 +510,9 @@ def sequence_multi_skip_grams(
         Weight counts of values (kernel weighted counts) that token_head[i] cooccurred with token_tail[i]
     """
     if ngram_size > 1:
-        if document_context == True:
+        if multi_labelled_tokens == True:
             raise ValueError(
-                f"Document contexts are not supported for ngrams at this time.  Please set document_context=False."
+                f"Document contexts are not supported for ngrams at this time.  Please set multi_labelled_tokens=False."
             )
         coo_list = build_multi_skip_ngrams(
             token_sequences=token_sequences,
@@ -531,7 +529,7 @@ def sequence_multi_skip_grams(
             array_to_tuple=array_to_tuple,
         )
     else:
-        if document_context:
+        if multi_labelled_tokens:
             coo_list = build_multi_sequence_grams(
                 token_sequences=token_sequences,
                 window_size_array=window_size_array,
@@ -584,7 +582,7 @@ def multi_token_cooccurrence_matrix(
     ngram_dictionary=MOCK_DICT,
     ngram_size=1,
     chunk_size=1 << 20,
-    document_context=False,
+    multi_labelled_tokens=False,
 ):
     """Generate a matrix of (weighted) counts of co-occurrences of tokens within
     windows in a set of sequences of tokens. Each sequence in the collection of
@@ -641,7 +639,7 @@ def multi_token_cooccurrence_matrix(
         chunks of this size to stream the data through, rather than storing all
         the results at once. This saves on peak memory usage.
 
-    document_context: bool (optional, default=False)
+    multi_labelled_tokens: bool (optional, default=False)
         Indicates whether your contexts are a sequence of bags of tokens with the context co-occurrence
         spanning the bags.
 
@@ -687,7 +685,7 @@ def multi_token_cooccurrence_matrix(
             ngram_dictionary=ngram_dictionary,
             ngram_size=ngram_size,
             array_to_tuple=array_to_tuple,
-            document_context=document_context,
+            multi_labelled_tokens=multi_labelled_tokens,
         )
 
         cooccurrence_matrix += scipy.sparse.coo_matrix(
@@ -733,7 +731,7 @@ def multi_token_cooccurrence_matrix(
                 ngram_size=ngram_size,
                 array_to_tuple=array_to_tuple,
                 window_normalizer=window_normalizer,
-                document_context=document_context,
+                multi_labelled_tokens=multi_labelled_tokens,
             )
         cooccurrence_matrix.data = new_data
         cooccurrence_matrix = normalizer(cooccurrence_matrix, axis=0, norm="l1").tocsr()
@@ -854,7 +852,7 @@ def em_cooccurrence_iteration(
     ngram_dictionary=MOCK_DICT,
     ngram_size=1,
     array_to_tuple=pair_to_tuple,
-    document_context=False,
+    multi_labelled_tokens=False,
 ):
     """
     Performs one round of EM on the given (hstack of) n cooccurrence matrices provided in csr format.
@@ -903,6 +901,10 @@ def em_cooccurrence_iteration(
 
     array_to_tuple: numba.jitted callable (optional)
         Function that casts arrays of fixed length to tuples
+
+    multi_labelled_tokens: bool (optional, default=False)
+        Indicates whether your contexts are a sequence of bags of tokens labels with the context co-occurrence
+        spanning the bags.  In other words if you have sequences of multi-labelled tokens.
 
     Returns
     -------
@@ -957,7 +959,7 @@ def em_cooccurrence_iteration(
                     )
 
     else:
-        if document_context:
+        if multi_labelled_tokens:
             for d_i, seq in enumerate(token_sequences):
                 for w_i, target_word in enumerate(seq):
                     for i in range(n_windows):
@@ -1201,9 +1203,9 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         significantly less memory are made for data sets with small expected numbers of non zeros. More memory
         will be allocated during processing if need be.
 
-    document_context: bool (optional, default=False)
-        Indicates whether your contexts are a sequence of bags of tokens with the context co-occurrence
-        spanning the bags.
+    multi_labelled_tokens: bool (optional, default=False)
+        Indicates whether your contexts are a sequence of bags of tokens labels with the context co-occurrence
+        spanning the bags.  In other words if you have sequences of multi-labelled tokens.
     """
 
     def __init__(
@@ -1238,7 +1240,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         normalization="frequentist",
         window_normalization="frequentist",
         coo_max_memory="0.5 GiB",
-        document_context=False,
+        multi_labelled_tokens=False,
     ):
         self.token_dictionary = token_dictionary
         self.min_occurrences = min_occurrences
@@ -1275,7 +1277,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self._token_frequencies_ = np.array([])
 
         self.coo_max_bytes = str_to_bytes(self.coo_max_memory)
-        self.document_context = document_context
+        self.multi_labelled_tokens = multi_labelled_tokens
 
         # Check the window orientations
         if not isinstance(self.window_radii, Iterable):
@@ -1664,7 +1666,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             window_normalizer=self._window_normalize,
             ngram_dictionary=self._raw_ngram_dictionary_,
             ngram_size=self.skip_ngram_size,
-            document_context=self.document_context,
+            multi_labelled_tokens=self.multi_labelled_tokens,
         )
 
         # Set attributes
@@ -1721,7 +1723,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             normalizer=self._normalize,
             ngram_dictionary=self._raw_ngram_dictionary_,
             ngram_size=self.skip_ngram_size,
-            document_context=self.document_context,
+            multi_labelled_tokens=self.multi_labelled_tokens,
         )
 
         return cooccurrences_

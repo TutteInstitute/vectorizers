@@ -1030,7 +1030,7 @@ def test_node_removal():
 
 def test_multi_label_token_cooccurrence():
     vectorizer_a = TokenCooccurrenceVectorizer(
-        document_context=True,
+        multi_labelled_tokens=True,
         window_radii=[0, 1, 2],
         window_functions=["fixed", "fixed", "fixed"],
         kernel_functions=["flat", "flat", "flat"],
@@ -1060,7 +1060,7 @@ def test_multi_label_token_cooccurrence():
 
 def test_multi_label_token_cooccurrence_range():
     vectorizer_a = TokenCooccurrenceVectorizer(
-        document_context=True,
+        multi_labelled_tokens=True,
         window_radii=[1, 1],
         window_functions=["fixed", "fixed"],
         kernel_functions=["flat", "flat"],
@@ -1087,7 +1087,7 @@ def test_multi_label_token_cooccurrence_range():
 
 def test_multi_label_token_cooccurrence_harmonic():
     vectorizer_a = TokenCooccurrenceVectorizer(
-        document_context=True,
+        multi_labelled_tokens=True,
         window_radii=2,
         window_functions="fixed",
         kernel_functions="harmonic",
@@ -1114,7 +1114,7 @@ def test_multi_label_token_cooccurrence_harmonic():
 
 def test_multi_label_token_cooccurrence_em():
     vectorizer_a = TokenCooccurrenceVectorizer(
-        document_context=True,
+        multi_labelled_tokens=True,
         window_radii=[1, 1],
         window_functions=["fixed", "fixed"],
         kernel_functions=["flat", "flat"],
@@ -1131,7 +1131,7 @@ def test_multi_label_token_cooccurrence_em():
 @pytest.mark.parametrize("null", [True, False])
 def test_multi_label_token_cooccurrence_masking(null):
     vectorizer_a = TokenCooccurrenceVectorizer(
-        document_context=True,
+        multi_labelled_tokens=True,
         window_radii=[1, 1],
         window_functions=["fixed", "fixed"],
         kernel_functions=["flat", "flat"],
