@@ -535,7 +535,7 @@ def categorical_columns_to_list(data_frame, column_names):
         raise ValueError("Selected column_names must be a subset of your data_frame")
 
     label_list = [
-        [f"{k}:{v}" for k, v in zip(column_names, t) if v is not None]
+        [f"{k}:{v}" for k, v in zip(column_names, t) if not pd.isnull(v)]
         for t in zip(*map(data_frame.get, column_names))
     ]
     return label_list
