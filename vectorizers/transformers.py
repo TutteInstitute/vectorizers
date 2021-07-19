@@ -543,6 +543,7 @@ class CategoricalColumnTransformer(BaseEstimator, TransformerMixin):
     descriptor_column_name.
 
     It can be thought of as a PivotTableTransformer if you'd like.
+
     Parameters
     ----------
     object_column_name: string
@@ -574,7 +575,7 @@ class CategoricalColumnTransformer(BaseEstimator, TransformerMixin):
         self.descriptor_column_name = descriptor_column_name
         # Get everything on consistent footing so we don't have to handle multiple cases.
         if type(self.descriptor_column_name) == str:
-            self.descriptor_column_name_ = list(self.descriptor_column_name)
+            self.descriptor_column_name_ = [self.descriptor_column_name]
         else:
             self.descriptor_column_name_ = self.descriptor_column_name
         self.include_column_name = include_column_name
