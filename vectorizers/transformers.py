@@ -543,6 +543,7 @@ class CategoricalColumnTransformer(BaseEstimator, TransformerMixin):
     descriptor_column_name.
 
     It can be thought of as a PivotTableTransformer if you'd like.
+    
     Parameters
     ----------
     object_column_name: string
