@@ -8,6 +8,8 @@ from pynndescent.optimal_transport import (
     network_simplex_core,
     arc_id,
     ProblemStatus,
+    K_from_cost,
+    sinkhorn_iterations_batch,
 )
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import (
@@ -25,6 +27,7 @@ import scipy.sparse
 import os
 import tempfile
 
+_dummy_cost = np.zeros((2, 2), dtype=np.float64)
 
 @numba.njit(nogil=True, fastmath=True)
 def project_to_sphere_tangent_space(euclidean_vectors, sphere_basepoints):
@@ -136,7 +139,9 @@ def transport_plan(p, q, cost, max_iter=100000):
         The transport plan from distribution p to distribution q
     """
     node_arc_data, spanning_tree, graph = allocate_graph_structures(
-        p.shape[0], q.shape[0], False,
+        p.shape[0],
+        q.shape[0],
+        False,
     )
     initialize_supply(p, -q, graph, node_arc_data.supply)
     initialize_cost(cost, graph, node_arc_data.cost)
@@ -146,7 +151,12 @@ def transport_plan(p, q, cost, max_iter=100000):
         raise ValueError(
             "Optimal transport inputs must be valid probability distributions."
         )
-    solve_status = network_simplex_core(node_arc_data, spanning_tree, graph, max_iter,)
+    solve_status = network_simplex_core(
+        node_arc_data,
+        spanning_tree,
+        graph,
+        max_iter,
+    )
     # if solve_status == ProblemStatus.INFEASIBLE:
     #     warn(
     #         "An optimal transport problem was INFEASIBLE. You may wish to check inputs."
@@ -224,6 +234,43 @@ def l2_normalize(vectors):
         if norm > 0.0:
             for j in range(vectors.shape[1]):
                 vectors[i, j] /= norm
+
+
+@numba.njit(fastmath=True)
+def sinkhorn_plan_batch(x, y, cost=_dummy_cost, regularization=1.0):
+    dim_x = x.shape[0]
+    dim_y = y.shape[1]
+
+    batch_size = y.shape[0]
+
+    u = np.full((dim_x, batch_size), 1.0 / dim_x, dtype=np.float64)
+    v = np.full((dim_y, batch_size), 1.0 / dim_y, dtype=np.float64)
+
+    K = K_from_cost(cost, regularization)
+    u, v = sinkhorn_iterations_batch(
+        x,
+        y,
+        u,
+        v,
+        K,
+    )
+
+    return u, v, K
+
+
+@numba.njit(fastmath=True, parallel=True)
+def sinkhorn_transport_images(K, u, v, vectors):
+    result = np.zeros((u.shape[1], u.shape[0], vectors.shape[1]))
+    for i in numba.prange(u.shape[0]):
+        for j in range(v.shape[0]):
+            for k in range(u.shape[1]):
+                if v[j, k] == 0:
+                    continue
+                transport_value = u[i, k] * K[i, j] * v[j, k]
+                for l in range(vectors.shape[1]):
+                    result[k, i, l] += transport_value * vectors[j, l]
+
+    return result
 
 
 @numba.njit(nogil=True)
@@ -459,6 +506,45 @@ def lot_vectors_dense_internal(
         for i in range(result.shape[0]):
             for j in range(result.shape[1]):
                 result[i, j] = np.sign(result[i, j]) * np.sqrt(np.abs(result[i, j]))
+
+    return result
+
+
+@numba.njit(fastmath=True)
+def sinkhorn_vectors_sparse_internal(
+    distributions,
+    vectors,
+    reference_dist,
+    reference_vectors,
+    cost,
+    spherical_vectors=True,
+):
+    result = np.zeros(
+        (distributions.shape[0], reference_vectors.shape[0] * vectors.shape[1])
+    )
+    transport_plan_u, transport_plan_v, transport_plan_K = sinkhorn_plan_batch(
+        reference_dist, distributions, cost
+    )
+    transport_image_sets = sinkhorn_transport_images(
+        transport_plan_K, transport_plan_u, transport_plan_v, vectors
+    )
+    for batch in range(transport_image_sets.shape[0]):
+        transport_images = transport_image_sets[batch]
+
+        if spherical_vectors:
+            l2_normalize(transport_images)
+
+        transport_vectors = transport_images - reference_vectors
+
+        if spherical_vectors:
+            tangent_vectors = project_to_sphere_tangent_space(
+                transport_vectors, reference_vectors
+            )
+            l2_normalize(tangent_vectors)
+            scaling = tangent_vectors_scales(transport_images, reference_vectors)
+            transport_vectors = tangent_vectors * scaling
+
+        result[batch] = transport_vectors.flatten()
 
     return result
 
@@ -763,6 +849,196 @@ def lot_vectors_dense(
             chunk_size=chunk_size,
             spherical_vectors=(metric == cosine),
         )
+
+        if singular_values is not None:
+            block_to_learn = np.vstack(
+                (singular_values.reshape(-1, 1) * components, block)
+            )
+        else:
+            block_to_learn = block
+
+        u, singular_values, v = randomized_svd(
+            block_to_learn,
+            n_components=n_components,
+            n_iter=n_svd_iter,
+            random_state=random_state,
+        )
+        u, components = svd_flip(u, v)
+        saved_blocks[block_start:block_end] = block
+
+    saved_blocks.flush()
+    del saved_blocks
+    saved_blocks = np.memmap(
+        memmap_filename,
+        mode="r",
+        shape=(n_rows, reference_vectors.size),
+        dtype=np.float32,
+    )
+    result = saved_blocks @ components.T
+    del saved_blocks
+    os.remove(memmap_filename)
+
+    return result, components
+
+
+def sinkhorn_vectors_sparse(
+    sample_vectors,
+    weight_matrix,
+    reference_vectors,
+    reference_distribution,
+    n_components=150,
+    metric=cosine,
+    random_state=None,
+    block_size=16384,
+    chunk_size=32,
+    n_svd_iter=7,
+):
+    """Given distributions over a metric space produce a compressed array
+    of linear sinkhorn transport vectors, one for each distribution, and
+    the components of the SVD used for the compression.
+
+    Distributions over a metric space are described by:
+       * An array of vectors
+       * A metric on those vectors (thus describing the underlying metric space)
+       * A sparse weight matrix
+
+    A single row of the weight matrix describes a distribution of vectors with the ith
+    element of the row giving the probability mass on the ith vector -- ideally this is
+    sparse with most distributions only having a relatively small number of non-zero
+    entries.
+
+    The sinkhorn vectors are computed in blocks and components used for compression are
+    learned via an incremental version of an SVD. The resulting components are then
+    used for projection giving a compressed set of LOT vectors. Both the LOT vectors
+    and the learned components are returned.
+
+    Parameters
+    ----------
+    sample_vectors: ndarray
+        The vectors over which all the distributions range, providing the metric space.
+
+    weight_matrix: scipy sparse matrix
+        The probability distributions, one per row, over the sample vectors.
+
+    reference_vectors: ndarray
+        The reference vector set for LOT
+
+    reference_distribution: ndarray
+        The reference distribution over the set of reference vectors
+
+    n_components: int (optional, default=150)
+        The number of SVD components to use for projection. Thus the dimensionality of
+        the compressed LOT vectors that are output.
+
+    metric: function(ndarray, ndarray) -> float
+        The distance function to use for distance computation between vectors.
+
+    random_state: numpy.random.random_state or None (optional, default=None)
+        The random state used for randomized SVD computation. Fix a random state
+        for consistent reproducible results.
+
+    block_size: int (optional, default=16384)
+        The maximum number of rows to process at a time. Lowering this will
+        constrain memory use at the cost of accuracy (the incremental SVD will
+        learn less well in more, smaller, batches). Setting this too large can
+        cause the algorithm to exceed memory.
+
+    chunk_size: int (optional, default=32)
+        The number of rows to process collectively as a chunk. Since sinkhorn
+        iterations can get some amortization benefits for processing several
+        distributions at once, we process in chunks. The default chunk size should
+        be good for most use cases.
+
+    n_svd_iter: int (optional, default=10)
+        How many iterations of randomized SVD to run to get compressed vectors. More
+        iterations will produce better results at greater computational cost.
+
+    Returns
+    -------
+    sinkhorn_vectors: ndarray
+        The compressed linear sinkhorn transport vectors of dimension ``n_components``.
+
+    components: ndarray
+        The learned SVD components which can be used for projecting new data.
+    """
+    if metric == cosine:
+        sample_vectors = tuple([normalize(v, norm="l2") for v in sample_vectors])
+
+    full_cost = chunked_pairwise_distance(
+        sample_vectors, reference_vectors, dist=metric
+    ).T.astype(np.float64)
+
+    n_rows = len(sample_vectors)
+    n_blocks = (n_rows // block_size) + 1
+    if n_blocks == 1:
+        n_chunks = (weight_matrix.shape[0] // chunk_size) + 1
+        completed_chunks = []
+        for i in range(n_chunks):
+            chunk_start = i * chunk_size
+            chunk_end = min(weight_matrix.shape[0], chunk_start + chunk_size)
+            raw_chunk = weight_matrix[chunk_start:chunk_end]
+            col_sums = np.squeeze(np.array(raw_chunk.sum(axis=0)))
+            sub_chunk = raw_chunk[:, col_sums > 0].astype(np.float64).toarray()
+            sub_vectors = sample_vectors[col_sums > 0]
+            sub_cost = full_cost[:, col_sums > 0]
+            completed_chunks.append(
+                sinkhorn_vectors_sparse_internal(
+                    sub_chunk,
+                    sub_vectors,
+                    reference_distribution,
+                    reference_vectors,
+                    sub_cost,
+                )
+            )
+        sinkhorn_vectors = np.vstack(completed_chunks)
+
+        u, singular_values, v = randomized_svd(
+            sinkhorn_vectors,
+            n_components=n_components,
+            n_iter=n_svd_iter,
+            random_state=random_state,
+        )
+        result, components = svd_flip(u, v)
+
+        return result * singular_values, components
+
+    singular_values = None
+    components = None
+
+    memmap_filename = os.path.join(tempfile.mkdtemp(), "lot_tmp_memmap.dat")
+    saved_blocks = np.memmap(
+        memmap_filename,
+        mode="w+",
+        shape=(n_rows, reference_vectors.size),
+        dtype=np.float32,
+    )
+
+    for i in range(n_blocks):
+        block_start = i * block_size
+        block_end = min(n_rows, block_start + block_size)
+        if block_start == block_end:
+            continue
+
+        n_chunks = ((block_end - block_start) // chunk_size) + 1
+        completed_chunks = []
+        for j in range(n_chunks):
+            chunk_start = j * chunk_size + block_start
+            chunk_end = min(block_end, chunk_start + chunk_size)
+            raw_chunk = weight_matrix[chunk_start:chunk_end]
+            col_sums = np.squeeze(np.array(raw_chunk.sum(axis=0)))
+            sub_chunk = raw_chunk[:, col_sums > 0].astype(np.float64).toarray()
+            sub_vectors = sample_vectors[col_sums > 0]
+            sub_cost = full_cost[:, col_sums > 0]
+            completed_chunks.append(
+                sinkhorn_vectors_sparse_internal(
+                    sub_chunk,
+                    sub_vectors,
+                    reference_distribution,
+                    reference_vectors,
+                    sub_cost,
+                )
+            )
+        block = np.vstack(completed_chunks)
 
         if singular_values is not None:
             block_to_learn = np.vstack(
@@ -1213,33 +1489,33 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
 
 class ApproximateWassersteinVectorizer(BaseEstimator, TransformerMixin):
     """Transform finite distributions over a metric space into vectors in a linear space
-     such that euclidean or cosine distance approximates the Wasserstein distance
-     between the distributions. Unlike the WassersteinVectorizer we use simple
-     linear algebra methods that are poor approximations, but are extremely efficient
-     to compute.
+    such that euclidean or cosine distance approximates the Wasserstein distance
+    between the distributions. Unlike the WassersteinVectorizer we use simple
+    linear algebra methods that are poor approximations, but are extremely efficient
+    to compute.
 
-     Parameters
-     ----------
-     n_components: int or None (optional, default=None)
-         Dimensionality of the transformed vectors up to a maximum of the dimensionality
-         of the input vectors of the metric space beign approxmated over. If None, use the
-         full dimensionality available.
+    Parameters
+    ----------
+    n_components: int or None (optional, default=None)
+        Dimensionality of the transformed vectors up to a maximum of the dimensionality
+        of the input vectors of the metric space beign approxmated over. If None, use the
+        full dimensionality available.
 
-     normalization_power: float (optional, default=1.0)
-        When normalizing vectors relative to the total apparent weight of the unnormalized
-        distribution, raise the apparent weight to this power. A default of 1.0 means that
-        we are treating input rows as distributions. Values between 0.0 and 1.0 will give
-        greater weight to unnormalized distributions with larger values. A value of 0.5
-        or 0.66 may be useful, for example, in document embeddings where document length
-        should have some ipact on the resulting embedding.
+    normalization_power: float (optional, default=1.0)
+       When normalizing vectors relative to the total apparent weight of the unnormalized
+       distribution, raise the apparent weight to this power. A default of 1.0 means that
+       we are treating input rows as distributions. Values between 0.0 and 1.0 will give
+       greater weight to unnormalized distributions with larger values. A value of 0.5
+       or 0.66 may be useful, for example, in document embeddings where document length
+       should have some ipact on the resulting embedding.
 
-     n_svd_iter: int (optional, default=10)
-         How many iterations of randomized SVD to run to get compressed vectors. More
-         iterations will produce better results at greater computational cost.
+    n_svd_iter: int (optional, default=10)
+        How many iterations of randomized SVD to run to get compressed vectors. More
+        iterations will produce better results at greater computational cost.
 
-     random_state: numpy.random.random_state or int or None (optional, default=None)
-         A random state to use. A fixed integer seed can be used for reproducibility.
-     """
+    random_state: numpy.random.random_state or int or None (optional, default=None)
+        A random state to use. A fixed integer seed can be used for reproducibility.
+    """
 
     def __init__(
         self,
@@ -1254,7 +1530,11 @@ class ApproximateWassersteinVectorizer(BaseEstimator, TransformerMixin):
         self.random_state = random_state
 
     def fit(
-        self, X, y=None, vectors=None, **fit_params,
+        self,
+        X,
+        y=None,
+        vectors=None,
+        **fit_params,
     ):
         """Train the transformer on a set of distributions ``X`` with associated
         vectors ``vectors``.
@@ -1282,7 +1562,11 @@ class ApproximateWassersteinVectorizer(BaseEstimator, TransformerMixin):
         return self
 
     def fit_transform(
-        self, X, y=None, vectors=None, **fit_params,
+        self,
+        X,
+        y=None,
+        vectors=None,
+        **fit_params,
     ):
         """Train the transformer on a set of distributions ``X`` with associated
         vectors ``vectors``, and return the resulting transformed training data.
@@ -1358,4 +1642,6 @@ class ApproximateWassersteinVectorizer(BaseEstimator, TransformerMixin):
             np.array(X.sum(axis=1)), self.normalization_power
         )
 
-        return (basis_transformed_matrix @ self.components_.T) / np.sqrt(self.singular_values_)
+        return (basis_transformed_matrix @ self.components_.T) / np.sqrt(
+            self.singular_values_
+        )
