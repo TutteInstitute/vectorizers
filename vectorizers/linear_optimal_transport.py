@@ -1079,6 +1079,11 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
     can be used directly in classical machine learning algorithms, including
     clustering.
 
+    Note that ``max_distribution_size`` controls the maximum number of elements
+    in any distribution (truncating distributions back). For larger distributions
+    it is suggested to instead use the ``SinkhornVectorizer`` which can more
+    efficiently handle large distributions.
+
     The transformation process uses linear optimal transport as the means of
     linearising the distributions, and compresses the results with SVD to keep
     the dimensionality tractable.
@@ -1476,6 +1481,346 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                     max_distribution_size=self.max_distribution_size,
                     chunk_size=chunk_size,
                 )
+
+                result_blocks.append(block @ self.components_.T)
+
+            return np.vstack(result_blocks)
+
+        else:
+            raise ValueError(
+                "Input data not in a recognized format for WassersteinVectorizer"
+            )
+
+
+class SinkhornVectorizer(BaseEstimator, TransformerMixin):
+    """Transform finite distributions over a metric space into vectors in a linear space
+    such that euclidean or cosine distance approximates the Sinkhorn distance
+    between the distributions. This is useful, for example, in transforming bags of
+    words with associated word vectors using word-mover-distance, into vectors that
+    can be used directly in classical machine learning algorithms, including
+    clustering.
+
+    In contrast to the WassersteinVectorizer the sinkhorn vectorizer can handle
+    much larger distributions, and is generally more efficient (though possibly
+    with some loss of quality).
+
+    The transformation process uses linear optimal transport as the means of
+    linearising the distributions, and compresses the results with SVD to keep
+    the dimensionality tractable.
+
+    Parameters
+    ----------
+    n_components: int (optional, default=128)
+        Dimensionality of the transformed vectors. Larger values will more
+        accurately capture Wasserstein distance, but there are rapidly
+        diminishing returns.
+
+    reference_size: int or None (optional, default=None)
+        The size of the reference distribution used for LOT computations.
+        This should be approximately the same size as the distributions to
+        be transformed. Larger values produce more accurate results, but at
+        significant computational and memory overhead costs. Setting the
+        value of this parameter to None will result in a "best guess" value
+        being generated based on the input data.
+
+    reference_scale: float (optional, default=0.1)
+        How dispersed to make the reference distribution within the metric space.
+        This value represents the standard deviation of a normal distribution around
+        a fixed center. Larger values may be requires for more highly dispersed
+        input data.
+
+    metric: string or function (ndarray, ndarray) -> float (optional, default="cosine")
+        A function that, given two vectors, can produce a distance between them. This
+        is used to define the metric space over which input distributions lie. If a string
+        is given it is checked against defined distances in pynndescent, and the relevant
+        distance function is used if found.
+
+    memory_size: string (optional, default="2G")
+        The memory size to attempt to stay under during LOT computation. Because LOT vectors
+        are high dimensional and dense they consume a lot of memory. The computation is
+        therefore handled in batches and the results compressed via SVD. This value, giving
+        a memory size in k, M, G or T describes how much memory to consume with raw LOT
+        vectors, and thus determines the batchign sizes etc.
+
+    chunk_size: int (optional, default=32)
+        Sinkhorn iterations support batching to amortize costs. The chunk size is the number
+        of iterations to process in each such batch. The default size should e good for
+        most use cases.
+
+    n_svd_iter: int (optional, default=7)
+        How many iterations of randomized SVD to run to get compressed vectors. More
+        iterations will produce better results at greater computational cost.
+
+    random_state: numpy.random.random_state or int or None (optional, default=None)
+        A random state to use. A fixed integer seed can be used for reproducibility.
+    """
+
+    def __init__(
+        self,
+        n_components=128,
+        reference_size=None,
+        reference_scale=0.1,
+        metric="cosine",
+        memory_size="2G",
+        chunk_size=32,
+        n_svd_iter=7,
+        random_state=None,
+    ):
+        self.n_components = n_components
+        self.reference_size = reference_size
+        self.reference_scale = reference_scale
+        self.metric = metric
+        self.memory_size = memory_size
+        self.chunk_size = chunk_size
+        self.n_svd_iter = n_svd_iter
+        self.random_state = random_state
+
+    def _get_metric(self):
+        if type(self.metric) is str:
+            if self.metric in named_distances:
+                return named_distances[self.metric]
+            else:
+                raise ValueError(
+                    f"Unsupported metric {self.metric} provided; metric should be one of {list(named_distances.keys())}"
+                )
+        elif callable(self.metric):
+            return self.metric
+        else:
+            raise ValueError(
+                f"Unsupported metric {self.metric} provided; metric should be a callable or one of {list(named_distances.keys())}"
+            )
+
+    def fit(
+        self,
+        X,
+        y=None,
+        vectors=None,
+        reference_distribution=None,
+        reference_vectors=None,
+        **fit_params,
+    ):
+        """Train the transformer on a set of distributions ``X`` with associated
+        vectors ``vectors``.
+
+        Parameters
+        ----------
+        X: scipy sparse matrix or list of ndarrays
+            The distributions to train on.
+
+        y: None (optional, default=None)
+            Ignored.
+
+        vectors: ndarray or list of ndarrays
+            The vectors over which the distributions lie.
+
+        fit_params:
+            Other params to pass on for fitting.
+
+        Returns
+        -------
+        self:
+            The trained model.
+        """
+        if vectors is None:
+            raise ValueError(
+                "WassersteinVectorizer requires vector representations of points under the metric. "
+                "Please pass these in to fit using the vectors keyword argument."
+            )
+        random_state = check_random_state(self.random_state)
+        memory_size = str_to_bytes(self.memory_size)
+        metric = self._get_metric()
+
+        if scipy.sparse.isspmatrix(X) or type(X) is np.ndarray:
+            vectors = check_array(vectors)
+            if type(X) is np.ndarray:
+                X = scipy.sparse.csr_matrix(X)
+
+            if X.shape[1] != vectors.shape[0]:
+                raise ValueError(
+                    "distribution matrix must have as many columns as there are vectors"
+                )
+
+            X = normalize(X, norm="l1")
+
+            if reference_vectors is None:
+                # We use a smaller reference size for Sinkhorn
+                # since we can get away with that.
+                if self.reference_size is None:
+                    reference_size = int(
+                        np.median(np.squeeze(np.array((X != 0).sum(axis=1))))
+                    ) // 2
+                    if reference_size < 8:
+                        reference_size = 8
+                else:
+                    reference_size = self.reference_size
+
+                lot_dimension = reference_size * vectors.shape[1]
+                block_size = max(1, memory_size // (lot_dimension * 8))
+                u, s, v = scipy.sparse.linalg.svds(X, k=1)
+                reference_center = v @ vectors
+                if metric == cosine:
+                    reference_center /= np.sqrt(np.sum(reference_center ** 2))
+                self.reference_vectors_ = reference_center + random_state.normal(
+                    scale=self.reference_scale, size=(reference_size, vectors.shape[1])
+                )
+                if metric == cosine:
+                    self.reference_vectors_ = normalize(
+                        self.reference_vectors_, norm="l2"
+                    )
+
+                self.reference_distribution_ = np.full(
+                    reference_size, 1.0 / reference_size
+                )
+            else:
+                self.reference_distribution_ = reference_distribution
+                self.reference_vectors_ = reference_vectors
+
+            self.embedding_, self.components_ = sinkhorn_vectors_sparse(
+                vectors,
+                X,
+                self.reference_vectors_,
+                self.reference_distribution_,
+                self.n_components,
+                metric,
+                random_state=random_state,
+                chunk_size=self.chunk_size,
+                block_size=block_size,
+                n_svd_iter=self.n_svd_iter,
+            )
+
+        else:
+            raise ValueError(
+                f"Input data of type {type(X)} not in a recognized format for WassersteinVectorizer"
+            )
+
+        return self
+
+    def fit_transform(
+        self,
+        X,
+        y=None,
+        vectors=None,
+        reference_distribution=None,
+        reference_vectors=None,
+        **fit_params,
+    ):
+        """Train the transformer on a set of distributions ``X`` with associated
+        vectors ``vectors``, and return the resulting transformed training data.
+
+        Parameters
+        ----------
+        X: scipy sparse matrix or list of ndarrays
+            The distributions to train on.
+
+        y: None (optional, default=None)
+            Ignored.
+
+        vectors: ndarray or list of ndarrays
+            The vectors over which the distributions lie.
+
+        fit_params:
+            Other params to pass on for fitting.
+
+        Returns
+        -------
+        lot_vectors:
+            The transformed training data.
+        """
+        self.fit(
+            X,
+            y=y,
+            vectors=vectors,
+            reference_distribution=reference_distribution,
+            reference_vectors=reference_vectors,
+            **fit_params,
+        )
+        return self.embedding_
+
+    def transform(self, X, y=None, vectors=None, **transform_params):
+        """Transform distributions ``X`` over the metric space given by
+        ``vectors`` from a Wasserstein metric space into the linearised
+        space learned by the model.
+
+        X: scipy sparse matrix or list of ndarrays
+            The distributions to be transformed.
+
+        y: None (optional, default=None)
+            Ignored.
+
+        vectors: ndarray or list of ndarrays
+            The vectors over which the distributions lie.
+
+        transform_params:
+            Other params to pass on for transformation.
+
+        Returns
+        -------
+        lot_vectors:
+            The transformed data.
+        """
+        check_is_fitted(
+            self, ["components_", "reference_vectors_", "reference_distribution_"]
+        )
+        if vectors is None:
+            raise ValueError(
+                "WassersteinVectorizer requires vector representations of points under the metric. "
+                "Please pass these in to transform using the vectors keyword argument."
+            )
+        memory_size = str_to_bytes(self.memory_size)
+        metric = self._get_metric()
+
+        if scipy.sparse.isspmatrix(X) or type(X) is np.ndarray:
+            if type(X) is np.ndarray:
+                X = scipy.sparse.csr_matrix(X)
+
+            if X.shape[1] != vectors.shape[0]:
+                raise ValueError(
+                    "distribution matrix must have as many columns as there are vectors"
+                )
+
+            X = normalize(X.astype(np.float64), norm="l1")
+
+            vectors = check_array(vectors)
+
+            if metric == cosine:
+                vectors = normalize(vectors, norm="l2")
+
+            lot_dimension = self.reference_vectors_.size
+            block_size = max(1, memory_size // (lot_dimension * 8))
+
+            n_rows = X.indptr.shape[0] - 1
+            n_blocks = (n_rows // block_size) + 1
+
+            full_cost = chunked_pairwise_distance(
+                vectors, self.reference_vectors_, dist=metric
+            ).T.astype(np.float64)
+
+            result_blocks = []
+
+            for i in range(n_blocks):
+                block_start = i * block_size
+                block_end = min(n_rows, block_start + block_size)
+
+                n_chunks = ((block_end - block_start) // self.chunk_size) + 1
+                completed_chunks = []
+                for j in range(n_chunks):
+                    chunk_start = j * self.chunk_size + block_start
+                    chunk_end = min(block_end, chunk_start + self.chunk_size)
+                    raw_chunk = X[chunk_start:chunk_end]
+                    col_sums = np.squeeze(np.array(raw_chunk.sum(axis=0)))
+                    sub_chunk = raw_chunk[:, col_sums > 0].astype(np.float64).toarray()
+                    sub_vectors = vectors[col_sums > 0]
+                    sub_cost = full_cost[:, col_sums > 0]
+                    completed_chunks.append(
+                        sinkhorn_vectors_sparse_internal(
+                            sub_chunk,
+                            sub_vectors,
+                            self.reference_distribution_,
+                            self.reference_vectors_,
+                            sub_cost,
+                        )
+                    )
+                block = np.vstack(completed_chunks)
 
                 result_blocks.append(block @ self.components_.T)
 
