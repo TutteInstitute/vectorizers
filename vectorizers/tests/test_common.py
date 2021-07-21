@@ -5,6 +5,7 @@ from sklearn.preprocessing import normalize
 
 import scipy.sparse
 import numpy as np
+import pandas as pd
 
 from vectorizers import TokenCooccurrenceVectorizer
 from vectorizers import NgramVectorizer
@@ -30,7 +31,7 @@ from vectorizers._window_kernels import (
     harmonic_kernel,
     flat_kernel,
 )
-from vectorizers.utils import summarize_embedding
+from vectorizers.utils import summarize_embedding, categorical_columns_to_list
 
 token_data = (
     (1, 3, 1, 4, 2),
@@ -1230,3 +1231,16 @@ def test_summarize_embedding_string(dense, include_values):
         assert summary[2:7] == expected_result[2:7]
     else:
         assert summary == expected_result
+
+
+def test_categorical_columns_to_list():
+    df = pd.DataFrame(path_graph.todense(), columns=["a", "b", "c", "d"])
+    result_list = categorical_columns_to_list(df, ["a", "c"])
+    expected_result = [["a:0", "c:0"], ["a:0", "c:1"], ["a:0", "c:0"], ["a:0", "c:0"]]
+    assert expected_result == result_list
+
+
+def test_categorical_column_to_list_bad_param():
+    df = pd.DataFrame(path_graph.todense(), columns=["a", "b", "c", "d"])
+    with pytest.raises(ValueError):
+        categorical_columns_to_list(df, ["a", "c", "foo"])

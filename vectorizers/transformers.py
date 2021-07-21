@@ -1,5 +1,6 @@
 import numba
 import numpy as np
+import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
 from sklearn.preprocessing import normalize
@@ -12,7 +13,11 @@ MOCK_TARGET = np.ones(1, dtype=np.int64)
 
 @numba.njit(nogil=True)
 def column_kl_divergence_exact_prior(
-    count_indices, count_data, baseline_probabilities, prior_strength=0.1, target=MOCK_TARGET,
+    count_indices,
+    count_data,
+    baseline_probabilities,
+    prior_strength=0.1,
+    target=MOCK_TARGET,
 ):
     observed_norm = count_data.sum() + prior_strength
     observed_zero_constant = (prior_strength / observed_norm) * np.log(
@@ -38,7 +43,11 @@ def column_kl_divergence_exact_prior(
 
 @numba.njit(nogil=True)
 def column_kl_divergence_approx_prior(
-    count_indices, count_data, baseline_probabilities, prior_strength=0.1, target=MOCK_TARGET,
+    count_indices,
+    count_data,
+    baseline_probabilities,
+    prior_strength=0.1,
+    target=MOCK_TARGET,
 ):
     observed_norm = count_data.sum() + prior_strength
     observed_zero_constant = (prior_strength / observed_norm) * np.log(
@@ -63,9 +72,14 @@ def column_kl_divergence_approx_prior(
 
     return result
 
+
 @numba.njit(nogil=True)
 def supervised_column_kl(
-        count_indices, count_data, baseline_probabilities, prior_strength=0.1, target=MOCK_TARGET,
+    count_indices,
+    count_data,
+    baseline_probabilities,
+    prior_strength=0.1,
+    target=MOCK_TARGET,
 ):
     observed = np.zeros_like(baseline_probabilities)
     for i in range(count_indices.shape[0]):
@@ -296,6 +310,7 @@ class InformationWeightTransformer(BaseEstimator, TransformerMixin):
         The learned weights to be applied to columns based on the amount
         of information provided by the column.
     """
+
     def __init__(self, prior_strength=1e-4, approx_prior=True):
         self.prior_strength = prior_strength
         self.approx_prior = approx_prior
@@ -318,19 +333,29 @@ class InformationWeightTransformer(BaseEstimator, TransformerMixin):
         if not scipy.sparse.isspmatrix(X):
             X = scipy.sparse.csc_matrix(X)
 
-        self.information_weights_ = information_weight(X, self.prior_strength, self.approx_prior)
+        self.information_weights_ = information_weight(
+            X, self.prior_strength, self.approx_prior
+        )
         self.information_weights_ /= np.mean(self.information_weights_)
         self.information_weights_ = self.information_weights_ ** 2
 
         if y is not None:
             target_classes = np.unique(y)
-            target_dict = dict(np.vstack((target_classes, np.arange(target_classes.shape[0]))).T)
-            target = np.array([np.int64(target_dict[label]) for label in y], dtype=np.int64)
-            self.supervised_weights_ = information_weight(X, self.prior_strength, self.approx_prior, target=target)
+            target_dict = dict(
+                np.vstack((target_classes, np.arange(target_classes.shape[0]))).T
+            )
+            target = np.array(
+                [np.int64(target_dict[label]) for label in y], dtype=np.int64
+            )
+            self.supervised_weights_ = information_weight(
+                X, self.prior_strength, self.approx_prior, target=target
+            )
             self.supervised_weights_ /= np.mean(self.supervised_weights_)
             self.supervised_weights_ = self.supervised_weights_ ** 2
 
-            self.information_weights_ = self.information_weights_ * self.supervised_weights_
+            self.information_weights_ = (
+                self.information_weights_ * self.supervised_weights_
+            )
 
         return self
 
@@ -351,20 +376,21 @@ class InformationWeightTransformer(BaseEstimator, TransformerMixin):
         result = X @ scipy.sparse.diags(self.information_weights_)
         return result
 
+
 class RemoveEffectsTransformer(BaseEstimator, TransformerMixin):
     """
 
-       Parameters
-       ----------
-        normalize = False
-            Return the modified count matrix (default) or the L_1 normalization of each row.
+    Parameters
+    ----------
+     normalize = False
+         Return the modified count matrix (default) or the L_1 normalization of each row.
 
-        optional EM params:
-        * em_precision = 1e-7, (halt EM when the mix_param changes less than this)
-        * em_threshold = 1e-5, (set to zero any values below this)
-        * em_background_prior = 5.0, (a non-negative number)
-        * em_prior_strength = 0.3 (a non-negative number)
-       """
+     optional EM params:
+     * em_precision = 1e-7, (halt EM when the mix_param changes less than this)
+     * em_threshold = 1e-5, (set to zero any values below this)
+     * em_background_prior = 5.0, (a non-negative number)
+     * em_prior_strength = 0.3 (a non-negative number)
+    """
 
     def __init__(
         self,
@@ -489,7 +515,6 @@ class Wasserstein1DHistogramTransformer(BaseEstimator, TransformerMixin):
 
 
 class SequentialDifferenceTransformer(BaseEstimator, TransformerMixin):
-
     def __init__(self, offset=1):
         self.offset = offset
 
@@ -502,6 +527,139 @@ class SequentialDifferenceTransformer(BaseEstimator, TransformerMixin):
 
         for sequence in X:
             seq = np.array(sequence)
-            result.append(seq[self.offset:] - seq[: -self.offset])
+            result.append(seq[self.offset :] - seq[: -self.offset])
 
         return result
+
+
+class CategoricalColumnTransformer(BaseEstimator, TransformerMixin):
+    """
+    This transformer is useful for describing an object as a bag of the categorical values that
+    have been used to represent it within a pandas DataFrame.
+
+    It takes an categorical column name to groupby, object_column_name, and one or more categorical columns to be used
+    to describe these objects, descriptor_column_name.  Then it returns a Series with an index being the unique entries
+    of your object_column_name and the values being a list of the appropriate categorical values from your
+    descriptor_column_name.
+
+    It can be thought of as a PivotTableTransformer if you'd like.
+
+    Parameters
+    ----------
+    object_column_name: string
+        The column name from the DataFrame where our object values can be found.
+        This will be the thing we are grouping by.
+
+    descriptor_column_name: string or list
+        The name or names of the categorical column(s) who's values will be used for describing our
+        objects.  If you are using multiple names it's recommended that you set include_column_name=True.
+
+    include_column_name: bool (default = False)
+        Should the column name be appended at the beginning of each value?
+        This is useful if you intend to combine values from multiple categorical columns
+        after the fact.
+
+    unique_values: bool (default = False)
+        Should we apply a unique to the values in column before building our list representation?
+
+    """
+
+    def __init__(
+        self,
+        object_column_name,
+        descriptor_column_name,
+        include_column_name=False,
+        unique_values=False,
+    ):
+        self.object_column_name = object_column_name
+        self.descriptor_column_name = descriptor_column_name
+        # Get everything on consistent footing so we don't have to handle multiple cases.
+        if type(self.descriptor_column_name) == str:
+            self.descriptor_column_name_ = [self.descriptor_column_name]
+        else:
+            self.descriptor_column_name_ = self.descriptor_column_name
+        self.include_column_name = include_column_name
+        self.unique_values = unique_values
+
+        if (
+            (self.include_column_name is False)
+            and (type(self.descriptor_column_name) == list)
+            and (len(self.descriptor_column_name) > 1)
+        ):
+            warn(
+                "It is recommended that if you are aggregating multiple columns that you set include_column_name=True"
+            )
+
+    def fit_transform(self, X, y=None, **fit_params):
+        """
+        This transformer is useful for describing an object as a bag of the categorical values that
+        have been used to represent it within a pandas DataFrame.
+
+        It takes an categorical column name to groupby, object_column_name, and one or more categorical columns to be used
+        to describe these objects, descriptor_column_name.  Then it returns a Series with an index being the unique entries
+        of your object_column_name and the values being a list of the appropriate categorical values from your
+        descriptor_column_name.
+
+        Parameters
+        ----------
+        X: pd.DataFrame
+            a pandas dataframe with columns who's names match those specified in the object_column_name and
+            descriptor_column_name of the constructor.
+
+        Returns
+        -------
+        pandas Series
+            Series with an index being the unique entries of your object_column_name and the values being a list of the
+            appropriate categorical values from your descriptor_column_name.
+        """
+        # Check that the dataframe has the appropriate columns
+        required_columns = set([self.object_column_name] + self.descriptor_column_name_)
+        if not required_columns.issubset(X.columns):
+            raise ValueError(
+                f"Sorry the required column(s) {set(required_columns).difference(set(X.columns))} are not "
+                f"present in your data frame. \n"
+                f"Please either specify a new instance or apply to a different data frame. "
+            )
+
+        # Compute a single groupby ahead of time to save on compute
+        grouped_frame = X.groupby(self.object_column_name)
+        aggregated_columns = []
+        for column in self.descriptor_column_name_:
+            if self.include_column_name:
+                if self.unique_values:
+                    aggregated_columns.append(
+                        grouped_frame[column].agg(
+                            lambda x: [
+                                column + ":" + value
+                                for value in x.unique()
+                                if pd.notna(value)
+                            ]
+                        )
+                    )
+                else:
+                    aggregated_columns.append(
+                        grouped_frame[column].agg(
+                            lambda x: [
+                                column + ":" + value for value in x if pd.notna(value)
+                            ]
+                        )
+                    )
+            else:
+                if self.unique_values:
+                    aggregated_columns.append(
+                        grouped_frame[column].agg(
+                            lambda x: [value for value in x.unique() if pd.notna(value)]
+                        )
+                    )
+                else:
+                    aggregated_columns.append(
+                        grouped_frame[column].agg(
+                            lambda x: [value for value in x if pd.notna(value)]
+                        )
+                    )
+        reduced = pd.concat(aggregated_columns, axis="columns").sum(axis=1)
+        return reduced
+
+    def fit(self, X, y=None, **fit_params):
+        self.fit_transform(X, y, **fit_params)
+        return self

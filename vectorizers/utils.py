@@ -1,5 +1,6 @@
 import numpy as np
 import numba
+import pandas as pd
 import scipy.stats
 import scipy.sparse
 import itertools
@@ -511,3 +512,30 @@ def summarize_embedding(
         if return_type == "string":
             row_summary = [" ".join(x) for x in row_summary]
         return row_summary
+
+
+def categorical_columns_to_list(data_frame, column_names):
+    """
+    Takes a data frame and a set of columns and represents each row a list of the appropriate non-empty columns
+    of the form column_name:value respecting the order of the rows.
+    Parameters
+    ----------
+    data_frame: pandas.DataFrame
+        A data frame with columns that match the column names provided.
+    column_names: list
+        A list of column names to be selected from our data frame.
+
+    Returns
+    -------
+    A list of lists
+    with one entry per row of our data_frame.
+    Each entry is a list of column_name:column_value string tokens for each selected column that was present.
+    """
+    if not set(column_names).issubset(data_frame.columns):
+        raise ValueError("Selected column_names must be a subset of your data_frame")
+
+    label_list = [
+        [f"{k}:{v}" for k, v in zip(column_names, t) if not pd.isnull(v)]
+        for t in zip(*map(data_frame.get, column_names))
+    ]
+    return label_list
