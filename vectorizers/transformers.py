@@ -629,21 +629,33 @@ class CategoricalColumnTransformer(BaseEstimator, TransformerMixin):
                 if self.unique_values:
                     aggregated_columns.append(
                         grouped_frame[column].agg(
-                            lambda x: list(column + ":" + x.unique())
+                            lambda x: [
+                                column + ":" + value
+                                for value in x.unique()
+                                if pd.notna(value)
+                            ]
                         )
                     )
                 else:
                     aggregated_columns.append(
-                        grouped_frame[column].agg(lambda x: list(column + ":" + x))
+                        grouped_frame[column].agg(
+                            lambda x: [
+                                column + ":" + value for value in x if pd.notna(value)
+                            ]
+                        )
                     )
             else:
                 if self.unique_values:
                     aggregated_columns.append(
-                        grouped_frame[column].agg(lambda x: list(x.unique()))
+                        grouped_frame[column].agg(
+                            lambda x: [value for value in x.unique() if pd.notna(value)]
+                        )
                     )
                 else:
                     aggregated_columns.append(
-                        grouped_frame[column].agg(lambda x: list(x))
+                        grouped_frame[column].agg(
+                            lambda x: [value for value in x if pd.notna(value)]
+                        )
                     )
         reduced = pd.concat(aggregated_columns, axis="columns").sum(axis=1)
         return reduced
