@@ -29,6 +29,7 @@ import tempfile
 
 _dummy_cost = np.zeros((2, 2), dtype=np.float64)
 
+
 @numba.njit(nogil=True, fastmath=True)
 def project_to_sphere_tangent_space(euclidean_vectors, sphere_basepoints):
     """Given arrays of vectors in euclidean space and a corresponding array of
@@ -961,8 +962,10 @@ def sinkhorn_vectors_sparse(
     components: ndarray
         The learned SVD components which can be used for projecting new data.
     """
+    weight_matrix = weight_matrix.tocsr().astype(np.float64)
+    weight_matrix = normalize(weight_matrix, norm="l1")
     if metric == cosine:
-        sample_vectors = tuple([normalize(v, norm="l2") for v in sample_vectors])
+        sample_vectors = normalize(sample_vectors, norm="l2")
 
     full_cost = chunked_pairwise_distance(
         sample_vectors, reference_vectors, dist=metric
@@ -1161,13 +1164,15 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                 return named_distances[self.metric]
             else:
                 raise ValueError(
-                    f"Unsupported metric {self.metric} provided; metric should be one of {list(named_distances.keys())}"
+                    f"Unsupported metric {self.metric} provided; "
+                    f"metric should be one of {list(named_distances.keys())}"
                 )
         elif callable(self.metric):
             return self.metric
         else:
             raise ValueError(
-                f"Unsupported metric {self.metric} provided; metric should be a callable or one of {list(named_distances.keys())}"
+                f"Unsupported metric {self.metric} provided; "
+                f"metric should be a callable or one of {list(named_distances.keys())}"
             )
 
     def fit(
@@ -1581,13 +1586,15 @@ class SinkhornVectorizer(BaseEstimator, TransformerMixin):
                 return named_distances[self.metric]
             else:
                 raise ValueError(
-                    f"Unsupported metric {self.metric} provided; metric should be one of {list(named_distances.keys())}"
+                    f"Unsupported metric {self.metric} provided; "
+                    f"metric should be one of {list(named_distances.keys())}"
                 )
         elif callable(self.metric):
             return self.metric
         else:
             raise ValueError(
-                f"Unsupported metric {self.metric} provided; metric should be a callable or one of {list(named_distances.keys())}"
+                f"Unsupported metric {self.metric} provided; "
+                f"metric should be a callable or one of {list(named_distances.keys())}"
             )
 
     def fit(
@@ -1646,9 +1653,9 @@ class SinkhornVectorizer(BaseEstimator, TransformerMixin):
                 # We use a smaller reference size for Sinkhorn
                 # since we can get away with that.
                 if self.reference_size is None:
-                    reference_size = int(
-                        np.median(np.squeeze(np.array((X != 0).sum(axis=1))))
-                    ) // 2
+                    reference_size = (
+                        int(np.median(np.squeeze(np.array((X != 0).sum(axis=1))))) // 2
+                    )
                     if reference_size < 8:
                         reference_size = 8
                 else:
