@@ -967,6 +967,7 @@ def test_sinkhorn_vectorizer_blockwise():
     transform_result = vectorizer.transform(distributions_data, vectors=vectors_data)
     assert np.allclose(result, transform_result, rtol=1e-3, atol=1e-6)
 
+
 def test_wasserstein_vectorizer_list_based():
     lil_data = normalize(distributions_data, norm="l1").tolil()
     distributions = [np.array(x) for x in lil_data.data]

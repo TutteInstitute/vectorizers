@@ -523,6 +523,9 @@ def sinkhorn_vectors_sparse_internal(
     result = np.zeros(
         (distributions.shape[0], reference_vectors.shape[0] * vectors.shape[1])
     )
+    if distributions.shape[1] == 0:
+        return result
+
     transport_plan_u, transport_plan_v, transport_plan_K = sinkhorn_plan_batch(
         reference_dist, distributions, cost
     )
@@ -971,7 +974,7 @@ def sinkhorn_vectors_sparse(
         sample_vectors, reference_vectors, dist=metric
     ).T.astype(np.float64)
 
-    n_rows = len(sample_vectors)
+    n_rows = weight_matrix.shape[0]
     n_blocks = (n_rows // block_size) + 1
     if n_blocks == 1:
         n_chunks = (weight_matrix.shape[0] // chunk_size) + 1
@@ -1027,20 +1030,22 @@ def sinkhorn_vectors_sparse(
         for j in range(n_chunks):
             chunk_start = j * chunk_size + block_start
             chunk_end = min(block_end, chunk_start + chunk_size)
-            raw_chunk = weight_matrix[chunk_start:chunk_end]
-            col_sums = np.squeeze(np.array(raw_chunk.sum(axis=0)))
-            sub_chunk = raw_chunk[:, col_sums > 0].astype(np.float64).toarray()
-            sub_vectors = sample_vectors[col_sums > 0]
-            sub_cost = full_cost[:, col_sums > 0]
-            completed_chunks.append(
-                sinkhorn_vectors_sparse_internal(
-                    sub_chunk,
-                    sub_vectors,
-                    reference_distribution,
-                    reference_vectors,
-                    sub_cost,
+            if chunk_end > chunk_start:
+                raw_chunk = weight_matrix[chunk_start:chunk_end]
+                col_sums = np.squeeze(np.array(raw_chunk.sum(axis=0)))
+                sub_chunk = raw_chunk[:, col_sums > 0].astype(np.float64).toarray()
+                sub_vectors = sample_vectors[col_sums > 0]
+                sub_cost = full_cost[:, col_sums > 0]
+                completed_chunks.append(
+                    sinkhorn_vectors_sparse_internal(
+                        sub_chunk,
+                        sub_vectors,
+                        reference_distribution,
+                        reference_vectors,
+                        sub_cost,
+                    )
                 )
-            )
+
         block = np.vstack(completed_chunks)
 
         if singular_values is not None:
