@@ -1335,6 +1335,10 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                                  "have homogeneous numeric type.")
             sample_vectors.extend(tuple(vectors))
 
+            if len(vectors[0].shape) <= 1:
+                raise ValueError("WassersteinVectorizer requires list or tuple input to"
+                                 "have vectors formatted as a list of 2d arrays.")
+
             lot_dimension = reference_size * vectors[0].shape[1]
             block_size = max(1, memory_size // (lot_dimension * 8))
 
