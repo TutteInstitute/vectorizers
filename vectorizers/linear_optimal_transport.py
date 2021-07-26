@@ -1328,7 +1328,11 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
 
             distributions = numba.typed.List.empty_list(numba.float64[:])
             sample_vectors = numba.typed.List.empty_list(numba.float64[:, :])
-            distributions.extend(tuple(X))
+            try:
+                distributions.extend(tuple(X))
+            except numba.TypingError:
+                raise ValueError("WassersteinVectorizer requires list or tuple input to"
+                                 "have homogeneous numeric type.")
             sample_vectors.extend(tuple(vectors))
 
             lot_dimension = reference_size * vectors[0].shape[1]
@@ -1517,7 +1521,11 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
 
             distributions = numba.typed.List.empty_list(numba.float64[:])
             sample_vectors = numba.typed.List.empty_list(numba.float64[:, :])
-            distributions.extend(tuple(X))
+            try:
+                distributions.extend(tuple(X))
+            except numba.TypingError:
+                raise ValueError("WassersteinVectorizer requires list or tuple input to"
+                                 "have homogeneous numeric type.")
             if metric == cosine:
                 sample_vectors.extend(tuple([normalize(v, norm="l2") for v in vectors]))
             else:
@@ -1993,6 +2001,12 @@ class ApproximateWassersteinVectorizer(BaseEstimator, TransformerMixin):
         lot_vectors:
             The transformed training data.
         """
+        if vectors is None:
+            raise ValueError(
+                "WassersteinVectorizer requires vector representations of points under the metric. "
+                "Please pass these in to transform using the vectors keyword argument."
+            )
+
         if self.n_components is None:
             n_components = vectors.shape[1]
         else:
