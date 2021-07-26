@@ -9,7 +9,9 @@ from pynndescent.optimal_transport import (
     arc_id,
     ProblemStatus,
     K_from_cost,
-    sinkhorn_iterations_batch,
+    right_marginal_error_batch, # Until pynndescent gets updated on PyPI
+    precompute_K_prime, # Until pynndescent gets updated on PyPI
+    # sinkhorn_iterations_batch, # We can use this once pynndescent is updated on PyPI
 )
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import (
@@ -235,6 +237,35 @@ def l2_normalize(vectors):
         if norm > 0.0:
             for j in range(vectors.shape[1]):
                 vectors[i, j] /= norm
+
+
+# Until pynndescent gets updated on PyPI we will dulicate this
+@numba.njit(fastmath=True, cache=True)
+def sinkhorn_iterations_batch(x, y, u, v, K, max_iter=1000, error_tolerance=1e-9):
+    K_prime = precompute_K_prime(K, x)
+
+    for iteration in range(max_iter):
+
+        next_v = y.T / (K.T @ u)
+
+        if np.any(~np.isfinite(next_v)):
+            break
+
+        next_u = 1.0 / (K_prime @ next_v)
+
+        if np.any(~np.isfinite(next_u)):
+            break
+
+        u = next_u
+        v = next_v
+
+        if iteration % 10 == 0:
+            # Check if right marginal error is less than tolerance every 10 iterations
+            err = right_marginal_error_batch(u, K, v, y)
+            if err <= error_tolerance:
+                break
+
+    return u, v
 
 
 @numba.njit(fastmath=True)
