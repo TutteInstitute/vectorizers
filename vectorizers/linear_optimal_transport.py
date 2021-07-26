@@ -9,7 +9,6 @@ from pynndescent.optimal_transport import (
     arc_id,
     ProblemStatus,
     K_from_cost,
-    right_marginal_error_batch, # Until pynndescent gets updated on PyPI
     precompute_K_prime, # Until pynndescent gets updated on PyPI
     # sinkhorn_iterations_batch, # We can use this once pynndescent is updated on PyPI
 )
@@ -239,7 +238,23 @@ def l2_normalize(vectors):
                 vectors[i, j] /= norm
 
 
-# Until pynndescent gets updated on PyPI we will dulicate this
+# Until pynndescent gets updated on PyPI we will duplicate this
+@numba.njit(
+    fastmath=True,
+    parallel=True,
+    locals={"diff": numba.float32, "result": numba.float32},
+    cache=True,
+)
+def right_marginal_error_batch(u, K, v, y):
+    uK = K.T @ u
+    result = 0.0
+    for i in numba.prange(uK.shape[0]):
+        for j in range(uK.shape[1]):
+            diff = y[j, i] - uK[i, j] * v[i, j]
+            result += diff * diff
+    return np.sqrt(result)
+
+# Until pynndescent gets updated on PyPI we will duplicate this
 @numba.njit(fastmath=True, cache=True)
 def sinkhorn_iterations_batch(x, y, u, v, K, max_iter=1000, error_tolerance=1e-9):
     K_prime = precompute_K_prime(K, x)
