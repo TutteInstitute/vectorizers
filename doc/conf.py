@@ -38,6 +38,7 @@ extensions = [
     'sphinx.ext.intersphinx',
     'sphinx.ext.viewcode',
     'numpydoc',
+    'nbsphinx',
     'sphinx_gallery.gen_gallery',
 ]
 

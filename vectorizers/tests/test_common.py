@@ -18,6 +18,7 @@ from vectorizers.transformers import SequentialDifferenceTransformer
 from vectorizers.transformers import Wasserstein1DHistogramTransformer
 from vectorizers import WassersteinVectorizer
 from vectorizers import ApproximateWassersteinVectorizer
+from vectorizers import SinkhornVectorizer
 
 from vectorizers.distances import kantorovich1d
 from vectorizers.ngram_vectorizer import ngrams_of
@@ -955,6 +956,20 @@ def test_wasserstein_vectorizer_blockwise():
     assert np.allclose(result, transform_result, rtol=1e-3, atol=1e-6)
 
 
+def test_sinkhorn_vectorizer_basic():
+    vectorizer = SinkhornVectorizer(random_state=42)
+    result = vectorizer.fit_transform(distributions_data, vectors=vectors_data)
+    transform_result = vectorizer.transform(distributions_data, vectors=vectors_data)
+    assert np.allclose(result, transform_result, rtol=1e-3, atol=1e-6)
+
+
+def test_sinkhorn_vectorizer_blockwise():
+    vectorizer = SinkhornVectorizer(random_state=42, memory_size="50k")
+    result = vectorizer.fit_transform(distributions_data, vectors=vectors_data)
+    transform_result = vectorizer.transform(distributions_data, vectors=vectors_data)
+    assert np.allclose(result, transform_result, rtol=1e-3, atol=1e-6)
+
+
 def test_wasserstein_vectorizer_list_based():
     lil_data = normalize(distributions_data, norm="l1").tolil()
     distributions = [np.array(x) for x in lil_data.data]
@@ -998,6 +1013,37 @@ def test_approx_wasserstein_vectorizer_basic():
     result = vectorizer.fit_transform(distributions_data, vectors=vectors_data)
     transform_result = vectorizer.transform(distributions_data, vectors=vectors_data)
     assert np.allclose(result, transform_result, rtol=1e-3, atol=1e-6)
+
+
+@pytest.mark.parametrize(
+    "wasserstein_class",
+    [WassersteinVectorizer, SinkhornVectorizer, ApproximateWassersteinVectorizer],
+)
+def test_wasserstein_based_vectorizer_bad_params(wasserstein_class):
+    with pytest.raises(ValueError):
+        vectorizer = wasserstein_class()
+        vectorizer.fit(distributions_data)
+
+    with pytest.raises(ValueError):
+        vectorizer = wasserstein_class()
+        vectorizer.fit(mixed_token_data, vectors=vectors_data)
+
+    with pytest.raises(ValueError):
+        vectorizer = wasserstein_class()
+        vectorizer.fit(point_data, vectors=vectors_data)
+
+@pytest.mark.parametrize(
+    "wasserstein_class",
+    [WassersteinVectorizer, SinkhornVectorizer],
+)
+def test_wasserstein_based_vectorizer_bad_metrics(wasserstein_class):
+    with pytest.raises(ValueError):
+        vectorizer = wasserstein_class(metric="unsupported_metric")
+        vectorizer.fit(distributions_data, vectors=vectors_data)
+
+    with pytest.raises(ValueError):
+        vectorizer = wasserstein_class(metric=0.75)
+        vectorizer.fit(distributions_data, vectors=vectors_data)
 
 
 def test_node_removal():

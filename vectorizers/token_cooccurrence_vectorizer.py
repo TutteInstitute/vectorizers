@@ -501,8 +501,10 @@ def sequence_multi_skip_grams(
         Function that casts arrays of fixed length to tuples
 
     multi_labelled_tokens: bool (optional, default = False)
-        Indicates whether we are an iterable of iterables (False) or an iterable of iterables of iterables (True)
-        That is it indicates whether we have a sequence of tokens or a sequence of bags of labels.
+        Indicates whether we are an iterable of iterables (False)
+        or an iterable of iterables of iterables (True)
+        That is it indicates whether we have a sequence of tokens
+        or a sequence of bags of labels.
 
     Returns
     -------
@@ -512,7 +514,8 @@ def sequence_multi_skip_grams(
     if ngram_size > 1:
         if multi_labelled_tokens == True:
             raise ValueError(
-                f"Document contexts are not supported for ngrams at this time.  Please set multi_labelled_tokens=False."
+                f"Document contexts are not supported for ngrams at this time.  "
+                f"Please set multi_labelled_tokens=False."
             )
         coo_list = build_multi_skip_ngrams(
             token_sequences=token_sequences,
@@ -754,7 +757,8 @@ def em_update_matrix(
     window_normalizer,
 ):
     """
-    Updated the csr matrix from one round of EM on the given (hstack of) n cooccurrence matrices provided in csr format.
+    Updated the csr matrix from one round of EM on the given (hstack of) n
+    cooccurrence matrices provided in csr format.
 
     Parameters
     ----------
@@ -903,8 +907,9 @@ def em_cooccurrence_iteration(
         Function that casts arrays of fixed length to tuples
 
     multi_labelled_tokens: bool (optional, default=False)
-        Indicates whether your contexts are a sequence of bags of tokens labels with the context co-occurrence
-        spanning the bags.  In other words if you have sequences of multi-labelled tokens.
+        Indicates whether your contexts are a sequence of bags of tokens labels with the context
+        co-occurrence spanning the bags.  In other words if you have sequences of
+        multi-labelled tokens.
 
     Returns
     -------
@@ -1143,8 +1148,8 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         The string options are ['flat', 'harmonic', 'geometric'] for using pre-defined functions.
 
     window_radii: (Iterable of) int (optional, default=[5])
-        Argument to pass through to the window function.  Outside of boundary cases, this is the expected width
-        of the (directed) windows produced by the window function.
+        Argument to pass through to the window function.  Outside of boundary cases,
+        this is the expected width of the (directed) windows produced by the window function.
 
     window_args: (Iterable of) dicts (optional, default = None)
         Optional arguments for the window functions
@@ -1173,39 +1178,47 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         Check whether the data is valid (e.g. of homogeneous token type).
 
     mask_string: str (optional, default=None)
-        Prunes the filtered tokens when None, otherwise replaces them with the provided mask_string.
+        Prunes the filtered tokens when None, otherwise replaces them with the
+        provided mask_string.
 
     skip_ngram_size: int (optional, default = 1)
         The size of ngrams to encode token cooccurences of.
 
     nullify_mask: bool (optional, default=False)
-        Sets all cooccurrences with the mask_string equal to zero by skipping over them during processing.
+        Sets all cooccurrences with the mask_string equal to zero by skipping over them
+        during processing.
 
     n_iter: int (optional, default = 0)
         Number of EM iterations to perform
 
     context_document_width: 2-tuple  (optional, default = (0,0) )
-        The number of additional documents before and after the target to potentially include in the context windows
+        The number of additional documents before and after the target to
+        potentially include in the context windows
 
     epsilon: float32 (optional default = 0)
-        Sets values in the cooccurrence matrix (after l_1 normalizing the columns) less than epsilon to zero
+        Sets values in the cooccurrence matrix (after l_1 normalizing the columns)
+        less than epsilon to zero
 
     normalization: str ("bayesian" or "frequentist")
-        Sets the feature normalization to be the frequentist L_1 norm or the Bayesian (Dirichlet Process) normalization
+        Sets the feature normalization to be the frequentist L_1 norm
+        or the Bayesian (Dirichlet Process) normalization
 
     window_normalization: str ("bayesian" or "frequentist")
-        Sets the window normalization to be the frequentist L_1 norm or the Bayesian (Dirichlet Process) normalization
+        Sets the window normalization to be the frequentist L_1 norm
+        or the Bayesian (Dirichlet Process) normalization
 
     coo_max_memory: str (optional, default = "0.5 GiB")
-        This value, giving a memory size in k, M, G or T, describes how much memory to initialize for acculumating the
-        (row, col, val) triples of larger data sets.  This should be at least 2 times the number of non-zero
-        entries in the final cooccurrence matrix for near optimal speed in performance.  Optimizations to use
-        significantly less memory are made for data sets with small expected numbers of non zeros. More memory
-        will be allocated during processing if need be.
+        This value, giving a memory size in k, M, G or T, describes how much memory
+        to initialize for acculumatingthe (row, col, val) triples of larger data sets.
+        This should be at least 2 times the number of non-zero entries in the final
+        cooccurrence matrix for near optimal speed in performance.  Optimizations to use
+        significantly less memory are made for data sets with small expected numbers of
+        non zeros. More memory will be allocated during processing if need be.
 
     multi_labelled_tokens: bool (optional, default=False)
-        Indicates whether your contexts are a sequence of bags of tokens labels with the context co-occurrence
-        spanning the bags.  In other words if you have sequences of multi-labelled tokens.
+        Indicates whether your contexts are a sequence of bags of tokens labels
+        with the context co-occurrence spanning the bags.  In other words if you have
+        sequences of multi-labelled tokens.
     """
 
     def __init__(
@@ -1310,7 +1323,8 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
                 self._mix_weights.append(self.mix_weights[i])
             else:
                 raise ValueError(
-                    f"Unrecognized window orientations; should be callable or one of 'before','after', or 'directional'."
+                    f"Unrecognized window orientations; should be callable "
+                    f"or one of 'before','after', or 'directional'."
                 )
         self._n_wide = len(self._window_reversals)
         self._mix_weights = np.array(self._mix_weights, dtype=np.float64)
