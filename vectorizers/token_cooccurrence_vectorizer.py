@@ -37,6 +37,7 @@ from .coo_utils import (
 
 import numpy as np
 import numba
+import dask
 import scipy.sparse
 from ._window_kernels import (
     _KERNEL_FUNCTIONS,
@@ -568,6 +569,23 @@ def sequence_multi_skip_grams(
     )
 
 
+def generate_chunk_boundaries(data, chunk_size=1 << 19):
+    token_list_sizes = np.array([len(x) for x in data])
+    cumulative_sizes = np.cumsum(token_list_sizes)
+    chunks = []
+    last_chunk_end = 0
+    last_chunk_cumulative_size = 0
+    for chunk_index, size in enumerate(cumulative_sizes):
+        if size - last_chunk_cumulative_size >= chunk_size:
+            chunks.append((last_chunk_end, chunk_index))
+            last_chunk_end = chunk_index
+            last_chunk_cumulative_size = size
+
+    chunks.append((last_chunk_end, len(data)))
+
+    return chunks
+
+
 def multi_token_cooccurrence_matrix(
     token_sequences,
     n_unique_tokens,
@@ -584,7 +602,7 @@ def multi_token_cooccurrence_matrix(
     window_normalizer,
     ngram_dictionary=MOCK_DICT,
     ngram_size=1,
-    chunk_size=1 << 20,
+    chunk_size=1 << 19,
     multi_labelled_tokens=False,
 ):
     """Generate a matrix of (weighted) counts of co-occurrences of tokens within
@@ -654,10 +672,10 @@ def multi_token_cooccurrence_matrix(
         window with token (j mod n_unique_tokens) for window/kernel function (j // n_unique_tokens).
     """
     if n_unique_tokens == 0:
-        raise ValueError("Token dictionary is empty; try using less extreme contraints")
+        raise ValueError("Token dictionary is empty; try using less extreme constraints")
 
     if n_unique_tokens == 0:
-        raise ValueError("Token dictionary is empty; try using less extreme contraints")
+        raise ValueError("Token dictionary is empty; try using less extreme constraints")
 
     if len(ngram_dictionary) == 1 or ngram_size == 1:
         n_rows = n_unique_tokens
@@ -666,15 +684,8 @@ def multi_token_cooccurrence_matrix(
         n_rows = len(ngram_dictionary)
         array_to_tuple = make_tuple_converter(ngram_size)
 
-    cooccurrence_matrix = scipy.sparse.coo_matrix(
-        (n_rows, window_size_array.shape[0] * n_unique_tokens),
-        dtype=np.float32,
-    )
-    n_chunks = (len(token_sequences) // chunk_size) + 1
-
-    for chunk_index in range(n_chunks):
-        chunk_start = chunk_index * chunk_size
-        chunk_end = min(len(token_sequences), chunk_start + chunk_size)
+    @dask.delayed()
+    def process_token_sequence_chunk(chunk_start, chunk_end):
         coo_rows, coo_cols, coo_vals = sequence_multi_skip_grams(
             token_sequences=token_sequences[chunk_start:chunk_end],
             n_unique_tokens=n_unique_tokens,
@@ -691,7 +702,7 @@ def multi_token_cooccurrence_matrix(
             multi_labelled_tokens=multi_labelled_tokens,
         )
 
-        cooccurrence_matrix += scipy.sparse.coo_matrix(
+        result = scipy.sparse.coo_matrix(
             (
                 np.hstack(coo_vals),
                 (
@@ -702,7 +713,15 @@ def multi_token_cooccurrence_matrix(
             shape=(n_rows, n_unique_tokens * window_size_array.shape[0]),
             dtype=np.float32,
         )
+        result.sum_duplicates()
+        return result.tocsr()
 
+    matrix_per_chunk = [
+        process_token_sequence_chunk(chunk_start, chunk_end)
+        for chunk_start, chunk_end in generate_chunk_boundaries(token_sequences, chunk_size=chunk_size)
+    ]
+    cooccurrence_matrix = dask.delayed(sum)(matrix_per_chunk)
+    cooccurrence_matrix = cooccurrence_matrix.compute()
     cooccurrence_matrix.sum_duplicates()
     cooccurrence_matrix = cooccurrence_matrix.tocsr()
 
@@ -712,14 +731,9 @@ def multi_token_cooccurrence_matrix(
         cooccurrence_matrix.eliminate_zeros()
 
     # Do the EM
-    n_chunks = (len(token_sequences) // chunk_size) + 1
-
     for iter in range(n_iter):
-        new_data = np.zeros_like(cooccurrence_matrix.data)
-        for chunk_index in range(n_chunks):
-            chunk_start = chunk_index * chunk_size
-            chunk_end = min(len(token_sequences), chunk_start + chunk_size)
-            new_data += em_cooccurrence_iteration(
+        new_data_per_chunk = [
+            dask.delayed(em_cooccurrence_iteration)(
                 token_sequences=token_sequences[chunk_start:chunk_end],
                 n_unique_tokens=n_unique_tokens,
                 window_size_array=window_size_array,
@@ -736,6 +750,10 @@ def multi_token_cooccurrence_matrix(
                 window_normalizer=window_normalizer,
                 multi_labelled_tokens=multi_labelled_tokens,
             )
+            for chunk_start, chunk_end in generate_chunk_boundaries(token_sequences, chunk_size=chunk_size)
+        ]
+        new_data = dask.delayed(sum)(new_data_per_chunk)
+        new_data = new_data.compute()
         cooccurrence_matrix.data = new_data
         cooccurrence_matrix = normalizer(cooccurrence_matrix, axis=0, norm="l1").tocsr()
         cooccurrence_matrix.data[cooccurrence_matrix.data < epsilon] = 0
