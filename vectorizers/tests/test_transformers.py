@@ -216,8 +216,9 @@ def test_iw_transformer_zero_row(prior_strength, approx_prior):
     assert np.allclose(result.toarray(), transform.toarray())
 
 
-def test_count_feature_compression_basic():
-    cfc = CountFeatureCompressionTransformer(n_components=2)
+@pytest.mark.parametrize("algorithm", ["randomized", "arpack"])
+def test_count_feature_compression_basic(algorithm):
+    cfc = CountFeatureCompressionTransformer(n_components=2, algorithm=algorithm)
     result = cfc.fit_transform(test_matrix)
     transform = cfc.transform(test_matrix)
     assert np.allclose(result, transform)
@@ -234,3 +235,7 @@ def test_count_feature_compression_bad_input():
 
     with pytest.raises(ValueError):
         result = cfc.fit_transform(-test_matrix.toarray())
+
+    cfc = CountFeatureCompressionTransformer(n_components=2, algorithm="bad_value")
+    with pytest.raises(ValueError):
+        result = cfc.fit_transform(test_matrix)

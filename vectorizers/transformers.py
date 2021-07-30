@@ -2,7 +2,12 @@ import numba
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
+from sklearn.utils.validation import (
+    check_X_y,
+    check_array,
+    check_is_fitted,
+    check_random_state,
+)
 from sklearn.preprocessing import normalize
 import scipy.sparse
 from sklearn.utils.extmath import randomized_svd, svd_flip
@@ -688,12 +693,19 @@ class CountFeatureCompressionTransformer(BaseEstimator, TransformerMixin):
         The algorithm to use internally for the SVD step. Should be one of
             * "arpack"
             * "randomized"
+
+    random_state: int, np.random_state or None (optional, default=None)
+        If using the ``"randomized"`` algorithm for SVD then use this as the
+        random state (or random seed).
     """
 
-    def __init__(self, n_components=128, n_iter=7, algorithm="randomized"):
+    def __init__(
+        self, n_components=128, n_iter=7, algorithm="randomized", random_state=None
+    ):
         self.n_components = n_components
         self.n_iter = n_iter
         self.algorithm = algorithm
+        self.random_state = random_state
 
     def fit_transform(self, X, y=None, **fit_params):
         """
@@ -734,8 +746,12 @@ class CountFeatureCompressionTransformer(BaseEstimator, TransformerMixin):
         if self.algorithm == "arpack":
             u, s, v = svds(rescaled_data, k=self.n_components)
         elif self.algorithm == "randomized":
+            random_state = check_random_state(self.random_state)
             u, s, v = randomized_svd(
-                rescaled_data, n_components=self.n_components, n_iter=self.n_iter
+                rescaled_data,
+                n_components=self.n_components,
+                n_iter=self.n_iter,
+                random_state=random_state,
             )
         else:
             raise ValueError("algorithm should be one of 'arpack' or 'randomized'")
