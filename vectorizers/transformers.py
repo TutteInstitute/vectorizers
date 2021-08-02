@@ -319,9 +319,10 @@ class InformationWeightTransformer(BaseEstimator, TransformerMixin):
         of information provided by the column.
     """
 
-    def __init__(self, prior_strength=1e-4, approx_prior=True):
+    def __init__(self, prior_strength=1e-4, approx_prior=True, supervision_power=1.25):
         self.prior_strength = prior_strength
         self.approx_prior = approx_prior
+        self.supervision_power = supervision_power
 
     def fit(self, X, y=None, **fit_kwds):
         """Learn the appropriate column weighting as information weights
@@ -359,7 +360,7 @@ class InformationWeightTransformer(BaseEstimator, TransformerMixin):
                 X, self.prior_strength, self.approx_prior, target=target
             )
             self.supervised_weights_ /= np.mean(self.supervised_weights_)
-            self.supervised_weights_ = self.supervised_weights_ ** 2
+            self.supervised_weights_ = np.power(self.supervised_weights_, self.supervision_power)
 
             self.information_weights_ = (
                 self.information_weights_ * self.supervised_weights_
@@ -545,10 +546,11 @@ class CategoricalColumnTransformer(BaseEstimator, TransformerMixin):
     This transformer is useful for describing an object as a bag of the categorical values that
     have been used to represent it within a pandas DataFrame.
 
-    It takes an categorical column name to groupby, object_column_name, and one or more categorical columns to be used
-    to describe these objects, descriptor_column_name.  Then it returns a Series with an index being the unique entries
-    of your object_column_name and the values being a list of the appropriate categorical values from your
-    descriptor_column_name.
+    It takes an categorical column name to groupby, object_column_name, and one
+    or more categorical columns to be used to describe these objects,
+    descriptor_column_name.  Then it returns a Series with an index being the
+    unique entries of your object_column_name and the values being a list of
+    the appropriate categorical values from your descriptor_column_name.
 
     It can be thought of as a PivotTableTransformer if you'd like.
 
@@ -595,7 +597,8 @@ class CategoricalColumnTransformer(BaseEstimator, TransformerMixin):
             and (len(self.descriptor_column_name) > 1)
         ):
             warn(
-                "It is recommended that if you are aggregating multiple columns that you set include_column_name=True"
+                "It is recommended that if you are aggregating "
+                "multiple columns that you set include_column_name=True"
             )
 
     def fit_transform(self, X, y=None, **fit_params):
@@ -603,10 +606,10 @@ class CategoricalColumnTransformer(BaseEstimator, TransformerMixin):
         This transformer is useful for describing an object as a bag of the categorical values that
         have been used to represent it within a pandas DataFrame.
 
-        It takes an categorical column name to groupby, object_column_name, and one or more categorical columns to be used
-        to describe these objects, descriptor_column_name.  Then it returns a Series with an index being the unique entries
-        of your object_column_name and the values being a list of the appropriate categorical values from your
-        descriptor_column_name.
+        It takes an categorical column name to groupby, object_column_name, and one or more
+        categorical columns to be used to describe these objects, descriptor_column_name.
+        Then it returns a Series with an index being the unique entries of your object_column_name
+        and the values being a list of the appropriate categorical values from your descriptor_column_name.
 
         Parameters
         ----------
@@ -617,8 +620,8 @@ class CategoricalColumnTransformer(BaseEstimator, TransformerMixin):
         Returns
         -------
         pandas Series
-            Series with an index being the unique entries of your object_column_name and the values being a list of the
-            appropriate categorical values from your descriptor_column_name.
+            Series with an index being the unique entries of your object_column_name
+            and the values being a list of the appropriate categorical values from your descriptor_column_name.
         """
         # Check that the dataframe has the appropriate columns
         required_columns = set([self.object_column_name] + self.descriptor_column_name_)
@@ -700,12 +703,13 @@ class CountFeatureCompressionTransformer(BaseEstimator, TransformerMixin):
     """
 
     def __init__(
-        self, n_components=128, n_iter=7, algorithm="randomized", random_state=None
+        self, n_components=128, n_iter=7, algorithm="randomized", random_state=None, rescaling_power=0.5,
     ):
         self.n_components = n_components
         self.n_iter = n_iter
         self.algorithm = algorithm
         self.random_state = random_state
+        self.rescaling_power = rescaling_power
 
     def fit_transform(self, X, y=None, **fit_params):
         """
@@ -742,7 +746,8 @@ class CountFeatureCompressionTransformer(BaseEstimator, TransformerMixin):
                 raise ValueError("All entries in input most be non-negative!")
 
         normed_data = normalize(X)
-        rescaled_data = np.sqrt(normed_data)
+        rescaled_data = scipy.sparse.csr_matrix(normed_data)
+        rescaled_data.data = np.power(normed_data.data, self.rescaling_power)
         if self.algorithm == "arpack":
             u, s, v = svds(rescaled_data, k=self.n_components)
         elif self.algorithm == "randomized":
@@ -800,7 +805,8 @@ class CountFeatureCompressionTransformer(BaseEstimator, TransformerMixin):
             ["components_", "component_scaling_"],
         )
         normed_data = normalize(X)
-        rescaled_data = np.sqrt(normed_data)
+        rescaled_data = scipy.sparse.csr_matrix(normed_data)
+        rescaled_data.data = np.power(normed_data.data, self.rescaling_power)
 
         result = (rescaled_data @ self.components_.T) / self.component_scaling_
 
