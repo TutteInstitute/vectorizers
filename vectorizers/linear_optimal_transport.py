@@ -610,6 +610,7 @@ def lot_vectors_sparse(
     max_distribution_size=256,
     block_size=16384,
     n_svd_iter=10,
+    cachedir=None,
 ):
     """Given distributions over a metric space produce a compressed array
     of linear optimal transport vectors, one for each distribution, and
@@ -670,6 +671,11 @@ def lot_vectors_sparse(
         How many iterations of randomized SVD to run to get compressed vectors. More
         iterations will produce better results at greater computational cost.
 
+    cachedir: str or None (optional, default=None)
+        Where to create a temporary directory for cache files. If None use the python
+        defaults for the operating system. This can be useful if storage in the
+        default TMP storage area on the device is limited.
+
     Returns
     -------
     lot_vectors: ndarray
@@ -714,7 +720,7 @@ def lot_vectors_sparse(
     singular_values = None
     components = None
 
-    memmap_filename = os.path.join(tempfile.mkdtemp(), "lot_tmp_memmap.dat")
+    memmap_filename = os.path.join(tempfile.mkdtemp(dir=cachedir), "lot_tmp_memmap.dat")
     saved_blocks = np.memmap(
         memmap_filename,
         mode="w+",
@@ -780,6 +786,7 @@ def lot_vectors_dense(
     max_distribution_size=256,
     block_size=16384,
     n_svd_iter=10,
+    cachedir=None,
 ):
     """Given distributions over a metric space produce a compressed array
     of linear optimal transport vectors, one for each distribution, and
@@ -837,6 +844,11 @@ def lot_vectors_dense(
         How many iterations of randomized SVD to run to get compressed vectors. More
         iterations will produce better results at greater computational cost.
 
+    cachedir: str or None (optional, default=None)
+        Where to create a temporary directory for cache files. If None use the python
+        defaults for the operating system. This can be useful if storage in the
+        default TMP storage area on the device is limited.
+
     Returns
     -------
     lot_vectors: ndarray
@@ -876,7 +888,7 @@ def lot_vectors_dense(
     singular_values = None
     components = None
 
-    memmap_filename = os.path.join(tempfile.mkdtemp(), "lot_tmp_memmap.dat")
+    memmap_filename = os.path.join(tempfile.mkdtemp(dir=cachedir), "lot_tmp_memmap.dat")
     saved_blocks = np.memmap(
         memmap_filename,
         mode="w+",
@@ -942,6 +954,7 @@ def sinkhorn_vectors_sparse(
     block_size=16384,
     chunk_size=32,
     n_svd_iter=7,
+    cachedir=None,
 ):
     """Given distributions over a metric space produce a compressed array
     of linear sinkhorn transport vectors, one for each distribution, and
@@ -1003,6 +1016,11 @@ def sinkhorn_vectors_sparse(
         How many iterations of randomized SVD to run to get compressed vectors. More
         iterations will produce better results at greater computational cost.
 
+    cachedir: str or None (optional, default=None)
+        Where to create a temporary directory for cache files. If None use the python
+        defaults for the operating system. This can be useful if storage in the
+        default TMP storage area on the device is limited.
+
     Returns
     -------
     sinkhorn_vectors: ndarray
@@ -1057,7 +1075,7 @@ def sinkhorn_vectors_sparse(
     singular_values = None
     components = None
 
-    memmap_filename = os.path.join(tempfile.mkdtemp(), "lot_tmp_memmap.dat")
+    memmap_filename = os.path.join(tempfile.mkdtemp(dir=cachedir), "lot_tmp_memmap.dat")
     saved_blocks = np.memmap(
         memmap_filename,
         mode="w+",
@@ -1187,6 +1205,11 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
 
     random_state: numpy.random.random_state or int or None (optional, default=None)
         A random state to use. A fixed integer seed can be used for reproducibility.
+
+    cachedir: str or None (optional, default=None)
+        Where to create a temporary directory for cache files. If None use the python
+        defaults for the operating system. This can be useful if storage in the
+        default TMP storage area on the device is limited.
     """
 
     def __init__(
@@ -1199,6 +1222,7 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
         max_distribution_size=256,
         n_svd_iter=10,
         random_state=None,
+        cachedir=None,
     ):
         self.n_components = n_components
         self.reference_size = reference_size
@@ -1208,6 +1232,7 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
         self.max_distribution_size = max_distribution_size
         self.n_svd_iter = n_svd_iter
         self.random_state = random_state
+        self.cachedir = cachedir
 
     def _get_metric(self):
         if type(self.metric) is str:
@@ -1318,6 +1343,7 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                 max_distribution_size=self.max_distribution_size,
                 block_size=block_size,
                 n_svd_iter=self.n_svd_iter,
+                cachedir=self.cachedir,
             )
 
         elif type(X) in (list, tuple, numba.typed.List):
@@ -1389,6 +1415,7 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                 max_distribution_size=self.max_distribution_size,
                 block_size=block_size,
                 n_svd_iter=self.n_svd_iter,
+                cachedir=self.cachedir,
             )
         else:
             raise ValueError(
@@ -1621,6 +1648,12 @@ class SinkhornVectorizer(BaseEstimator, TransformerMixin):
 
     random_state: numpy.random.random_state or int or None (optional, default=None)
         A random state to use. A fixed integer seed can be used for reproducibility.
+
+    cachedir: str or None (optional, default=None)
+        Where to create a temporary directory for cache files. If None use the python
+        defaults for the operating system. This can be useful if storage in the
+        default TMP storage area on the device is limited.
+
     """
 
     def __init__(
@@ -1633,6 +1666,7 @@ class SinkhornVectorizer(BaseEstimator, TransformerMixin):
         chunk_size=32,
         n_svd_iter=7,
         random_state=None,
+        cachedir=None,
     ):
         self.n_components = n_components
         self.reference_size = reference_size
@@ -1642,6 +1676,7 @@ class SinkhornVectorizer(BaseEstimator, TransformerMixin):
         self.chunk_size = chunk_size
         self.n_svd_iter = n_svd_iter
         self.random_state = random_state
+        self.cachedir = cachedir
 
     def _get_metric(self):
         if type(self.metric) is str:
@@ -1756,6 +1791,7 @@ class SinkhornVectorizer(BaseEstimator, TransformerMixin):
                 chunk_size=self.chunk_size,
                 block_size=block_size,
                 n_svd_iter=self.n_svd_iter,
+                cachedir=self.cachedir,
             )
 
         else:
