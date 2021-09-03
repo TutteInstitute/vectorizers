@@ -29,11 +29,11 @@ install:
   - source activate testenv
   - |
       if [ $SKLEARN_VERSION = "nightly" ]; then
-          conda install --yes numpy==$NUMPY_VERSION scipy==$SCIPY_VERSION cython nose pytest pytest-cov
+          conda install --yes numpy==$NUMPY_VERSION scipy==$SCIPY_VERSION cython nose pytest pytest-cov dask
           # install nightly wheels
           pip install --pre -f https://sklearn-nightly.scdn8.secure.raxcdn.com scikit-learn
       else
-          conda install --yes numpy==$NUMPY_VERSION scipy==$SCIPY_VERSION scikit-learn==$SKLEARN_VERSION cython nose pytest pytest-cov
+          conda install --yes numpy==$NUMPY_VERSION scipy==$SCIPY_VERSION scikit-learn==$SKLEARN_VERSION cython nose pytest pytest-cov dask
       fi
   - conda install --yes pandas numba
   - pip install pynndescent
