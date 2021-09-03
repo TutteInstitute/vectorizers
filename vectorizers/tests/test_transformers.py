@@ -4,6 +4,7 @@ from vectorizers.transformers import (
     RemoveEffectsTransformer,
     InformationWeightTransformer,
     CategoricalColumnTransformer,
+    CountFeatureCompressionTransformer,
 )
 import numpy as np
 import scipy.sparse
@@ -213,3 +214,28 @@ def test_iw_transformer_zero_row(prior_strength, approx_prior):
     result = IWT.fit_transform(test_matrix_zero_row)
     transform = IWT.transform(test_matrix_zero_row)
     assert np.allclose(result.toarray(), transform.toarray())
+
+
+@pytest.mark.parametrize("algorithm", ["randomized", "arpack"])
+def test_count_feature_compression_basic(algorithm):
+    cfc = CountFeatureCompressionTransformer(n_components=2, algorithm=algorithm)
+    result = cfc.fit_transform(test_matrix)
+    transform = cfc.transform(test_matrix)
+    assert np.allclose(result, transform)
+
+def test_count_feature_compression_warns():
+    cfc = CountFeatureCompressionTransformer(n_components=5)
+    with pytest.warns(UserWarning):
+        result = cfc.fit_transform(test_matrix)
+
+def test_count_feature_compression_bad_input():
+    cfc = CountFeatureCompressionTransformer(n_components=2)
+    with pytest.raises(ValueError):
+        result = cfc.fit_transform(-test_matrix)
+
+    with pytest.raises(ValueError):
+        result = cfc.fit_transform(-test_matrix.toarray())
+
+    cfc = CountFeatureCompressionTransformer(n_components=2, algorithm="bad_value")
+    with pytest.raises(ValueError):
+        result = cfc.fit_transform(test_matrix)
