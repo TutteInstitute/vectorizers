@@ -17,6 +17,7 @@ jobs:
             conda install --yes pip numpy scipy scikit-learn pandas numba matplotlib sphinx sphinx_rtd_theme numpydoc pillow dask
             pip install pynndescent
             pip install sphinx-gallery
+            pip install nbsphinx
             pip install .
             cd doc
             make html
