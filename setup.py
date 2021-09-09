@@ -43,6 +43,7 @@ EXTRAS_REQUIRE = {
     'docs': [
         'sphinx',
         'sphinx-gallery',
+        'nbsphinx',
         'sphinx_rtd_theme',
         'numpydoc',
         'matplotlib'
