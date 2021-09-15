@@ -5,6 +5,7 @@ from vectorizers.transformers import (
     InformationWeightTransformer,
     CategoricalColumnTransformer,
     CountFeatureCompressionTransformer,
+    SlidingWindowTransformer,
 )
 import numpy as np
 import scipy.sparse
@@ -23,6 +24,15 @@ test_df = pd.DataFrame(
         "B": ["x", "k", "c", "d"],
     }
 )
+
+test_time_series = [
+    np.random.random(size=23),
+    np.random.random(size=56),
+    np.random.random(size=71),
+    np.random.random(size=64),
+    np.random.random(size=35),
+    np.random.random(size=44),
+]
 
 
 @pytest.mark.parametrize("include_column_name", [True, False])
@@ -223,10 +233,12 @@ def test_count_feature_compression_basic(algorithm):
     transform = cfc.transform(test_matrix)
     assert np.allclose(result, transform)
 
+
 def test_count_feature_compression_warns():
     cfc = CountFeatureCompressionTransformer(n_components=5)
     with pytest.warns(UserWarning):
         result = cfc.fit_transform(test_matrix)
+
 
 def test_count_feature_compression_bad_input():
     cfc = CountFeatureCompressionTransformer(n_components=2)
@@ -239,3 +251,52 @@ def test_count_feature_compression_bad_input():
     cfc = CountFeatureCompressionTransformer(n_components=2, algorithm="bad_value")
     with pytest.raises(ValueError):
         result = cfc.fit_transform(test_matrix)
+
+
+def test_sliding_window_transformer_basic():
+    swt = SlidingWindowTransformer()
+    result = swt.fit_transform(test_time_series)
+    transform = swt.transform(test_time_series)
+    for i, point_cloud in enumerate(result):
+        for j, point in enumerate(point_cloud):
+            assert np.allclose(point, transform[i][j])
+
+
+def test_sliding_window_transformer_basic_w_lists():
+    swt = SlidingWindowTransformer()
+    result = swt.fit_transform([list(x) for x in test_time_series])
+    transform = swt.transform([list(x) for x in test_time_series])
+    for i, point_cloud in enumerate(result):
+        for j, point in enumerate(point_cloud):
+            assert np.allclose(point, transform[i][j])
+
+
+def test_sliding_window_transformer_w_sampling():
+    swt = SlidingWindowTransformer(window_sample="random", window_sample_size=5)
+    result = swt.fit_transform(test_time_series)
+    transform = swt.transform(test_time_series)
+    for i, point_cloud in enumerate(result):
+        for j, point in enumerate(point_cloud):
+            assert np.allclose(point, transform[i][j])
+
+
+def test_sliding_window_transformer_bad_params():
+    swt = SlidingWindowTransformer(window_sample="foo")
+    with pytest.raises(ValueError):
+        result = swt.fit_transform(test_time_series)
+
+    swt = SlidingWindowTransformer(window_sample=("foo", "bar"))
+    with pytest.raises(ValueError):
+        result = swt.fit_transform(test_time_series)
+
+    swt = SlidingWindowTransformer(window_sample=1.105)
+    with pytest.raises(ValueError):
+        result = swt.fit_transform(test_time_series)
+
+    swt = SlidingWindowTransformer(window_sample=[1.3, 1.1, 1.25, 1.625])
+    with pytest.raises(ValueError):
+        result = swt.fit_transform(test_time_series)
+
+    swt = SlidingWindowTransformer(window_width=-1)
+    with pytest.raises(ValueError):
+        result = swt.fit_transform(test_time_series)
