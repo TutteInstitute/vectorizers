@@ -319,10 +319,11 @@ class InformationWeightTransformer(BaseEstimator, TransformerMixin):
         of information provided by the column.
     """
 
-    def __init__(self, prior_strength=1e-4, approx_prior=True, supervision_power=1.25):
+    def __init__(self, prior_strength=1e-4, approx_prior=True, weight_power=2.0, supervision_weight=0.95):
         self.prior_strength = prior_strength
         self.approx_prior = approx_prior
-        self.supervision_power = supervision_power
+        self.weight_power = weight_power
+        self.supervision_weight = supervision_weight
 
     def fit(self, X, y=None, **fit_kwds):
         """Learn the appropriate column weighting as information weights
@@ -345,10 +346,14 @@ class InformationWeightTransformer(BaseEstimator, TransformerMixin):
         self.information_weights_ = information_weight(
             X, self.prior_strength, self.approx_prior
         )
-        self.information_weights_ /= np.mean(self.information_weights_)
-        self.information_weights_ = self.information_weights_ ** 2
 
         if y is not None:
+            unsupervised_power = (1.0 - self.supervision_weight) * self.weight_power
+            supervised_power = self.supervision_weight * self.weight_power
+
+            self.information_weights_ /= np.mean(self.information_weights_)
+            self.information_weights_ = np.power(self.information_weights_, unsupervised_power)
+
             target_classes = np.unique(y)
             target_dict = dict(
                 np.vstack((target_classes, np.arange(target_classes.shape[0]))).T
@@ -360,11 +365,14 @@ class InformationWeightTransformer(BaseEstimator, TransformerMixin):
                 X, self.prior_strength, self.approx_prior, target=target
             )
             self.supervised_weights_ /= np.mean(self.supervised_weights_)
-            self.supervised_weights_ = np.power(self.supervised_weights_, self.supervision_power)
+            self.supervised_weights_ = np.power(self.supervised_weights_, supervised_power)
 
             self.information_weights_ = (
                 self.information_weights_ * self.supervised_weights_
             )
+        else:
+            self.information_weights_ /= np.mean(self.information_weights_)
+            self.information_weights_ = np.power(self.information_weights_, self.weight_power)
 
         return self
 
