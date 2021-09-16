@@ -19,54 +19,31 @@ machine learning.
 
 .. toctree::
    :maxdepth: 2
-   :hidden:
    :caption: Quick Start
 
    quick_start
 
 .. toctree::
    :maxdepth: 2
-   :hidden:
    :caption: Getting Started Tutorials
 
-   user_guide
+   document_vectorization
 
 .. toctree::
    :maxdepth: 2
-   :hidden:
    :caption: In Depth Tutorials
 
    auto_examples/index
 
 .. toctree::
    :maxdepth: 2
-   :hidden:
    :caption: Example Use Cases
 
    TokenCooccurrenceVectorizer_multi_labelled_cyberEvents
    CategoricalColumnTransformer_documentation
 
 .. toctree::
+   :maxdepth: 2
    :caption: API Reference:
 
    api
-
-`Getting started <quick_start.html>`_
--------------------------------------
-
-Information regarding this template and how to modify it for your own project.
-
-`User Guide <user_guide.html>`_
--------------------------------
-
-An example of narrative documentation.
-
-`API Documentation <api.html>`_
--------------------------------
-
-An example of API documentation.
-
-`Examples <auto_examples/index.html>`_
---------------------------------------
-
-A set of examples. It complements the `User Guide <user_guide.html>`_.
