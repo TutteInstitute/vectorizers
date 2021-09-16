@@ -874,7 +874,7 @@ class SlidingWindowTransformer(BaseEstimator, TransformerMixin):
 
     window_stride: int (optional, default=1)
         How far to step along when sliding the window. Setting ``window_stride``
-        to the same value as ``window_size`` will ensure non-overlapping windows. The
+        to the same value as ``window_width`` will ensure non-overlapping windows. The
         default of 1 will generate the maximum number of points in the resulting point
         cloud.
 
