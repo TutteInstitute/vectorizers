@@ -44,8 +44,8 @@ machine learning.
    :maxdepth: 2
    :caption: Example Use Cases
 
-   TokenCooccurrenceVectorizer_multi_labelled_cyberEvents
-   CategoricalColumnTransformer_documentation
+   token_cooccurrence_vectorizer_multi_labelled_cyber_example
+   categorical_column_transformer_example
 
 .. toctree::
    :maxdepth: 2
