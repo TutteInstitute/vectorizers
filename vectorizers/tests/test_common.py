@@ -551,6 +551,7 @@ def test_cooccurrence_vectorizer_coo_mem_limit():
         n_iter=0,
         normalize_windows=False,
     )
+    np.random.seed(42)
     data = [[np.random.randint(0, 10) for i in range(100)]]
     mat1 = vectorizer_a.fit_transform(data).toarray()
     mat2 = vectorizer_b.fit_transform(data).toarray()
