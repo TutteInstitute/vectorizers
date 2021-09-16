@@ -319,7 +319,13 @@ class InformationWeightTransformer(BaseEstimator, TransformerMixin):
         of information provided by the column.
     """
 
-    def __init__(self, prior_strength=1e-4, approx_prior=True, weight_power=2.0, supervision_weight=0.95):
+    def __init__(
+        self,
+        prior_strength=1e-4,
+        approx_prior=True,
+        weight_power=2.0,
+        supervision_weight=0.95,
+    ):
         self.prior_strength = prior_strength
         self.approx_prior = approx_prior
         self.weight_power = weight_power
@@ -352,7 +358,9 @@ class InformationWeightTransformer(BaseEstimator, TransformerMixin):
             supervised_power = self.supervision_weight * self.weight_power
 
             self.information_weights_ /= np.mean(self.information_weights_)
-            self.information_weights_ = np.power(self.information_weights_, unsupervised_power)
+            self.information_weights_ = np.power(
+                self.information_weights_, unsupervised_power
+            )
 
             target_classes = np.unique(y)
             target_dict = dict(
@@ -365,14 +373,18 @@ class InformationWeightTransformer(BaseEstimator, TransformerMixin):
                 X, self.prior_strength, self.approx_prior, target=target
             )
             self.supervised_weights_ /= np.mean(self.supervised_weights_)
-            self.supervised_weights_ = np.power(self.supervised_weights_, supervised_power)
+            self.supervised_weights_ = np.power(
+                self.supervised_weights_, supervised_power
+            )
 
             self.information_weights_ = (
                 self.information_weights_ * self.supervised_weights_
             )
         else:
             self.information_weights_ /= np.mean(self.information_weights_)
-            self.information_weights_ = np.power(self.information_weights_, self.weight_power)
+            self.information_weights_ = np.power(
+                self.information_weights_, self.weight_power
+            )
 
         return self
 
@@ -711,7 +723,12 @@ class CountFeatureCompressionTransformer(BaseEstimator, TransformerMixin):
     """
 
     def __init__(
-        self, n_components=128, n_iter=7, algorithm="randomized", random_state=None, rescaling_power=0.5,
+        self,
+        n_components=128,
+        n_iter=7,
+        algorithm="randomized",
+        random_state=None,
+        rescaling_power=0.5,
     ):
         self.n_components = n_components
         self.n_iter = n_iter
@@ -817,5 +834,149 @@ class CountFeatureCompressionTransformer(BaseEstimator, TransformerMixin):
         rescaled_data.data = np.power(normed_data.data, self.rescaling_power)
 
         result = (rescaled_data @ self.components_.T) / self.component_scaling_
+
+        return result
+
+
+@numba.njit(nogil=True)
+def sliding_windows(sequence, width, stride, sample):
+
+    last_window_start = len(sequence) - width
+
+    if sample.shape[0] < width:
+        result = [
+            sequence[offset : offset + width][sample]
+            for offset in range(0, last_window_start, stride)
+        ]
+    else:
+        result = [
+            sequence[offset : offset + width]
+            for offset in range(0, last_window_start, stride)
+        ]
+
+    return result
+
+
+class SlidingWindowTransformer(BaseEstimator, TransformerMixin):
+    """Convert numeric sequence data into point clouds by applying sliding
+    windows over the data. This is applicable to things like time-series and
+    can be viewed as a Taken's embedding of each time series. This approach
+    can usefully be paired with WassersteinVectorizer, SinkhornVectorizer, or
+    DistributionVectorizer to turn the point clouds in vectors approximating
+    Wasserstein-like distances between the point clouds.
+
+    Parameters
+    ----------
+    window_width: int (optional, default=10)
+        How large of a window to use. This will determine the dimensionality of the
+        vector space in which the resulting point clouds will live unless a window
+        sample is specified.
+
+    window_stride: int (optional, default=1)
+        How far to step along when sliding the window. Setting ``window_stride``
+        to the same value as ``window_size`` will ensure non-overlapping windows. The
+        default of 1 will generate the maximum number of points in the resulting point
+        cloud.
+
+    window_sample: None, int, pair of ints, "random", or 1d array of integers (optional, default=None)
+        How to sample from each window. The default on None will simply rake the whole
+        window. If an int ``n`` is given this will be be used as a stride sampling every
+        ``n``th entry of the window. If a pair of integers ``(n, m)`` this will be
+        used as a start and stride sampling every ``m``th entry starting fron the ``n``th
+        entry. If "random" is given then a random sampling on ``window_sample_size`` indices
+        in the range ``(0, window_width)`` will be used. Finally if an array of integers
+        are given this will be used as the selected indices to take from each window.
+
+    window_sample_size: int (optional, default=0)
+        If using random sampling from a window this will determine he size of the random sample.
+    """
+
+    def __init__(
+        self, window_width=10, window_stride=1, window_sample=None, window_sample_size=0
+    ):
+
+        self.window_width = window_width
+        self.window_stride = window_stride
+        self.window_sample = window_sample
+        self.window_sample_size = window_sample_size
+
+    def fit(self, X, y=None, **fit_params):
+        """
+        Given a list of numeric sequences, prepare for
+        conversion into a list of point clouds under a
+        sliding window embedding.
+
+        Parameters
+        ----------
+        X: list of array-like
+            The input data to be transformed.
+        """
+        if self.window_sample is None:
+            self.window_sample_ = np.arange(self.window_width)
+        elif self.window_sample == "random":
+            self.window_sample_ = np.random.choice(
+                self.window_width, size=self.window_sample_size, replace=False
+            )
+        elif np.issubdtype(type(self.window_sample), np.integer):
+            self.window_sample_ = np.arange(self.window_width, self.window_sample)
+        elif type(self.window_sample) in (list, tuple) and len(self.window_sample) == 2:
+            start, stride = self.window_sample
+            if np.issubdtype(type(start), np.integer) and np.issubdtype(
+                type(stride), np.integer
+            ):
+                self.window_sample_ = np.arange(start, self.window_width, stride)
+            else:
+                raise ValueError(
+                    "If passing a length 2 tuple of start and stride for "
+                    "window sample, start and stride must be integers."
+                )
+        else:
+            # Check is we can convert it to an array
+            try:
+                self.window_sample_ = np.asarray(self.window_sample, dtype=np.int32)
+                assert len(self.window_sample.shape) == 1
+            except:
+                raise ValueError(
+                    """window_sample should be one of:
+                * None
+                * an integer stride value
+                * a tuple of integers (start, stride)
+                * the string "random"
+                * a 1d array (or array like) of integer indices to sample
+                """
+                )
+
+        if self.window_width < 0:
+            raise ValueError("window_width must be positive")
+
+        return self
+
+    def transform(self, X, y=None):
+        """
+        Given a list of numeric sequences, convert into a list
+        of point clouds under a sliding window embedding.
+
+        Parameters
+        ----------
+        X: list of array-like
+            The input data to be transformed.
+
+        Returns
+        -------
+        result: list of lists of ndarrays
+            Each input array like is converted to a list of ndarrays.
+        """
+        check_is_fitted(self, ["window_sample_"])
+
+        result = []
+        for sequence in X:
+            result.append(
+                sliding_windows(
+                    np.asarray(sequence),
+                    self.window_width,
+                    self.window_stride,
+                    self.window_sample_,
+                )
+            )
 
         return result
