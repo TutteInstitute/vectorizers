@@ -3,6 +3,11 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
+.. image:: vectorizers_logo_text.png
+  :width: 600
+  :alt: Vectorizers Logo
+
+=====================================================
 Vectorizers: Transform unstructured data into vectors
 =====================================================
 
@@ -39,8 +44,8 @@ machine learning.
    :maxdepth: 2
    :caption: Example Use Cases
 
-   TokenCooccurrenceVectorizer_multi_labelled_cyberEvents
-   CategoricalColumnTransformer_documentation
+   token_cooccurrence_vectorizer_multi_labelled_cyber_example
+   categorical_column_transformer_example
 
 .. toctree::
    :maxdepth: 2
