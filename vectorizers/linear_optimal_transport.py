@@ -1355,11 +1355,22 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
             distributions = numba.typed.List.empty_list(numba.float64[:])
             sample_vectors = numba.typed.List.empty_list(numba.float64[:, :])
             try:
-                distributions.extend(tuple(X))
+                # Add in blocks as numba's extend doesn't like large additions
+                # due to overly large instructions when compiling it
+                for i in range(len(X) // 512 + 1):
+                    start = i * 512
+                    end = min(start + 512, len(X))
+                    distributions.extend(tuple(X[start:end]))
             except numba.TypingError:
                 raise ValueError("WassersteinVectorizer requires list or tuple input to"
-                                 "have homogeneous numeric type.")
-            sample_vectors.extend(tuple(vectors))
+                                 " have homogeneous numeric type.")
+
+            # Add in blocks as numba's extend doesn't like large additions
+            # due to overly large instructions when compiling it
+            for i in range(len(vectors) // 512 + 1):
+                start = i * 512
+                end = min(start + 512, len(X))
+                sample_vectors.extend(tuple(vectors[start:end]))
 
             if len(vectors[0].shape) <= 1:
                 raise ValueError("WassersteinVectorizer requires list or tuple input to"
@@ -1553,14 +1564,23 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
             distributions = numba.typed.List.empty_list(numba.float64[:])
             sample_vectors = numba.typed.List.empty_list(numba.float64[:, :])
             try:
-                distributions.extend(tuple(X))
+                for i in range(len(X) // 512 + 1):
+                    start = i * 512
+                    end = min(start + 512, len(X))
+                    distributions.extend(tuple(X[start:end]))
             except numba.TypingError:
                 raise ValueError("WassersteinVectorizer requires list or tuple input to"
-                                 "have homogeneous numeric type.")
+                                 " have homogeneous numeric type.")
             if metric == cosine:
-                sample_vectors.extend(tuple([normalize(v, norm="l2") for v in vectors]))
+                for i in range(len(vectors) // 512 + 1):
+                    start = i * 512
+                    end = min(start + 512, len(X))
+                    sample_vectors.extend(tuple([normalize(v, norm="l2") for v in vectors[start:end]]))
             else:
-                sample_vectors.extend(tuple(vectors))
+                for i in range(len(vectors) // 512 + 1):
+                    start = i * 512
+                    end = min(start + 512, len(X))
+                    sample_vectors.extend(tuple(vectors[start:end]))
 
             result_blocks = []
 
