@@ -28,6 +28,8 @@ import scipy.sparse
 import os
 import tempfile
 
+from types import GeneratorType
+
 _dummy_cost = np.zeros((2, 2), dtype=np.float64)
 
 
@@ -943,6 +945,211 @@ def lot_vectors_dense(
     return result, components
 
 
+def _chunks_from_generators(vectors, distributions, chunk_size=128):
+    vector_chunk = numba.typed.List.empty_list(numba.float64[:, :])
+    distribution_chunk = numba.typed.List.empty_list(numba.float64[:])
+
+    for i in range(chunk_size):
+        try:
+            vector_chunk.append(next(vectors))
+            distribution_chunk.append(next(distributions))
+        except StopIteration:
+            break
+
+    return vector_chunk, distribution_chunk
+
+
+def lot_vectors_dense_generator(
+    sample_vectors,
+    sample_distributions,
+    n_distributions,
+    reference_vectors,
+    reference_distribution,
+    n_components=150,
+    metric=cosine,
+    random_state=None,
+    max_distribution_size=256,
+    block_size=16384,
+    n_svd_iter=10,
+    cachedir=None,
+):
+    """Given distributions over a metric space produce a compressed array
+    of linear optimal transport vectors, one for each distribution, and
+    the components of the SVD used for the compression.
+
+    Distributions over a metric space are described by:
+      * A generator of vectors, one set of vectors per distribution
+      * A generator of distributions, giving the probabilty masses over each vector
+      * A metric on the vectors (thus describing the underlying metric space)
+
+    The LOT vectors are computed in blocks and components used for compression are
+    learned via an incremental version of an SVD. The resulting components are then
+    used for projection giving a compressed set of LOT vectors. Both the LOT vectors
+    and the learned components are returned.
+
+    Parameters
+    ----------
+    sample_vectors: generator of ndarrays
+        A set of vectors for each distribution.
+
+    sample_distributions: generator of ndarrays
+        A set of distributions (1d arrays that sum to one). The ith element of a given
+        distribution is the probability mass on the ith row of the corresponding entry
+        in the ``sample_vectors`` list.
+
+    reference_vectors: ndarray
+        The reference vector set for LOT
+
+    reference_distribution: ndarray
+        The reference distribution over the set of reference vectors
+
+    n_components: int (optional, default=150)
+        The number of SVD components to use for projection. Thus the dimensionality of
+        the compressed LOT vectors that are output.
+
+    metric: function(ndarray, ndarray) -> float
+        The distance function to use for distance computation between vectors.
+
+    random_state: numpy.random.random_state or None (optional, default=None)
+        The random state used for randomized SVD computation. Fix a random state
+        for consistent reproducible results.
+
+    max_distribution_size: int (optional, default=256)
+        The maximum size of a distribution to consider; larger
+        distributions over more vectors will be truncated back
+        to this value for faster performance.
+
+    block_size: int (optional, default=16384)
+        The maximum number of rows to process at a time. Lowering this will
+        constrain memory use at the cost of accuracy (the incremental SVD will
+        learn less well in more, smaller, batches). Setting this too large can
+        cause the algorithm to exceed memory.
+
+    n_svd_iter: int (optional, default=10)
+        How many iterations of randomized SVD to run to get compressed vectors. More
+        iterations will produce better results at greater computational cost.
+
+    cachedir: str or None (optional, default=None)
+        Where to create a temporary directory for cache files. If None use the python
+        defaults for the operating system. This can be useful if storage in the
+        default TMP storage area on the device is limited.
+
+    Returns
+    -------
+    lot_vectors: ndarray
+        The compressed linear optimal transport vectors of dimension ``n_components``.
+
+    components: ndarray
+        The learned SVD components which can be used for projecting new data.
+    """
+    n_rows = n_distributions
+    n_blocks = (n_rows // block_size) + 1
+    chunk_size = max(256, block_size // 64)
+
+    if n_blocks == 1:
+        n_chunks = (n_rows // chunk_size) + 1
+        lot_chunks = []
+        for i in range(n_chunks):
+            vector_chunk, distribution_chunk = _chunks_from_generators(
+                sample_vectors, sample_distributions, chunk_size
+            )
+            if metric == cosine:
+                vector_chunk = tuple([normalize(v, norm="l2") for v in vector_chunk])
+
+            chunk_of_lot_vectors = lot_vectors_dense_internal(
+                vector_chunk,
+                distribution_chunk,
+                reference_vectors,
+                reference_distribution,
+                metric=metric,
+                max_distribution_size=max_distribution_size,
+                chunk_size=chunk_size,
+                spherical_vectors=(metric == cosine),
+            )
+            lot_chunks.append(chunk_of_lot_vectors)
+
+        lot_vectors = np.vstack(lot_chunks)
+        u, singular_values, v = randomized_svd(
+            lot_vectors,
+            n_components=n_components,
+            n_iter=n_svd_iter,
+            random_state=random_state,
+        )
+        result, components = svd_flip(u, v)
+
+        return result * singular_values, components
+
+    singular_values = None
+    components = None
+
+    memmap_filename = os.path.join(tempfile.mkdtemp(dir=cachedir), "lot_tmp_memmap.dat")
+    saved_blocks = np.memmap(
+        memmap_filename,
+        mode="w+",
+        shape=(n_rows, reference_vectors.size),
+        dtype=np.float32,
+    )
+
+    for i in range(n_blocks):
+        block_start = i * block_size
+        block_end = min(n_rows, block_start + block_size)
+        if block_start == block_end:
+            continue
+
+        n_chunks = (block_end - block_start // chunk_size) + 1
+        lot_chunks = []
+        for j in range(n_chunks):
+            vector_chunk, distribution_chunk = _chunks_from_generators(
+                sample_vectors, sample_distributions, chunk_size
+            )
+            if metric == cosine:
+                vector_chunk = tuple([normalize(v, norm="l2") for v in vector_chunk])
+
+            chunk_of_lot_vectors = lot_vectors_dense_internal(
+                vector_chunk,
+                distribution_chunk,
+                reference_vectors,
+                reference_distribution,
+                metric=metric,
+                max_distribution_size=max_distribution_size,
+                chunk_size=chunk_size,
+                spherical_vectors=(metric == cosine),
+            )
+            lot_chunks.append(chunk_of_lot_vectors)
+
+        block = np.vstack(lot_chunks)
+
+        if singular_values is not None:
+            block_to_learn = np.vstack(
+                (singular_values.reshape(-1, 1) * components, block)
+            )
+        else:
+            block_to_learn = block
+
+        u, singular_values, v = randomized_svd(
+            block_to_learn,
+            n_components=n_components,
+            n_iter=n_svd_iter,
+            random_state=random_state,
+        )
+        u, components = svd_flip(u, v)
+        saved_blocks[block_start:block_end] = block
+
+    saved_blocks.flush()
+    del saved_blocks
+    saved_blocks = np.memmap(
+        memmap_filename,
+        mode="r",
+        shape=(n_rows, reference_vectors.size),
+        dtype=np.float32,
+    )
+    result = saved_blocks @ components.T
+    del saved_blocks
+    os.remove(memmap_filename)
+
+    return result, components
+
+
 def sinkhorn_vectors_sparse(
     sample_vectors,
     weight_matrix,
@@ -1258,6 +1465,8 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
         vectors=None,
         reference_distribution=None,
         reference_vectors=None,
+        n_distributions=None,
+        vector_dim=None,
         **fit_params,
     ):
         """Train the transformer on a set of distributions ``X`` with associated
@@ -1428,6 +1637,42 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                 n_svd_iter=self.n_svd_iter,
                 cachedir=self.cachedir,
             )
+        elif isinstance(X, GeneratorType):
+            if reference_vectors is None:
+                raise ValueError("WassersteinVectorizer on a generator must specify reference_vectors!")
+            assert self.reference_vectors_.shape[0] == self.reference_size
+
+            if n_distributions is None:
+                raise ValueError("WassersteinVectorizer on a generator must specify "
+                                 "how many distributions are to be vectorized!")
+
+            if vector_dim is None:
+                vector_dim = 1024 # Guess a largeish dimension and hope for the best
+
+            lot_dimension = self.reference_size * vector_dim
+            block_size = max(1, memory_size // (lot_dimension * 8))
+
+            self.reference_vectors_ = reference_vectors
+            if reference_distribution is None:
+                self.reference_distribution_ = np.full(self.reference_size, 1.0 / self.reference_size)
+            else:
+                self.reference_distribution_ = reference_distribution
+
+            self.embedding_, self.components_ = lot_vectors_dense_generator(
+                vectors,
+                X,
+                n_distributions,
+                self.reference_vectors_,
+                self.reference_distribution_,
+                self.n_components,
+                metric,
+                random_state=random_state,
+                max_distribution_size=self.max_distribution_size,
+                block_size=block_size,
+                n_svd_iter=self.n_svd_iter,
+                cachedir=self.cachedir,
+            )
+
         else:
             raise ValueError(
                 f"Input data of type {type(X)} not in a recognized format for WassersteinVectorizer"

@@ -846,22 +846,22 @@ def sliding_windows(sequence, width, stride, sample, kernel, flatten=True, pad_w
     last_window_start = len(sequence) + pad_width - width
 
     if pad_width > 0:
-        new_shape = list(sequence.shape)
-        new_shape[0] += 2 * pad_width
-        new_sequence = np.full_like(new_shape, pad_value)
+        new_shape = (2 * pad_width + sequence.shape[0], *sequence.shape[1:])
+        new_sequence = np.full(tuple(new_shape), pad_value, dtype=sequence.dtype)
         new_sequence[pad_width:pad_width + sequence.shape[0]] = sequence
         sequence = new_sequence
 
     if sample.shape[0] < width:
         result = [
-            kernel @ sequence[offset : offset + width][sample]
+            kernel @ (sequence[offset : offset + width][sample])
             for offset in range(0, last_window_start, stride)
         ]
     else:
         result = [
-            kernel @ sequence[offset : offset + width]
+            kernel @ (sequence[offset : offset + width])
             for offset in range(0, last_window_start, stride)
         ]
+
 
     if flatten:
         result = [x.flatten() for x in result]
