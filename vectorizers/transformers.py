@@ -13,6 +13,8 @@ import scipy.sparse
 from sklearn.utils.extmath import randomized_svd, svd_flip
 from scipy.sparse.linalg import svds
 
+from vectorizers._window_kernels import _SLIDING_WINDOW_KERNELS
+
 
 from warnings import warn
 
@@ -839,23 +841,88 @@ class CountFeatureCompressionTransformer(BaseEstimator, TransformerMixin):
 
 
 @numba.njit(nogil=True)
-def sliding_windows(sequence, width, stride, sample):
+def sliding_windows(sequence, width, stride, sample, kernel, flatten=True, pad_width=0, pad_value=0):
 
-    last_window_start = len(sequence) - width
+    last_window_start = len(sequence) + pad_width - width
+
+    if pad_width > 0:
+        new_shape = list(sequence.shape)
+        new_shape[0] += 2 * pad_width
+        new_sequence = np.full_like(new_shape, pad_value)
+        new_sequence[pad_width:pad_width + sequence.shape[0]] = sequence
+        sequence = new_sequence
 
     if sample.shape[0] < width:
         result = [
-            sequence[offset : offset + width][sample]
+            kernel @ sequence[offset : offset + width][sample]
             for offset in range(0, last_window_start, stride)
         ]
     else:
         result = [
-            sequence[offset : offset + width]
+            kernel @ sequence[offset : offset + width]
             for offset in range(0, last_window_start, stride)
         ]
 
+    if flatten:
+        result = [x.flatten() for x in result]
+
     return result
 
+
+def build_kernel(kernel_list, window_size):
+
+    result = np.eye(window_size)
+
+    if kernel_list is None or len(kernel_list) < 1:
+        return result
+
+    for kernel in kernel_list:
+        if type(kernel) in (tuple, list):
+            kernel, *kernel_params = kernel
+        else:
+            kernel_params = ()
+
+        if kernel in _SLIDING_WINDOW_KERNELS:
+            result = _SLIDING_WINDOW_KERNELS[kernel](result.shape[0], *kernel_params) @ kernel
+        elif type(kernel) == np.ndarray:
+            if kernel.shape[1] != result.shape[0]:
+                raise ValueError("Kernel specified as ndarray in kernel_list does not have the"
+                                 "right shape to occupy this slot in the kernel list!")
+
+            result = kernel @ result
+
+    return result
+
+def sliding_window_generator(
+        sequences,
+        window_width=10,
+        window_stride=1,
+        window_sample=None,
+        kernels=None,
+        flatten=True,
+        pad_width=0,
+        pad_value=0,
+):
+    if window_sample is None:
+        window_sample_ = np.arange(window_width)
+    else:
+        window_sample_ = np.asarray(window_sample, dtype=np.int32)
+
+    kernel_ = build_kernel(kernels, window_sample_.shape[0])
+
+    for sequence in sequences:
+        yield sliding_windows(
+                np.asarray(sequence),
+                window_width,
+                window_stride,
+                window_sample_,
+                kernel_,
+                flatten,
+                pad_width,
+                pad_value,
+            )
+
+    return
 
 class SlidingWindowTransformer(BaseEstimator, TransformerMixin):
     """Convert numeric sequence data into point clouds by applying sliding
@@ -892,13 +959,25 @@ class SlidingWindowTransformer(BaseEstimator, TransformerMixin):
     """
 
     def __init__(
-        self, window_width=10, window_stride=1, window_sample=None, window_sample_size=0
+        self,
+        window_width=10,
+        window_stride=1,
+        window_sample=None,
+        window_sample_size=0,
+        kernels=None,
+        flatten=True,
+        pad_width=0,
+        pad_value=0,
     ):
 
         self.window_width = window_width
         self.window_stride = window_stride
         self.window_sample = window_sample
         self.window_sample_size = window_sample_size
+        self.kernels = kernels
+        self.flatten = flatten
+        self.pad_width = pad_width
+        self.pad_value = pad_value
 
     def fit(self, X, y=None, **fit_params):
         """
@@ -949,6 +1028,8 @@ class SlidingWindowTransformer(BaseEstimator, TransformerMixin):
         if self.window_width < 0:
             raise ValueError("window_width must be positive")
 
+        self.kernel_ = build_kernel(self.kernels, self.window_sample_.shape[0])
+
         return self
 
     def transform(self, X, y=None):
@@ -966,7 +1047,7 @@ class SlidingWindowTransformer(BaseEstimator, TransformerMixin):
         result: list of lists of ndarrays
             Each input array like is converted to a list of ndarrays.
         """
-        check_is_fitted(self, ["window_sample_"])
+        check_is_fitted(self, ["window_sample_", "kernel_"])
 
         result = []
         for sequence in X:
@@ -976,6 +1057,10 @@ class SlidingWindowTransformer(BaseEstimator, TransformerMixin):
                     self.window_width,
                     self.window_stride,
                     self.window_sample_,
+                    self.kernel_,
+                    self.flatten,
+                    self.pad_width,
+                    self.pad_value,
                 )
             )
 

@@ -121,3 +121,49 @@ _KERNEL_FUNCTIONS = {
     "harmonic": harmonic_kernel,
     "geometric": geometric_kernel,
 }
+
+####################################################
+# Sliding window multivariate time series kernels
+####################################################
+
+def averaging_kernel(n_cols, *kernel_params):
+    return np.full(n_cols, 1.0 / n_cols)
+
+def difference_kernel(n_cols, start, step, stride, *kernel_params):
+    n_differences = int(np.ceil((n_cols - start - step) // stride))
+    result = np.zeros((n_differences, n_cols))
+    for i in range(n_differences):
+        result[i, start + i * stride] = -1
+        result[i, start + i * stride + step] = 1
+
+    return result
+
+def positon_velocity_kernel(n_cols, position_index, step, stride, *kernel_params):
+    n_differences_before = int(np.ceil((position_index - step) // stride))
+    n_differences_after = int(np.ceil((n_cols - position_index - step) // stride))
+    n_differences = n_differences_before + n_differences_after
+    result = np.zeros((n_differences + 1, n_cols))
+    result[0, position_index] = 1
+    for i in range(n_differences_before):
+        result[i + 1, position_index - i * stride] = 1
+        result[i + 1, position_index - i * stride - step] = -1
+    for i in range(n_differences_after):
+        result[i + n_differences_before + 1, position_index + i * stride] = -1
+        result[i + n_differences_before + 1, position_index + i * stride + step] = 1
+
+    return result
+
+
+def weight_kernel(n_cols, weights, *kernel_params):
+    if weights.shape[0] != n_cols:
+        raise ValueError(f"Cannot construct a weight kernel of size {n_cols} "
+                         f"with weights of shape {weights.shape[0]}")
+
+    return np.diag(weights)
+
+_SLIDING_WINDOW_KERNELS = {
+    "average": averaging_kernel,
+    "differences": difference_kernel,
+    "position_velocity": positon_velocity_kernel,
+    "weight": weight_kernel,
+}
