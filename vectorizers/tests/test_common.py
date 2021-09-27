@@ -148,6 +148,16 @@ distributions_data = scipy.sparse.rand(
 )
 vectors_data = np.random.normal(size=(1000, 150))
 
+distributions_data_list = [
+    np.array(x) for x in distributions_data.tolil().data
+]
+vectors_data_list = [
+    np.ascontiguousarray(vectors_data[indices]) for indices in distributions_data.tolil().rows
+]
+generator_reference_dist = np.full(16, 1.0 / 16.0)
+generator_reference_vectors = (
+        np.mean(distributions_data.toarray(), axis=0) @ vectors_data
+) + np.random.normal(scale=0.25 * np.mean(np.abs(vectors_data)), size=(16, 150))
 
 def test_LabeledTreeCooccurrenceVectorizer():
     model = LabelledTreeCooccurrenceVectorizer(
@@ -949,6 +959,55 @@ def test_wasserstein_vectorizer_basic():
     transform_result = vectorizer.transform(distributions_data, vectors=vectors_data)
     assert np.allclose(result, transform_result, rtol=1e-3, atol=1e-6)
 
+def test_wasserstein_vectorizer_lists():
+    vectorizer = WassersteinVectorizer(random_state=42)
+    result = vectorizer.fit_transform(distributions_data_list, vectors=vectors_data_list)
+    transform_result = vectorizer.transform(distributions_data_list, vectors=vectors_data_list)
+    assert np.allclose(result, transform_result, rtol=1e-3, atol=1e-6)
+
+def test_wasserstein_vectorizer_generators():
+    distributions_data_generator = (x for x in distributions_data_list)
+    vectors_data_generator = (x for x in vectors_data_list)
+    vectorizer = WassersteinVectorizer(random_state=42)
+    result = vectorizer.fit_transform(
+        distributions_data_generator,
+        vectors=vectors_data_generator,
+        reference_distribution=generator_reference_dist,
+        reference_vectors=generator_reference_vectors,
+        n_distributions=distributions_data.shape[0],
+        vector_dim=vectors_data.shape[1],
+    )
+    distributions_data_generator = (x for x in distributions_data_list)
+    vectors_data_generator = (x for x in vectors_data_list)
+    transform_result = vectorizer.transform(
+        distributions_data_generator,
+        vectors=vectors_data_generator,
+        n_distributions=distributions_data.shape[0],
+        vector_dim=vectors_data.shape[1],
+    )
+    assert np.allclose(result, transform_result, rtol=1e-3, atol=1e-6)
+
+def test_wasserstein_vectorizer_generators_blockwise():
+    distributions_data_generator = (x for x in distributions_data_list)
+    vectors_data_generator = (x for x in vectors_data_list)
+    vectorizer = WassersteinVectorizer(random_state=42, memory_size="50k")
+    result = vectorizer.fit_transform(
+        distributions_data_generator,
+        vectors=vectors_data_generator,
+        reference_distribution=generator_reference_dist,
+        reference_vectors=generator_reference_vectors,
+        n_distributions=distributions_data.shape[0],
+        vector_dim=vectors_data.shape[1],
+    )
+    distributions_data_generator = (x for x in distributions_data_list)
+    vectors_data_generator = (x for x in vectors_data_list)
+    transform_result = vectorizer.transform(
+        distributions_data_generator,
+        vectors=vectors_data_generator,
+        n_distributions=distributions_data.shape[0],
+        vector_dim=vectors_data.shape[1],
+    )
+    assert np.allclose(result, transform_result, rtol=1e-3, atol=1e-6)
 
 def test_wasserstein_vectorizer_blockwise():
     vectorizer = WassersteinVectorizer(random_state=42, memory_size="50k")
@@ -1005,6 +1064,25 @@ def test_wasserstein_vectorizer_list_compared_to_sparse():
         vectors=vectors,
         reference_distribution=vectorizer_sparse.reference_distribution_,
         reference_vectors=vectorizer_sparse.reference_vectors_,
+    )
+    assert np.allclose(result_sparse, result_list, rtol=1e-3, atol=1e-6)
+
+
+def test_wasserstein_vectorizer_generator_compared_to_sparse():
+    distributions_data_generator = (x for x in distributions_data_list)
+    vectors_data_generator = (x for x in vectors_data_list)
+    vectorizer_sparse = WassersteinVectorizer(random_state=42)
+    result_sparse = vectorizer_sparse.fit_transform(
+        distributions_data, vectors=vectors_data
+    )
+    vectorizer_gen = WassersteinVectorizer(random_state=42)
+    result_list = vectorizer_gen.fit_transform(
+        distributions_data_generator,
+        vectors=vectors_data_generator,
+        reference_distribution=vectorizer_sparse.reference_distribution_,
+        reference_vectors=vectorizer_sparse.reference_vectors_,
+        n_distributions=distributions_data.shape[0],
+        vector_dim=vectors_data.shape[1]
     )
     assert np.allclose(result_sparse, result_list, rtol=1e-3, atol=1e-6)
 

@@ -1571,7 +1571,11 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                 raise ValueError(
                     "WassersteinVectorizer on a generator must specify reference_vectors!"
                 )
-            assert reference_vectors.shape[0] == self.reference_size
+            if self.reference_size is not None:
+                assert reference_vectors.shape[0] == self.reference_size
+                reference_size = self.reference_size
+            else:
+                reference_size = reference_vectors.shape[0]
 
             if n_distributions is None:
                 raise ValueError(
@@ -1582,13 +1586,13 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
             if vector_dim is None:
                 vector_dim = 1024  # Guess a largeish dimension and hope for the best
 
-            lot_dimension = self.reference_size * vector_dim
+            lot_dimension = reference_size * vector_dim
             block_size = max(1, memory_size // (lot_dimension * 8))
 
             self.reference_vectors_ = reference_vectors
             if reference_distribution is None:
                 self.reference_distribution_ = np.full(
-                    self.reference_size, 1.0 / self.reference_size
+                    reference_size, 1.0 / reference_size
                 )
             else:
                 self.reference_distribution_ = reference_distribution
@@ -1741,8 +1745,8 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
             vectors=vectors,
             reference_distribution=reference_distribution,
             reference_vectors=reference_vectors,
-            n_distributions=None,
-            vector_dim=None,
+            n_distributions=n_distributions,
+            vector_dim=vector_dim,
             **fit_params,
         )
         return self.embedding_
@@ -1753,7 +1757,6 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
         y=None,
         vectors=None,
         n_distributions=None,
-        vector_dim=None,
         **transform_params,
     ):
         """Transform distributions ``X`` over the metric space given by
@@ -1881,6 +1884,8 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                     chunk_start += next_chunk_size
 
                 result_blocks.append(np.vstack(lot_chunks) @ self.components_.T)
+
+            return np.vstack(result_blocks)
 
         elif type(X) in (list, tuple, numba.typed.List):
             lot_dimension = self.reference_vectors_.size
@@ -2149,7 +2154,7 @@ class SinkhornVectorizer(BaseEstimator, TransformerMixin):
 
         else:
             raise ValueError(
-                f"Input data of type {type(X)} not in a recognized format for WassersteinVectorizer"
+                f"Input data of type {type(X)} not in a recognized format for SinkhornVectorizer"
             )
 
         return self
