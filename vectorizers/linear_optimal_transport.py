@@ -9,7 +9,7 @@ from pynndescent.optimal_transport import (
     arc_id,
     ProblemStatus,
     K_from_cost,
-    precompute_K_prime, # Until pynndescent gets updated on PyPI
+    precompute_K_prime,  # Until pynndescent gets updated on PyPI
     # sinkhorn_iterations_batch, # We can use this once pynndescent is updated on PyPI
 )
 from sklearn.base import BaseEstimator, TransformerMixin
@@ -255,6 +255,7 @@ def right_marginal_error_batch(u, K, v, y):
             diff = y[j, i] - uK[i, j] * v[i, j]
             result += diff * diff
     return np.sqrt(result)
+
 
 # Until pynndescent gets updated on PyPI we will duplicate this
 @numba.njit(fastmath=True, cache=True)
@@ -1567,22 +1568,28 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
 
         elif isinstance(X, GeneratorType) or isinstance(vectors, GeneratorType):
             if reference_vectors is None:
-                raise ValueError("WassersteinVectorizer on a generator must specify reference_vectors!")
+                raise ValueError(
+                    "WassersteinVectorizer on a generator must specify reference_vectors!"
+                )
             assert reference_vectors.shape[0] == self.reference_size
 
             if n_distributions is None:
-                raise ValueError("WassersteinVectorizer on a generator must specify "
-                                 "how many distributions are to be vectorized!")
+                raise ValueError(
+                    "WassersteinVectorizer on a generator must specify "
+                    "how many distributions are to be vectorized!"
+                )
 
             if vector_dim is None:
-                vector_dim = 1024 # Guess a largeish dimension and hope for the best
+                vector_dim = 1024  # Guess a largeish dimension and hope for the best
 
             lot_dimension = self.reference_size * vector_dim
             block_size = max(1, memory_size // (lot_dimension * 8))
 
             self.reference_vectors_ = reference_vectors
             if reference_distribution is None:
-                self.reference_distribution_ = np.full(self.reference_size, 1.0 / self.reference_size)
+                self.reference_distribution_ = np.full(
+                    self.reference_size, 1.0 / self.reference_size
+                )
             else:
                 self.reference_distribution_ = reference_distribution
 
@@ -1617,8 +1624,10 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                     end = min(start + 512, len(X))
                     distributions.extend(tuple(X[start:end]))
             except numba.TypingError:
-                raise ValueError("WassersteinVectorizer requires list or tuple input to"
-                                 " have homogeneous numeric type.")
+                raise ValueError(
+                    "WassersteinVectorizer requires list or tuple input to"
+                    " have homogeneous numeric type."
+                )
 
             # Add in blocks as numba's extend doesn't like large additions
             # due to overly large instructions when compiling it
@@ -1628,8 +1637,10 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                 sample_vectors.extend(tuple(vectors[start:end]))
 
             if len(vectors[0].shape) <= 1:
-                raise ValueError("WassersteinVectorizer requires list or tuple input to"
-                                 "have vectors formatted as a list of 2d arrays.")
+                raise ValueError(
+                    "WassersteinVectorizer requires list or tuple input to"
+                    "have vectors formatted as a list of 2d arrays."
+                )
 
             lot_dimension = reference_size * vectors[0].shape[1]
             block_size = max(1, memory_size // (lot_dimension * 8))
@@ -1736,7 +1747,15 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
         )
         return self.embedding_
 
-    def transform(self, X, y=None, vectors=None, **transform_params):
+    def transform(
+        self,
+        X,
+        y=None,
+        vectors=None,
+        n_distributions=None,
+        vector_dim=None,
+        **transform_params,
+    ):
         """Transform distributions ``X`` over the metric space given by
         ``vectors`` from a Wasserstein metric space into the linearised
         space learned by the model.
@@ -1817,6 +1836,52 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
             lot_dimension = self.reference_vectors_.size
             block_size = memory_size // (lot_dimension * 8)
 
+            if n_distributions is None:
+                raise ValueError("If passing a generator for distributions or vectors "
+                                 "you must also specify n_distributions")
+
+            n_rows = n_distributions
+            n_blocks = (n_rows // block_size) + 1
+            chunk_size = max(256, block_size // 64)
+
+            result_blocks = []
+
+            for i in range(n_blocks):
+                block_start = i * block_size
+                block_end = min(n_rows, block_start + block_size)
+                if block_start == block_end:
+                    continue
+
+                n_chunks = ((block_end - block_start) // chunk_size) + 1
+                lot_chunks = []
+                chunk_start = block_start
+                for j in range(n_chunks):
+                    next_chunk_size = min(chunk_size, block_end - chunk_start)
+                    vector_chunk, distribution_chunk = _chunks_from_generators(
+                        vectors, X, next_chunk_size
+                    )
+                    if len(vector_chunk) == 0:
+                        continue
+
+                    if metric == cosine:
+                        vector_chunk = tuple([normalize(v, norm="l2") for v in vector_chunk])
+
+                    chunk_of_lot_vectors = lot_vectors_dense_internal(
+                        vector_chunk,
+                        distribution_chunk,
+                        self.reference_vectors_,
+                        self.reference_distribution_,
+                        metric=metric,
+                        max_distribution_size=self.max_distribution_size,
+                        chunk_size=chunk_size,
+                        spherical_vectors=(metric == cosine),
+                    )
+                    lot_chunks.append(chunk_of_lot_vectors)
+
+                    chunk_start += next_chunk_size
+
+                result_blocks.append(np.vstack(lot_chunks) @ self.components_.T)
+
         elif type(X) in (list, tuple, numba.typed.List):
             lot_dimension = self.reference_vectors_.size
             block_size = memory_size // (lot_dimension * 8)
@@ -1833,13 +1898,17 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                     end = min(start + 512, len(X))
                     distributions.extend(tuple(X[start:end]))
             except numba.TypingError:
-                raise ValueError("WassersteinVectorizer requires list or tuple input to"
-                                 " have homogeneous numeric type.")
+                raise ValueError(
+                    "WassersteinVectorizer requires list or tuple input to"
+                    " have homogeneous numeric type."
+                )
             if metric == cosine:
                 for i in range(len(vectors) // 512 + 1):
                     start = i * 512
                     end = min(start + 512, len(X))
-                    sample_vectors.extend(tuple([normalize(v, norm="l2") for v in vectors[start:end]]))
+                    sample_vectors.extend(
+                        tuple([normalize(v, norm="l2") for v in vectors[start:end]])
+                    )
             else:
                 for i in range(len(vectors) // 512 + 1):
                     start = i * 512
