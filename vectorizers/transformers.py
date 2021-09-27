@@ -870,7 +870,9 @@ def sliding_windows(
 
     n_rows = int(np.ceil(last_window_start / stride))
     n_cols = kernel.shape[0]
-    for size in sequence.shape[1:]:
+    for i, size in enumerate(sequence.shape):
+        if i == 0:
+            continue
         n_cols *= size
 
     result = np.empty((n_rows, n_cols), dtype=np.float64)

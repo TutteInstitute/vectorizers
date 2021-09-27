@@ -1565,6 +1565,42 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                 cachedir=self.cachedir,
             )
 
+        elif isinstance(X, GeneratorType) or isinstance(vectors, GeneratorType):
+            if reference_vectors is None:
+                raise ValueError("WassersteinVectorizer on a generator must specify reference_vectors!")
+            assert reference_vectors.shape[0] == self.reference_size
+
+            if n_distributions is None:
+                raise ValueError("WassersteinVectorizer on a generator must specify "
+                                 "how many distributions are to be vectorized!")
+
+            if vector_dim is None:
+                vector_dim = 1024 # Guess a largeish dimension and hope for the best
+
+            lot_dimension = self.reference_size * vector_dim
+            block_size = max(1, memory_size // (lot_dimension * 8))
+
+            self.reference_vectors_ = reference_vectors
+            if reference_distribution is None:
+                self.reference_distribution_ = np.full(self.reference_size, 1.0 / self.reference_size)
+            else:
+                self.reference_distribution_ = reference_distribution
+
+            self.embedding_, self.components_ = lot_vectors_dense_generator(
+                vectors,
+                X,
+                n_distributions,
+                self.reference_vectors_,
+                self.reference_distribution_,
+                self.n_components,
+                metric,
+                random_state=random_state,
+                max_distribution_size=self.max_distribution_size,
+                block_size=block_size,
+                n_svd_iter=self.n_svd_iter,
+                cachedir=self.cachedir,
+            )
+
         elif type(X) in (list, tuple, numba.typed.List):
             if self.reference_size is None:
                 reference_size = int(np.median([len(x) for x in X]))
@@ -1647,41 +1683,6 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                 n_svd_iter=self.n_svd_iter,
                 cachedir=self.cachedir,
             )
-        elif isinstance(X, GeneratorType):
-            if reference_vectors is None:
-                raise ValueError("WassersteinVectorizer on a generator must specify reference_vectors!")
-            assert reference_vectors.shape[0] == self.reference_size
-
-            if n_distributions is None:
-                raise ValueError("WassersteinVectorizer on a generator must specify "
-                                 "how many distributions are to be vectorized!")
-
-            if vector_dim is None:
-                vector_dim = 1024 # Guess a largeish dimension and hope for the best
-
-            lot_dimension = self.reference_size * vector_dim
-            block_size = max(1, memory_size // (lot_dimension * 8))
-
-            self.reference_vectors_ = reference_vectors
-            if reference_distribution is None:
-                self.reference_distribution_ = np.full(self.reference_size, 1.0 / self.reference_size)
-            else:
-                self.reference_distribution_ = reference_distribution
-
-            self.embedding_, self.components_ = lot_vectors_dense_generator(
-                vectors,
-                X,
-                n_distributions,
-                self.reference_vectors_,
-                self.reference_distribution_,
-                self.n_components,
-                metric,
-                random_state=random_state,
-                max_distribution_size=self.max_distribution_size,
-                block_size=block_size,
-                n_svd_iter=self.n_svd_iter,
-                cachedir=self.cachedir,
-            )
 
         else:
             raise ValueError(
@@ -1697,6 +1698,8 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
         vectors=None,
         reference_distribution=None,
         reference_vectors=None,
+        n_distributions=None,
+        vector_dim=None,
         **fit_params,
     ):
         """Train the transformer on a set of distributions ``X`` with associated
@@ -1727,6 +1730,8 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
             vectors=vectors,
             reference_distribution=reference_distribution,
             reference_vectors=reference_vectors,
+            n_distributions=None,
+            vector_dim=None,
             **fit_params,
         )
         return self.embedding_
@@ -1807,6 +1812,10 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                 result_blocks.append(block @ self.components_.T)
 
             return np.vstack(result_blocks)
+
+        elif isinstance(X, GeneratorType) or isinstance(vectors, GeneratorType):
+            lot_dimension = self.reference_vectors_.size
+            block_size = memory_size // (lot_dimension * 8)
 
         elif type(X) in (list, tuple, numba.typed.List):
             lot_dimension = self.reference_vectors_.size
