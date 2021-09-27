@@ -841,37 +841,56 @@ class CountFeatureCompressionTransformer(BaseEstimator, TransformerMixin):
 
 
 @numba.njit(nogil=True)
-def sliding_windows(sequence, width, stride, sample, kernel, flatten=True, pad_width=0, pad_value=0):
-
-    last_window_start = len(sequence) + pad_width - width
+def sliding_windows(
+    sequence, width, stride, sample, kernel, flatten=True, pad_width=0, pad_value=0
+):
 
     if pad_width > 0:
         new_shape = (2 * pad_width + sequence.shape[0], *sequence.shape[1:])
         new_sequence = np.full(tuple(new_shape), pad_value, dtype=sequence.dtype)
-        new_sequence[pad_width:pad_width + sequence.shape[0]] = sequence
+        new_sequence[pad_width : pad_width + sequence.shape[0]] = sequence
         sequence = new_sequence
 
+    last_window_start = sequence.shape[0] - width + 1
+
+    # if sample.shape[0] < width:
+    #     result = [
+    #         kernel @ (sequence[offset : offset + width][sample]).astype(np.float64)
+    #         for offset in range(0, last_window_start, stride)
+    #     ]
+    # else:
+    #     result = [
+    #         kernel @ (sequence[offset : offset + width]).astype(np.float64)
+    #         for offset in range(0, last_window_start, stride)
+    #     ]
+    #
+    #
+    # # if flatten:
+    # result = [x.flatten() for x in result]
+
+    n_rows = int(np.ceil(last_window_start / stride))
+    n_cols = kernel.shape[0]
+    for size in sequence.shape[1:]:
+        n_cols *= size
+
+    result = np.empty((n_rows, n_cols), dtype=np.float64)
     if sample.shape[0] < width:
-        result = [
-            kernel @ (sequence[offset : offset + width][sample])
-            for offset in range(0, last_window_start, stride)
-        ]
+        for i in range(n_rows):
+            result[i] = (
+                kernel @ (sequence[i * stride : i * stride + width])[sample].astype(np.float64)
+            ).flatten()
     else:
-        result = [
-            kernel @ (sequence[offset : offset + width])
-            for offset in range(0, last_window_start, stride)
-        ]
-
-
-    if flatten:
-        result = [x.flatten() for x in result]
+        for i in range(n_rows):
+            result[i] = (
+                kernel @ (sequence[i * stride : i * stride + width]).astype(np.float64)
+            ).flatten()
 
     return result
 
 
 def build_kernel(kernel_list, window_size):
 
-    result = np.eye(window_size)
+    result = np.eye(window_size, dtype=np.float64)
 
     if kernel_list is None or len(kernel_list) < 1:
         return result
@@ -882,26 +901,35 @@ def build_kernel(kernel_list, window_size):
         else:
             kernel_params = ()
 
-        if kernel in _SLIDING_WINDOW_KERNELS:
-            result = _SLIDING_WINDOW_KERNELS[kernel](result.shape[0], *kernel_params) @ kernel
-        elif type(kernel) == np.ndarray:
+        if type(kernel) == np.ndarray:
             if kernel.shape[1] != result.shape[0]:
-                raise ValueError("Kernel specified as ndarray in kernel_list does not have the"
-                                 "right shape to occupy this slot in the kernel list!")
+                raise ValueError(
+                    "Kernel specified as ndarray in kernel_list does not have the"
+                    "right shape to occupy this slot in the kernel list!"
+                )
 
             result = kernel @ result
+        elif kernel in _SLIDING_WINDOW_KERNELS:
+            result = (
+                _SLIDING_WINDOW_KERNELS[kernel](result.shape[0], *kernel_params)
+                @ result
+            )
+        else:
+            raise ValueError(f"Unrecognized kernel {kernel}")
+
 
     return result
 
+
 def sliding_window_generator(
-        sequences,
-        window_width=10,
-        window_stride=1,
-        window_sample=None,
-        kernels=None,
-        flatten=True,
-        pad_width=0,
-        pad_value=0,
+    sequences,
+    window_width=10,
+    window_stride=1,
+    window_sample=None,
+    kernels=None,
+    flatten=True,
+    pad_width=0,
+    pad_value=0,
 ):
     if window_sample is None:
         window_sample_ = np.arange(window_width)
@@ -912,17 +940,18 @@ def sliding_window_generator(
 
     for sequence in sequences:
         yield sliding_windows(
-                np.asarray(sequence),
-                window_width,
-                window_stride,
-                window_sample_,
-                kernel_,
-                flatten,
-                pad_width,
-                pad_value,
-            )
+            np.asarray(sequence),
+            window_width,
+            window_stride,
+            window_sample_,
+            kernel_,
+            flatten,
+            pad_width,
+            pad_value,
+        )
 
     return
+
 
 class SlidingWindowTransformer(BaseEstimator, TransformerMixin):
     """Convert numeric sequence data into point clouds by applying sliding

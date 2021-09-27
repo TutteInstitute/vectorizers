@@ -1053,6 +1053,9 @@ def lot_vectors_dense_generator(
             vector_chunk, distribution_chunk = _chunks_from_generators(
                 sample_vectors, sample_distributions, chunk_size
             )
+            if len(vector_chunk) == 0:
+                continue
+
             if metric == cosine:
                 vector_chunk = tuple([normalize(v, norm="l2") for v in vector_chunk])
 
@@ -1096,12 +1099,17 @@ def lot_vectors_dense_generator(
         if block_start == block_end:
             continue
 
-        n_chunks = (block_end - block_start // chunk_size) + 1
+        n_chunks = ((block_end - block_start) // chunk_size) + 1
         lot_chunks = []
+        chunk_start = block_start
         for j in range(n_chunks):
+            next_chunk_size = min(chunk_size, block_end - chunk_start)
             vector_chunk, distribution_chunk = _chunks_from_generators(
-                sample_vectors, sample_distributions, chunk_size
+                sample_vectors, sample_distributions, next_chunk_size
             )
+            if len(vector_chunk) == 0:
+                continue
+
             if metric == cosine:
                 vector_chunk = tuple([normalize(v, norm="l2") for v in vector_chunk])
 
@@ -1116,6 +1124,8 @@ def lot_vectors_dense_generator(
                 spherical_vectors=(metric == cosine),
             )
             lot_chunks.append(chunk_of_lot_vectors)
+
+            chunk_start += next_chunk_size
 
         block = np.vstack(lot_chunks)
 
@@ -1640,7 +1650,7 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
         elif isinstance(X, GeneratorType):
             if reference_vectors is None:
                 raise ValueError("WassersteinVectorizer on a generator must specify reference_vectors!")
-            assert self.reference_vectors_.shape[0] == self.reference_size
+            assert reference_vectors.shape[0] == self.reference_size
 
             if n_distributions is None:
                 raise ValueError("WassersteinVectorizer on a generator must specify "
