@@ -252,9 +252,16 @@ def test_count_feature_compression_bad_input():
     with pytest.raises(ValueError):
         result = cfc.fit_transform(test_matrix)
 
-
-def test_sliding_window_transformer_basic():
-    swt = SlidingWindowTransformer()
+@pytest.mark.parametrize("pad_width", [0, 1])
+@pytest.mark.parametrize("kernel", [
+    "average",
+    ("differences", 0, 1, 1),
+    ("position_velocity", 2, 1, 1),
+    ("weight", np.array([0.1, 0.75, 1.5, 1.0, 0.25])),
+    np.random.random((5, 5)),
+])
+def test_sliding_window_transformer_basic(pad_width, kernel):
+    swt = SlidingWindowTransformer(window_width=5, pad_width=pad_width, kernels=[kernel])
     result = swt.fit_transform(test_time_series)
     transform = swt.transform(test_time_series)
     for i, point_cloud in enumerate(result):

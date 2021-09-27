@@ -842,7 +842,7 @@ class CountFeatureCompressionTransformer(BaseEstimator, TransformerMixin):
 
 @numba.njit(nogil=True)
 def sliding_windows(
-    sequence, width, stride, sample, kernel, flatten=True, pad_width=0, pad_value=0
+    sequence, width, stride, sample, kernel, pad_width=0, pad_value=0
 ):
 
     if pad_width > 0:
@@ -852,21 +852,6 @@ def sliding_windows(
         sequence = new_sequence
 
     last_window_start = sequence.shape[0] - width + 1
-
-    # if sample.shape[0] < width:
-    #     result = [
-    #         kernel @ (sequence[offset : offset + width][sample]).astype(np.float64)
-    #         for offset in range(0, last_window_start, stride)
-    #     ]
-    # else:
-    #     result = [
-    #         kernel @ (sequence[offset : offset + width]).astype(np.float64)
-    #         for offset in range(0, last_window_start, stride)
-    #     ]
-    #
-    #
-    # # if flatten:
-    # result = [x.flatten() for x in result]
 
     n_rows = int(np.ceil(last_window_start / stride))
     n_cols = kernel.shape[0]
@@ -878,13 +863,17 @@ def sliding_windows(
     result = np.empty((n_rows, n_cols), dtype=np.float64)
     if sample.shape[0] < width:
         for i in range(n_rows):
-            result[i] = (
-                kernel @ (sequence[i * stride : i * stride + width])[sample].astype(np.float64)
+            result[i] = np.asarray(
+                kernel
+                @ (sequence[i * stride : i * stride + width])[sample].astype(
+                    np.float64
+                )
             ).flatten()
     else:
         for i in range(n_rows):
-            result[i] = (
-                kernel @ (sequence[i * stride : i * stride + width]).astype(np.float64)
+            result[i] = np.asarray(
+                kernel
+                @ (sequence[i * stride : i * stride + width]).astype(np.float64)
             ).flatten()
 
     return result
@@ -919,7 +908,6 @@ def build_kernel(kernel_list, window_size):
         else:
             raise ValueError(f"Unrecognized kernel {kernel}")
 
-
     return result
 
 
@@ -929,7 +917,6 @@ def sliding_window_generator(
     window_stride=1,
     window_sample=None,
     kernels=None,
-    flatten=True,
     pad_width=0,
     pad_value=0,
 ):
@@ -947,7 +934,6 @@ def sliding_window_generator(
             window_stride,
             window_sample_,
             kernel_,
-            flatten,
             pad_width,
             pad_value,
         )
@@ -996,7 +982,6 @@ class SlidingWindowTransformer(BaseEstimator, TransformerMixin):
         window_sample=None,
         window_sample_size=0,
         kernels=None,
-        flatten=True,
         pad_width=0,
         pad_value=0,
     ):
@@ -1006,7 +991,6 @@ class SlidingWindowTransformer(BaseEstimator, TransformerMixin):
         self.window_sample = window_sample
         self.window_sample_size = window_sample_size
         self.kernels = kernels
-        self.flatten = flatten
         self.pad_width = pad_width
         self.pad_value = pad_value
 
@@ -1089,7 +1073,6 @@ class SlidingWindowTransformer(BaseEstimator, TransformerMixin):
                     self.window_stride,
                     self.window_sample_,
                     self.kernel_,
-                    self.flatten,
                     self.pad_width,
                     self.pad_value,
                 )
