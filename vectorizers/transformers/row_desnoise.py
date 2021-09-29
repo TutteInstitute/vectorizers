@@ -1,13 +1,12 @@
 import numba
 import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.utils.validation import (
-    check_is_fitted,
-)
+from sklearn.utils.validation import check_is_fitted
 from sklearn.preprocessing import normalize
 import scipy.sparse
 
 from warnings import warn
+
 
 @numba.njit()
 def numba_multinomial_em_sparse(

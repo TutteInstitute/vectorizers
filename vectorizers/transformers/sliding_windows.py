@@ -1,17 +1,13 @@
 import numba
 import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.utils.validation import (
-    check_is_fitted,
-)
+from sklearn.utils.validation import check_is_fitted
 
 from vectorizers._window_kernels import _SLIDING_WINDOW_KERNELS
 
 
 @numba.njit(nogil=True)
-def sliding_windows(
-    sequence, width, stride, sample, kernel, pad_width=0, pad_value=0
-):
+def sliding_windows(sequence, width, stride, sample, kernel, pad_width=0, pad_value=0):
 
     if pad_width > 0:
         new_shape = (2 * pad_width + sequence.shape[0], *sequence.shape[1:])
@@ -33,15 +29,12 @@ def sliding_windows(
         for i in range(n_rows):
             result[i] = np.asarray(
                 kernel
-                @ (sequence[i * stride : i * stride + width])[sample].astype(
-                    np.float64
-                )
+                @ (sequence[i * stride : i * stride + width])[sample].astype(np.float64)
             ).flatten()
     else:
         for i in range(n_rows):
             result[i] = np.asarray(
-                kernel
-                @ (sequence[i * stride : i * stride + width]).astype(np.float64)
+                kernel @ (sequence[i * stride : i * stride + width]).astype(np.float64)
             ).flatten()
 
     return result

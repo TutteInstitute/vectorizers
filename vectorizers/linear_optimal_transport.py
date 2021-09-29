@@ -1840,8 +1840,10 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
             block_size = memory_size // (lot_dimension * 8)
 
             if n_distributions is None:
-                raise ValueError("If passing a generator for distributions or vectors "
-                                 "you must also specify n_distributions")
+                raise ValueError(
+                    "If passing a generator for distributions or vectors "
+                    "you must also specify n_distributions"
+                )
 
             n_rows = n_distributions
             n_blocks = (n_rows // block_size) + 1
@@ -1867,7 +1869,9 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                         continue
 
                     if metric == cosine:
-                        vector_chunk = tuple([normalize(v, norm="l2") for v in vector_chunk])
+                        vector_chunk = tuple(
+                            [normalize(v, norm="l2") for v in vector_chunk]
+                        )
 
                     chunk_of_lot_vectors = lot_vectors_dense_internal(
                         vector_chunk,
