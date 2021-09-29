@@ -1360,23 +1360,23 @@ def test_summarize_embedding_string(dense, include_values):
     )
     if include_values:
         expected_result = [
-            "foo:2.0 wer:1.0",
+            "foo:2.0,wer:1.0",
             "",
-            "bar:4.0 foo:3.0",
-            "wer:2.0 foo:2.0",
-            "bar:4.0 foo:3.0",
-            "wer:3.0 pok:3.0",
-            "wer:4.0 foo:4.0",
+            "bar:4.0,foo:3.0",
+            "wer:2.0,foo:2.0",
+            "bar:4.0,foo:3.0",
+            "wer:3.0,pok:3.0",
+            "wer:4.0,foo:4.0",
         ]
     else:
         expected_result = [
-            "foo wer",
+            "foo,wer",
             "",
-            "bar foo",
-            "wer foo",
-            "bar foo",
-            "wer pok",
-            "wer foo",
+            "bar,foo",
+            "wer,foo",
+            "bar,foo",
+            "wer,pok",
+            "wer,foo",
         ]
     if dense:
         assert summary[2:7] == expected_result[2:7]
