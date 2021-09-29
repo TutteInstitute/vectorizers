@@ -9,7 +9,7 @@ from pynndescent.optimal_transport import (
     arc_id,
     ProblemStatus,
     K_from_cost,
-    precompute_K_prime, # Until pynndescent gets updated on PyPI
+    precompute_K_prime,  # Until pynndescent gets updated on PyPI
     # sinkhorn_iterations_batch, # We can use this once pynndescent is updated on PyPI
 )
 from sklearn.base import BaseEstimator, TransformerMixin
@@ -27,6 +27,8 @@ import scipy.sparse
 
 import os
 import tempfile
+
+from types import GeneratorType
 
 _dummy_cost = np.zeros((2, 2), dtype=np.float64)
 
@@ -253,6 +255,7 @@ def right_marginal_error_batch(u, K, v, y):
             diff = y[j, i] - uK[i, j] * v[i, j]
             result += diff * diff
     return np.sqrt(result)
+
 
 # Until pynndescent gets updated on PyPI we will duplicate this
 @numba.njit(fastmath=True, cache=True)
@@ -943,6 +946,221 @@ def lot_vectors_dense(
     return result, components
 
 
+def _chunks_from_generators(vectors, distributions, chunk_size=128):
+    vector_chunk = numba.typed.List.empty_list(numba.float64[:, :])
+    distribution_chunk = numba.typed.List.empty_list(numba.float64[:])
+
+    for i in range(chunk_size):
+        try:
+            vector_chunk.append(next(vectors))
+            distribution_chunk.append(next(distributions))
+        except StopIteration:
+            break
+
+    return vector_chunk, distribution_chunk
+
+
+def lot_vectors_dense_generator(
+    sample_vectors,
+    sample_distributions,
+    n_distributions,
+    reference_vectors,
+    reference_distribution,
+    n_components=150,
+    metric=cosine,
+    random_state=None,
+    max_distribution_size=256,
+    block_size=16384,
+    n_svd_iter=10,
+    cachedir=None,
+):
+    """Given distributions over a metric space produce a compressed array
+    of linear optimal transport vectors, one for each distribution, and
+    the components of the SVD used for the compression.
+
+    Distributions over a metric space are described by:
+      * A generator of vectors, one set of vectors per distribution
+      * A generator of distributions, giving the probabilty masses over each vector
+      * A metric on the vectors (thus describing the underlying metric space)
+
+    The LOT vectors are computed in blocks and components used for compression are
+    learned via an incremental version of an SVD. The resulting components are then
+    used for projection giving a compressed set of LOT vectors. Both the LOT vectors
+    and the learned components are returned.
+
+    Parameters
+    ----------
+    sample_vectors: generator of ndarrays
+        A set of vectors for each distribution.
+
+    sample_distributions: generator of ndarrays
+        A set of distributions (1d arrays that sum to one). The ith element of a given
+        distribution is the probability mass on the ith row of the corresponding entry
+        in the ``sample_vectors`` list.
+
+    reference_vectors: ndarray
+        The reference vector set for LOT
+
+    reference_distribution: ndarray
+        The reference distribution over the set of reference vectors
+
+    n_components: int (optional, default=150)
+        The number of SVD components to use for projection. Thus the dimensionality of
+        the compressed LOT vectors that are output.
+
+    metric: function(ndarray, ndarray) -> float
+        The distance function to use for distance computation between vectors.
+
+    random_state: numpy.random.random_state or None (optional, default=None)
+        The random state used for randomized SVD computation. Fix a random state
+        for consistent reproducible results.
+
+    max_distribution_size: int (optional, default=256)
+        The maximum size of a distribution to consider; larger
+        distributions over more vectors will be truncated back
+        to this value for faster performance.
+
+    block_size: int (optional, default=16384)
+        The maximum number of rows to process at a time. Lowering this will
+        constrain memory use at the cost of accuracy (the incremental SVD will
+        learn less well in more, smaller, batches). Setting this too large can
+        cause the algorithm to exceed memory.
+
+    n_svd_iter: int (optional, default=10)
+        How many iterations of randomized SVD to run to get compressed vectors. More
+        iterations will produce better results at greater computational cost.
+
+    cachedir: str or None (optional, default=None)
+        Where to create a temporary directory for cache files. If None use the python
+        defaults for the operating system. This can be useful if storage in the
+        default TMP storage area on the device is limited.
+
+    Returns
+    -------
+    lot_vectors: ndarray
+        The compressed linear optimal transport vectors of dimension ``n_components``.
+
+    components: ndarray
+        The learned SVD components which can be used for projecting new data.
+    """
+    n_rows = n_distributions
+    n_blocks = (n_rows // block_size) + 1
+    chunk_size = max(256, block_size // 64)
+
+    if n_blocks == 1:
+        n_chunks = (n_rows // chunk_size) + 1
+        lot_chunks = []
+        for i in range(n_chunks):
+            vector_chunk, distribution_chunk = _chunks_from_generators(
+                sample_vectors, sample_distributions, chunk_size
+            )
+            if len(vector_chunk) == 0:
+                continue
+
+            if metric == cosine:
+                vector_chunk = tuple([normalize(v, norm="l2") for v in vector_chunk])
+
+            chunk_of_lot_vectors = lot_vectors_dense_internal(
+                vector_chunk,
+                distribution_chunk,
+                reference_vectors,
+                reference_distribution,
+                metric=metric,
+                max_distribution_size=max_distribution_size,
+                chunk_size=chunk_size,
+                spherical_vectors=(metric == cosine),
+            )
+            lot_chunks.append(chunk_of_lot_vectors)
+
+        lot_vectors = np.vstack(lot_chunks)
+        u, singular_values, v = randomized_svd(
+            lot_vectors,
+            n_components=n_components,
+            n_iter=n_svd_iter,
+            random_state=random_state,
+        )
+        result, components = svd_flip(u, v)
+
+        return result * singular_values, components
+
+    singular_values = None
+    components = None
+
+    memmap_filename = os.path.join(tempfile.mkdtemp(dir=cachedir), "lot_tmp_memmap.dat")
+    saved_blocks = np.memmap(
+        memmap_filename,
+        mode="w+",
+        shape=(n_rows, reference_vectors.size),
+        dtype=np.float32,
+    )
+
+    for i in range(n_blocks):
+        block_start = i * block_size
+        block_end = min(n_rows, block_start + block_size)
+        if block_start == block_end:
+            continue
+
+        n_chunks = ((block_end - block_start) // chunk_size) + 1
+        lot_chunks = []
+        chunk_start = block_start
+        for j in range(n_chunks):
+            next_chunk_size = min(chunk_size, block_end - chunk_start)
+            vector_chunk, distribution_chunk = _chunks_from_generators(
+                sample_vectors, sample_distributions, next_chunk_size
+            )
+            if len(vector_chunk) == 0:
+                continue
+
+            if metric == cosine:
+                vector_chunk = tuple([normalize(v, norm="l2") for v in vector_chunk])
+
+            chunk_of_lot_vectors = lot_vectors_dense_internal(
+                vector_chunk,
+                distribution_chunk,
+                reference_vectors,
+                reference_distribution,
+                metric=metric,
+                max_distribution_size=max_distribution_size,
+                chunk_size=chunk_size,
+                spherical_vectors=(metric == cosine),
+            )
+            lot_chunks.append(chunk_of_lot_vectors)
+
+            chunk_start += next_chunk_size
+
+        block = np.vstack(lot_chunks)
+
+        if singular_values is not None:
+            block_to_learn = np.vstack(
+                (singular_values.reshape(-1, 1) * components, block)
+            )
+        else:
+            block_to_learn = block
+
+        u, singular_values, v = randomized_svd(
+            block_to_learn,
+            n_components=n_components,
+            n_iter=n_svd_iter,
+            random_state=random_state,
+        )
+        u, components = svd_flip(u, v)
+        saved_blocks[block_start:block_end] = block
+
+    saved_blocks.flush()
+    del saved_blocks
+    saved_blocks = np.memmap(
+        memmap_filename,
+        mode="r",
+        shape=(n_rows, reference_vectors.size),
+        dtype=np.float32,
+    )
+    result = saved_blocks @ components.T
+    del saved_blocks
+    os.remove(memmap_filename)
+
+    return result, components
+
+
 def sinkhorn_vectors_sparse(
     sample_vectors,
     weight_matrix,
@@ -1258,6 +1476,8 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
         vectors=None,
         reference_distribution=None,
         reference_vectors=None,
+        n_distributions=None,
+        vector_dim=None,
         **fit_params,
     ):
         """Train the transformer on a set of distributions ``X`` with associated
@@ -1346,6 +1566,52 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                 cachedir=self.cachedir,
             )
 
+        elif isinstance(X, GeneratorType) or isinstance(vectors, GeneratorType):
+            if reference_vectors is None:
+                raise ValueError(
+                    "WassersteinVectorizer on a generator must specify reference_vectors!"
+                )
+            if self.reference_size is not None:
+                assert reference_vectors.shape[0] == self.reference_size
+                reference_size = self.reference_size
+            else:
+                reference_size = reference_vectors.shape[0]
+
+            if n_distributions is None:
+                raise ValueError(
+                    "WassersteinVectorizer on a generator must specify "
+                    "how many distributions are to be vectorized!"
+                )
+
+            if vector_dim is None:
+                vector_dim = 1024  # Guess a largeish dimension and hope for the best
+
+            lot_dimension = reference_size * vector_dim
+            block_size = max(1, memory_size // (lot_dimension * 8))
+
+            self.reference_vectors_ = reference_vectors
+            if reference_distribution is None:
+                self.reference_distribution_ = np.full(
+                    reference_size, 1.0 / reference_size
+                )
+            else:
+                self.reference_distribution_ = reference_distribution
+
+            self.embedding_, self.components_ = lot_vectors_dense_generator(
+                vectors,
+                X,
+                n_distributions,
+                self.reference_vectors_,
+                self.reference_distribution_,
+                self.n_components,
+                metric,
+                random_state=random_state,
+                max_distribution_size=self.max_distribution_size,
+                block_size=block_size,
+                n_svd_iter=self.n_svd_iter,
+                cachedir=self.cachedir,
+            )
+
         elif type(X) in (list, tuple, numba.typed.List):
             if self.reference_size is None:
                 reference_size = int(np.median([len(x) for x in X]))
@@ -1355,15 +1621,30 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
             distributions = numba.typed.List.empty_list(numba.float64[:])
             sample_vectors = numba.typed.List.empty_list(numba.float64[:, :])
             try:
-                distributions.extend(tuple(X))
+                # Add in blocks as numba's extend doesn't like large additions
+                # due to overly large instructions when compiling it
+                for i in range(len(X) // 512 + 1):
+                    start = i * 512
+                    end = min(start + 512, len(X))
+                    distributions.extend(tuple(X[start:end]))
             except numba.TypingError:
-                raise ValueError("WassersteinVectorizer requires list or tuple input to"
-                                 "have homogeneous numeric type.")
-            sample_vectors.extend(tuple(vectors))
+                raise ValueError(
+                    "WassersteinVectorizer requires list or tuple input to"
+                    " have homogeneous numeric type."
+                )
+
+            # Add in blocks as numba's extend doesn't like large additions
+            # due to overly large instructions when compiling it
+            for i in range(len(vectors) // 512 + 1):
+                start = i * 512
+                end = min(start + 512, len(X))
+                sample_vectors.extend(tuple(vectors[start:end]))
 
             if len(vectors[0].shape) <= 1:
-                raise ValueError("WassersteinVectorizer requires list or tuple input to"
-                                 "have vectors formatted as a list of 2d arrays.")
+                raise ValueError(
+                    "WassersteinVectorizer requires list or tuple input to"
+                    "have vectors formatted as a list of 2d arrays."
+                )
 
             lot_dimension = reference_size * vectors[0].shape[1]
             block_size = max(1, memory_size // (lot_dimension * 8))
@@ -1417,6 +1698,7 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                 n_svd_iter=self.n_svd_iter,
                 cachedir=self.cachedir,
             )
+
         else:
             raise ValueError(
                 f"Input data of type {type(X)} not in a recognized format for WassersteinVectorizer"
@@ -1431,6 +1713,8 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
         vectors=None,
         reference_distribution=None,
         reference_vectors=None,
+        n_distributions=None,
+        vector_dim=None,
         **fit_params,
     ):
         """Train the transformer on a set of distributions ``X`` with associated
@@ -1461,11 +1745,20 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
             vectors=vectors,
             reference_distribution=reference_distribution,
             reference_vectors=reference_vectors,
+            n_distributions=n_distributions,
+            vector_dim=vector_dim,
             **fit_params,
         )
         return self.embedding_
 
-    def transform(self, X, y=None, vectors=None, **transform_params):
+    def transform(
+        self,
+        X,
+        y=None,
+        vectors=None,
+        n_distributions=None,
+        **transform_params,
+    ):
         """Transform distributions ``X`` over the metric space given by
         ``vectors`` from a Wasserstein metric space into the linearised
         space learned by the model.
@@ -1542,6 +1835,58 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
 
             return np.vstack(result_blocks)
 
+        elif isinstance(X, GeneratorType) or isinstance(vectors, GeneratorType):
+            lot_dimension = self.reference_vectors_.size
+            block_size = memory_size // (lot_dimension * 8)
+
+            if n_distributions is None:
+                raise ValueError("If passing a generator for distributions or vectors "
+                                 "you must also specify n_distributions")
+
+            n_rows = n_distributions
+            n_blocks = (n_rows // block_size) + 1
+            chunk_size = max(256, block_size // 64)
+
+            result_blocks = []
+
+            for i in range(n_blocks):
+                block_start = i * block_size
+                block_end = min(n_rows, block_start + block_size)
+                if block_start == block_end:
+                    continue
+
+                n_chunks = ((block_end - block_start) // chunk_size) + 1
+                lot_chunks = []
+                chunk_start = block_start
+                for j in range(n_chunks):
+                    next_chunk_size = min(chunk_size, block_end - chunk_start)
+                    vector_chunk, distribution_chunk = _chunks_from_generators(
+                        vectors, X, next_chunk_size
+                    )
+                    if len(vector_chunk) == 0:
+                        continue
+
+                    if metric == cosine:
+                        vector_chunk = tuple([normalize(v, norm="l2") for v in vector_chunk])
+
+                    chunk_of_lot_vectors = lot_vectors_dense_internal(
+                        vector_chunk,
+                        distribution_chunk,
+                        self.reference_vectors_,
+                        self.reference_distribution_,
+                        metric=metric,
+                        max_distribution_size=self.max_distribution_size,
+                        chunk_size=chunk_size,
+                        spherical_vectors=(metric == cosine),
+                    )
+                    lot_chunks.append(chunk_of_lot_vectors)
+
+                    chunk_start += next_chunk_size
+
+                result_blocks.append(np.vstack(lot_chunks) @ self.components_.T)
+
+            return np.vstack(result_blocks)
+
         elif type(X) in (list, tuple, numba.typed.List):
             lot_dimension = self.reference_vectors_.size
             block_size = memory_size // (lot_dimension * 8)
@@ -1553,14 +1898,27 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
             distributions = numba.typed.List.empty_list(numba.float64[:])
             sample_vectors = numba.typed.List.empty_list(numba.float64[:, :])
             try:
-                distributions.extend(tuple(X))
+                for i in range(len(X) // 512 + 1):
+                    start = i * 512
+                    end = min(start + 512, len(X))
+                    distributions.extend(tuple(X[start:end]))
             except numba.TypingError:
-                raise ValueError("WassersteinVectorizer requires list or tuple input to"
-                                 "have homogeneous numeric type.")
+                raise ValueError(
+                    "WassersteinVectorizer requires list or tuple input to"
+                    " have homogeneous numeric type."
+                )
             if metric == cosine:
-                sample_vectors.extend(tuple([normalize(v, norm="l2") for v in vectors]))
+                for i in range(len(vectors) // 512 + 1):
+                    start = i * 512
+                    end = min(start + 512, len(X))
+                    sample_vectors.extend(
+                        tuple([normalize(v, norm="l2") for v in vectors[start:end]])
+                    )
             else:
-                sample_vectors.extend(tuple(vectors))
+                for i in range(len(vectors) // 512 + 1):
+                    start = i * 512
+                    end = min(start + 512, len(X))
+                    sample_vectors.extend(tuple(vectors[start:end]))
 
             result_blocks = []
 
@@ -1796,7 +2154,7 @@ class SinkhornVectorizer(BaseEstimator, TransformerMixin):
 
         else:
             raise ValueError(
-                f"Input data of type {type(X)} not in a recognized format for WassersteinVectorizer"
+                f"Input data of type {type(X)} not in a recognized format for SinkhornVectorizer"
             )
 
         return self
