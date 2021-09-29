@@ -111,14 +111,14 @@ InformationWeightTransformer
 
    InformationWeightTransformer
 
-RemoveEffectsTransformer
+RowDenoisingTransformer
 ========================
 
 .. autosummary::
    :toctree: generated/
    :template: class.rst
 
-   RemoveEffectsTransformer
+   RowDenoisingTransformer
 
 CountFeatureCompressionTransformer
 ==================================
@@ -138,21 +138,4 @@ SlidingWindowTransformer
 
    SlidingWindowTransformer
 
-Wasserstein1DHistogramTransformer
-=================================
-
-.. autosummary::
-   :toctree: generated/
-   :template: class.rst
-
-   Wasserstein1DHistogramTransformer
-
-SequentialDifferenceTransformer
-===============================
-
-.. autosummary::
-   :toctree: generated/
-   :template: class.rst
-
-   SequentialDifferenceTransformer
 
