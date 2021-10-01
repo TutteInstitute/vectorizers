@@ -47,4 +47,4 @@ test_script:
 after_test:
   - cp .coverage %APPVEYOR_BUILD_FOLDER%
   - cd %APPVEYOR_BUILD_FOLDER%
-  - IF %COVERAGE% 1 codecov
+  - IF %COVERAGE%==1 codecov
