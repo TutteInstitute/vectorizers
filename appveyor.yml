@@ -41,7 +41,7 @@ install:
 test_script:
   - mkdir for_test
   - cd for_test
-  - IF %COVERAGE% 1 set NUMBA_DISABLE_JIT=1
+  - IF %COVERAGE%==1 set NUMBA_DISABLE_JIT=1
   - pytest -v --cov=vectorizers --pyargs vectorizers
 
 after_test:
