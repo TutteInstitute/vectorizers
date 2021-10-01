@@ -865,7 +865,7 @@ def lot_vectors_dense(
         for i in range(len(sample_vectors) // 512 + 1):
             start = i * 512
             end = min(start + 512, len(sample_vectors))
-            normalized_sample_vectors.extend(normalize(v, norm="l2") for v in sample_vectors[start:end])
+            normalized_sample_vectors.extend([normalize(v, norm="l2") for v in sample_vectors[start:end]])
         sample_vectors = normalized_sample_vectors
         # sample_vectors = tuple([normalize(v, norm="l2") for v in sample_vectors])
 
