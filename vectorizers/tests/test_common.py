@@ -1111,6 +1111,32 @@ def test_wasserstein_based_vectorizer_bad_params(wasserstein_class):
         vectorizer = wasserstein_class()
         vectorizer.fit(point_data, vectors=vectors_data)
 
+    distributions_data_generator = (x for x in distributions_data_list)
+    vectors_data_generator = (x for x in vectors_data_list)
+    with pytest.raises(ValueError):
+        vectorizer = WassersteinVectorizer()
+        vectorizer.fit(distributions_data_generator, vectors=vectors_data_generator)
+
+    distributions_data_generator = (x for x in distributions_data_list)
+    vectors_data_generator = (x for x in vectors_data_list)
+    with pytest.raises(ValueError):
+        vectorizer = WassersteinVectorizer()
+        vectorizer.fit(
+            distributions_data_generator,
+            vectors=vectors_data_generator,
+            reference_vectors=np.random.random((10, vectors_data.shape[1])),
+        )
+
+    distributions_data_generator = (x for x in distributions_data_list)
+    vectors_data_generator = (x for x in vectors_data_list)
+    with pytest.raises(ValueError):
+        vectorizer = WassersteinVectorizer(reference_size=20)
+        vectorizer.fit(
+            distributions_data_generator,
+            vectors=vectors_data_generator,
+            reference_vectors=np.random.random((10, vectors_data.shape[1])),
+        )
+
 @pytest.mark.parametrize(
     "wasserstein_class",
     [WassersteinVectorizer, SinkhornVectorizer],

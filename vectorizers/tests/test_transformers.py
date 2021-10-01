@@ -261,8 +261,9 @@ def test_count_feature_compression_bad_input():
     ("weight", np.array([0.1, 0.75, 1.5, 1.0, 0.25])),
     np.random.random((5, 5)),
 ])
-def test_sliding_window_transformer_basic(pad_width, kernel):
-    swt = SlidingWindowTransformer(window_width=5, pad_width=pad_width, kernels=[kernel])
+@pytest.mark.parametrize("sample", [None, (0, 1), np.arange(5), [4,1,3,2,0]])
+def test_sliding_window_transformer_basic(pad_width, kernel, sample):
+    swt = SlidingWindowTransformer(window_width=5, pad_width=pad_width, kernels=[kernel], window_sample=sample)
     result = swt.fit_transform(test_time_series)
     transform = swt.transform(test_time_series)
     for i, point_cloud in enumerate(result):
@@ -277,14 +278,16 @@ def test_sliding_window_transformer_basic(pad_width, kernel):
     ("weight", np.array([0.1, 0.75, 1.5, 1.0, 0.25])),
     np.random.random((5, 5)),
 ])
-def test_sliding_window_generator_matches_transformer(pad_width, kernel):
-    swt = SlidingWindowTransformer(window_width=5, pad_width=pad_width, kernels=[kernel])
+@pytest.mark.parametrize("sample", [None, np.arange(5), [4,1,3,2,0]])
+def test_sliding_window_generator_matches_transformer(pad_width, kernel, sample):
+    swt = SlidingWindowTransformer(window_width=5, pad_width=pad_width, kernels=[kernel], window_sample=sample)
     transformer_result = swt.fit_transform(test_time_series)
     generator_result = list(sliding_window_generator(
         test_time_series,
         window_width=5,
         pad_width=pad_width,
         kernels=[kernel],
+        window_sample=sample,
     ))
     for i, point_cloud in enumerate(transformer_result):
         for j, point in enumerate(point_cloud):
@@ -322,10 +325,19 @@ def test_sliding_window_transformer_bad_params():
     with pytest.raises(ValueError):
         result = swt.fit_transform(test_time_series)
 
-    swt = SlidingWindowTransformer(window_sample=[1.3, 1.1, 1.25, 1.625])
+
+    swt = SlidingWindowTransformer(window_width=-1)
     with pytest.raises(ValueError):
         result = swt.fit_transform(test_time_series)
 
-    swt = SlidingWindowTransformer(window_width=-1)
+    swt = SlidingWindowTransformer(kernels=["not a kernel"])
+    with pytest.raises(ValueError):
+        result = swt.fit_transform(test_time_series)
+
+    swt = SlidingWindowTransformer(kernels=-1)
+    with pytest.raises(ValueError):
+        result = swt.fit_transform(test_time_series)
+
+    swt = SlidingWindowTransformer(kernels=np.array([[1,2,3],[1,2,3]]))
     with pytest.raises(ValueError):
         result = swt.fit_transform(test_time_series)

@@ -1572,7 +1572,9 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                     "WassersteinVectorizer on a generator must specify reference_vectors!"
                 )
             if self.reference_size is not None:
-                assert reference_vectors.shape[0] == self.reference_size
+                if reference_vectors.shape[0] == self.reference_size:
+                    raise ValueError(f"Specified reference size {self.reference_size} does not match the size "
+                                     f"of the reference vectors give ({reference_vectors.shape[0]})")
                 reference_size = self.reference_size
             else:
                 reference_size = reference_vectors.shape[0]
