@@ -446,6 +446,7 @@ def summarize_embedding(
     k=3,
     return_type="list",
     include_values=False,
+    sep=",",
 ):
     """
     Summarizes each of the rows of a weight matrix via the k column names associated with the largest k values
@@ -462,6 +463,8 @@ def summarize_embedding(
         The type of summary you'd like to return this is chosen from ['list', 'string']
     include_values: bool (default: False)
         Should the values associated with the top k columns also be included in our summary?
+    sep: string (default: ',')
+        if the return type is string what separator should be used to create the string.
 
     Returns
     -------
@@ -500,17 +503,19 @@ def summarize_embedding(
 
     if include_values:
         if return_type == "string":
+            if not isinstance(sep, str):
+                raise ValueError("sep must be a string")
             summary = []
             for i in range(len(row_summary)):
                 summary.append(
-                    " ".join([f"{x}:{y}" for x, y in zip(row_summary[i], values[i])])
+                    sep.join([f"{x}:{y}" for x, y in zip(row_summary[i], values[i])])
                 )
             return summary
         else:
             return row_summary, values
     else:
         if return_type == "string":
-            row_summary = [" ".join(x) for x in row_summary]
+            row_summary = [sep.join(x) for x in row_summary]
         return row_summary
 
 

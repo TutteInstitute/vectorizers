@@ -861,7 +861,13 @@ def lot_vectors_dense(
         The learned SVD components which can be used for projecting new data.
     """
     if metric == cosine:
-        sample_vectors = tuple([normalize(v, norm="l2") for v in sample_vectors])
+        normalized_sample_vectors = numba.typed.List.empty_list(numba.float64[:, :])
+        for i in range(len(sample_vectors) // 512 + 1):
+            start = i * 512
+            end = min(start + 512, len(sample_vectors))
+            normalized_sample_vectors.extend([normalize(v, norm="l2") for v in sample_vectors[start:end]])
+        sample_vectors = normalized_sample_vectors
+        # sample_vectors = tuple([normalize(v, norm="l2") for v in sample_vectors])
 
     n_rows = len(sample_vectors)
     n_blocks = (n_rows // block_size) + 1
@@ -1572,7 +1578,9 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                     "WassersteinVectorizer on a generator must specify reference_vectors!"
                 )
             if self.reference_size is not None:
-                assert reference_vectors.shape[0] == self.reference_size
+                if reference_vectors.shape[0] == self.reference_size:
+                    raise ValueError(f"Specified reference size {self.reference_size} does not match the size "
+                                     f"of the reference vectors give ({reference_vectors.shape[0]})")
                 reference_size = self.reference_size
             else:
                 reference_size = reference_vectors.shape[0]

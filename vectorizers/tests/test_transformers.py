@@ -253,7 +253,6 @@ def test_count_feature_compression_bad_input():
     with pytest.raises(ValueError):
         result = cfc.fit_transform(test_matrix)
 
-
 @pytest.mark.parametrize("pad_width", [0, 1])
 @pytest.mark.parametrize(
     "kernel",
@@ -298,7 +297,7 @@ def test_sliding_window_generator_matches_transformer(pad_width, kernel):
             window_width=5,
             pad_width=pad_width,
             kernels=[kernel],
-        )
+        window_sample=sample,)
     )
     for i, point_cloud in enumerate(transformer_result):
         for j, point in enumerate(point_cloud):
@@ -336,10 +335,19 @@ def test_sliding_window_transformer_bad_params():
     with pytest.raises(ValueError):
         result = swt.fit_transform(test_time_series)
 
-    swt = SlidingWindowTransformer(window_sample=[1.3, 1.1, 1.25, 1.625])
+
+    swt = SlidingWindowTransformer(window_width=-1)
     with pytest.raises(ValueError):
         result = swt.fit_transform(test_time_series)
 
-    swt = SlidingWindowTransformer(window_width=-1)
+    swt = SlidingWindowTransformer(kernels=["not a kernel"])
+    with pytest.raises(ValueError):
+        result = swt.fit_transform(test_time_series)
+
+    swt = SlidingWindowTransformer(kernels=-1)
+    with pytest.raises(ValueError):
+        result = swt.fit_transform(test_time_series)
+
+    swt = SlidingWindowTransformer(kernels=np.array([[1,2,3],[1,2,3]]))
     with pytest.raises(ValueError):
         result = swt.fit_transform(test_time_series)

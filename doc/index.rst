@@ -33,6 +33,7 @@ machine learning.
    :caption: Getting Started Tutorials
 
    document_vectorization
+   CategoricalColumnTransformer_intro
 
 .. toctree::
    :maxdepth: 2
