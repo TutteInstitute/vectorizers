@@ -14,8 +14,9 @@ from vectorizers import DistributionVectorizer
 from vectorizers import HistogramVectorizer
 from vectorizers import KDEVectorizer
 from vectorizers import LabelledTreeCooccurrenceVectorizer
-from vectorizers.transformers import SequentialDifferenceTransformer
-from vectorizers.transformers import Wasserstein1DHistogramTransformer
+# Deprecated transformers
+# from vectorizers.transformers import SequentialDifferenceTransformer
+# from vectorizers.transformers import Wasserstein1DHistogramTransformer
 from vectorizers import WassersteinVectorizer
 from vectorizers import ApproximateWassersteinVectorizer
 from vectorizers import SinkhornVectorizer
@@ -930,27 +931,27 @@ def test_kde_vectorizer_basic():
     transform_result = vectorizer.transform(value_sequence_data)
     assert np.all(result == transform_result)
 
-
-def test_seq_diff_transformer():
-    transformer = SequentialDifferenceTransformer()
-    result = transformer.fit_transform(value_sequence_data)
-    for i in range(len(value_sequence_data)):
-        assert np.allclose(
-            result[i], value_sequence_data[i][1:] - value_sequence_data[i][:-1]
-        )
-
-
-def test_wass1d_transfomer():
-    vectorizer = HistogramVectorizer()
-    histogram_data = vectorizer.fit_transform(value_sequence_data)
-    transformer = Wasserstein1DHistogramTransformer()
-    result = transformer.fit_transform(histogram_data)
-    for i in range(result.shape[0]):
-        for j in range(i + 1, result.shape[0]):
-            assert np.isclose(
-                kantorovich1d(histogram_data[i], histogram_data[j]),
-                np.sum(np.abs(result[i] - result[j])),
-            )
+# Deprecated transformers; tests to be removed
+# def test_seq_diff_transformer():
+#     transformer = SequentialDifferenceTransformer()
+#     result = transformer.fit_transform(value_sequence_data)
+#     for i in range(len(value_sequence_data)):
+#         assert np.allclose(
+#             result[i], value_sequence_data[i][1:] - value_sequence_data[i][:-1]
+#         )
+#
+#
+# def test_wass1d_transfomer():
+#     vectorizer = HistogramVectorizer()
+#     histogram_data = vectorizer.fit_transform(value_sequence_data)
+#     transformer = Wasserstein1DHistogramTransformer()
+#     result = transformer.fit_transform(histogram_data)
+#     for i in range(result.shape[0]):
+#         for j in range(i + 1, result.shape[0]):
+#             assert np.isclose(
+#                 kantorovich1d(histogram_data[i], histogram_data[j]),
+#                 np.sum(np.abs(result[i] - result[j])),
+#             )
 
 
 def test_wasserstein_vectorizer_basic():
