@@ -2,9 +2,7 @@ import numpy as np
 import numba
 
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.utils.validation import (
-    check_is_fitted,
-)
+from sklearn.utils.validation import check_is_fitted
 
 from collections import defaultdict
 import scipy.linalg
@@ -16,9 +14,7 @@ from .utils import (
     validate_homogeneous_token_types,
 )
 
-from .preprocessing import (
-    preprocess_token_sequences,
-)
+from .preprocessing import preprocess_token_sequences
 
 
 @numba.njit(nogil=True)

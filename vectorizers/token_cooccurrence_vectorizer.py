@@ -1,6 +1,4 @@
-from .ngram_vectorizer import (
-    ngrams_of,
-)
+from .ngram_vectorizer import ngrams_of
 from .preprocessing import (
     prune_token_dictionary,
     preprocess_token_sequences,
@@ -672,10 +670,14 @@ def multi_token_cooccurrence_matrix(
         window with token (j mod n_unique_tokens) for window/kernel function (j // n_unique_tokens).
     """
     if n_unique_tokens == 0:
-        raise ValueError("Token dictionary is empty; try using less extreme constraints")
+        raise ValueError(
+            "Token dictionary is empty; try using less extreme constraints"
+        )
 
     if n_unique_tokens == 0:
-        raise ValueError("Token dictionary is empty; try using less extreme constraints")
+        raise ValueError(
+            "Token dictionary is empty; try using less extreme constraints"
+        )
 
     if len(ngram_dictionary) == 1 or ngram_size == 1:
         n_rows = n_unique_tokens
@@ -718,7 +720,9 @@ def multi_token_cooccurrence_matrix(
 
     matrix_per_chunk = [
         process_token_sequence_chunk(chunk_start, chunk_end)
-        for chunk_start, chunk_end in generate_chunk_boundaries(token_sequences, chunk_size=chunk_size)
+        for chunk_start, chunk_end in generate_chunk_boundaries(
+            token_sequences, chunk_size=chunk_size
+        )
     ]
     cooccurrence_matrix = dask.delayed(sum)(matrix_per_chunk)
     cooccurrence_matrix = cooccurrence_matrix.compute()
@@ -750,7 +754,9 @@ def multi_token_cooccurrence_matrix(
                 window_normalizer=window_normalizer,
                 multi_labelled_tokens=multi_labelled_tokens,
             )
-            for chunk_start, chunk_end in generate_chunk_boundaries(token_sequences, chunk_size=chunk_size)
+            for chunk_start, chunk_end in generate_chunk_boundaries(
+                token_sequences, chunk_size=chunk_size
+            )
         ]
         new_data = dask.delayed(sum)(new_data_per_chunk)
         new_data = new_data.compute()

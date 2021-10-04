@@ -126,8 +126,10 @@ _KERNEL_FUNCTIONS = {
 # Sliding window multivariate time series kernels
 ####################################################
 
+
 def averaging_kernel(n_cols, *kernel_params):
     return np.full(n_cols, 1.0 / n_cols)
+
 
 def difference_kernel(n_cols, start, step, stride, *kernel_params):
     n_differences = int(np.ceil((n_cols - start - step) // stride))
@@ -137,6 +139,7 @@ def difference_kernel(n_cols, start, step, stride, *kernel_params):
         result[i, start + i * stride + step] = 1
 
     return result
+
 
 def positon_velocity_kernel(n_cols, position_index, step, stride, *kernel_params):
     n_differences_before = int(np.ceil((position_index - step) // stride))
@@ -156,10 +159,13 @@ def positon_velocity_kernel(n_cols, position_index, step, stride, *kernel_params
 
 def weight_kernel(n_cols, weights, *kernel_params):
     if weights.shape[0] != n_cols:
-        raise ValueError(f"Cannot construct a weight kernel of size {n_cols} "
-                         f"with weights of shape {weights.shape[0]}")
+        raise ValueError(
+            f"Cannot construct a weight kernel of size {n_cols} "
+            f"with weights of shape {weights.shape[0]}"
+        )
 
     return np.diag(weights)
+
 
 _SLIDING_WINDOW_KERNELS = {
     "average": averaging_kernel,

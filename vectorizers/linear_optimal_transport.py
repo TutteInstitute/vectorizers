@@ -861,7 +861,13 @@ def lot_vectors_dense(
         The learned SVD components which can be used for projecting new data.
     """
     if metric == cosine:
-        sample_vectors = tuple([normalize(v, norm="l2") for v in sample_vectors])
+        normalized_sample_vectors = numba.typed.List.empty_list(numba.float64[:, :])
+        for i in range(len(sample_vectors) // 512 + 1):
+            start = i * 512
+            end = min(start + 512, len(sample_vectors))
+            normalized_sample_vectors.extend([normalize(v, norm="l2") for v in sample_vectors[start:end]])
+        sample_vectors = normalized_sample_vectors
+        # sample_vectors = tuple([normalize(v, norm="l2") for v in sample_vectors])
 
     n_rows = len(sample_vectors)
     n_blocks = (n_rows // block_size) + 1
@@ -1842,8 +1848,10 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
             block_size = memory_size // (lot_dimension * 8)
 
             if n_distributions is None:
-                raise ValueError("If passing a generator for distributions or vectors "
-                                 "you must also specify n_distributions")
+                raise ValueError(
+                    "If passing a generator for distributions or vectors "
+                    "you must also specify n_distributions"
+                )
 
             n_rows = n_distributions
             n_blocks = (n_rows // block_size) + 1
@@ -1869,7 +1877,9 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                         continue
 
                     if metric == cosine:
-                        vector_chunk = tuple([normalize(v, norm="l2") for v in vector_chunk])
+                        vector_chunk = tuple(
+                            [normalize(v, norm="l2") for v in vector_chunk]
+                        )
 
                     chunk_of_lot_vectors = lot_vectors_dense_internal(
                         vector_chunk,
