@@ -189,7 +189,7 @@ class SlidingWindowTransformer(BaseEstimator, TransformerMixin):
             # Check is we can convert it to an array
             try:
                 self.window_sample_ = np.asarray(self.window_sample, dtype=np.int32)
-                assert len(self.window_sample.shape) == 1
+                assert self.window_sample_.ndim == 1
             except:
                 raise ValueError(
                     """window_sample should be one of:
@@ -203,6 +203,9 @@ class SlidingWindowTransformer(BaseEstimator, TransformerMixin):
 
         if self.window_width < 0:
             raise ValueError("window_width must be positive")
+
+        if self.kernels is not None and type(self.kernels) not in (list, tuple):
+            raise ValueError("kernels must be None or a list or tuple of kernels to apply")
 
         self.kernel_ = build_kernel(self.kernels, self.window_sample_.shape[0])
 

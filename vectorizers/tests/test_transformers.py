@@ -1,7 +1,7 @@
 import pytest
 
 from vectorizers.transformers import (
-    RemoveEffectsTransformer,
+    RowDenoisingTransformer,
     InformationWeightTransformer,
     CategoricalColumnTransformer,
     CountFeatureCompressionTransformer,
@@ -119,7 +119,7 @@ def test_re_transformer(
     em_prior_strength,
     normalize,
 ):
-    RET = RemoveEffectsTransformer(
+    RET = RowDenoisingTransformer(
         em_precision=em_precision,
         em_background_prior=em_background_prior,
         em_threshold=em_threshold,
@@ -143,7 +143,7 @@ def test_re_transformer_zero_column(
     em_prior_strength,
     normalize,
 ):
-    RET = RemoveEffectsTransformer(
+    RET = RowDenoisingTransformer(
         em_precision=em_precision,
         em_background_prior=em_background_prior,
         em_threshold=em_threshold,
@@ -167,7 +167,7 @@ def test_re_transformer_zero_row(
     em_prior_strength,
     normalize,
 ):
-    RET = RemoveEffectsTransformer(
+    RET = RowDenoisingTransformer(
         em_precision=em_precision,
         em_background_prior=em_background_prior,
         em_threshold=em_threshold,
@@ -264,9 +264,10 @@ def test_count_feature_compression_bad_input():
         np.random.random((5, 5)),
     ],
 )
-def test_sliding_window_transformer_basic(pad_width, kernel):
+@pytest.mark.parametrize("sample", [None, (0, 1), np.arange(5), [4,1,3,2,0]])
+def test_sliding_window_transformer_basic(pad_width, kernel, sample):
     swt = SlidingWindowTransformer(
-        window_width=5, pad_width=pad_width, kernels=[kernel]
+        window_width=5, pad_width=pad_width, kernels=[kernel], window_sample=sample
     )
     result = swt.fit_transform(test_time_series)
     transform = swt.transform(test_time_series)
@@ -276,29 +277,24 @@ def test_sliding_window_transformer_basic(pad_width, kernel):
 
 
 @pytest.mark.parametrize("pad_width", [0, 1])
-@pytest.mark.parametrize(
-    "kernel",
-    [
-        "average",
-        ("differences", 0, 1, 1),
-        ("position_velocity", 2, 1, 1),
-        ("weight", np.array([0.1, 0.75, 1.5, 1.0, 0.25])),
-        np.random.random((5, 5)),
-    ],
-)
-def test_sliding_window_generator_matches_transformer(pad_width, kernel):
-    swt = SlidingWindowTransformer(
-        window_width=5, pad_width=pad_width, kernels=[kernel]
-    )
+@pytest.mark.parametrize("kernel", [
+    "average",
+    ("differences", 0, 1, 1),
+    ("position_velocity", 2, 1, 1),
+    ("weight", np.array([0.1, 0.75, 1.5, 1.0, 0.25])),
+    np.random.random((5, 5)),
+])
+@pytest.mark.parametrize("sample", [None, np.arange(5), [4,1,3,2,0]])
+def test_sliding_window_generator_matches_transformer(pad_width, kernel, sample):
+    swt = SlidingWindowTransformer(window_width=5, pad_width=pad_width, kernels=[kernel], window_sample=sample)
     transformer_result = swt.fit_transform(test_time_series)
-    generator_result = list(
-        sliding_window_generator(
-            test_time_series,
-            window_width=5,
-            pad_width=pad_width,
-            kernels=[kernel],
-        window_sample=sample,)
-    )
+    generator_result = list(sliding_window_generator(
+        test_time_series,
+        window_width=5,
+        pad_width=pad_width,
+        kernels=[kernel],
+        window_sample=sample,
+    ))
     for i, point_cloud in enumerate(transformer_result):
         for j, point in enumerate(point_cloud):
             assert np.allclose(point, generator_result[i][j])
