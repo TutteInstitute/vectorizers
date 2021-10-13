@@ -69,6 +69,9 @@ def build_kernel(kernel_list, window_size):
         else:
             raise ValueError(f"Unrecognized kernel {kernel}")
 
+    if result.ndim < 2:
+        result = result[None, :]
+
     return result
 
 
