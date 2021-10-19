@@ -94,7 +94,7 @@ To manually install this package:
 Help and Support
 ----------------
 
-This project is still young. The documentation is still growing. In the meantime please
+This project is still young. The `documentation <https://vectorizers.readthedocs.io/en/latest/>`_ is still growing. In the meantime please
 `open an issue <https://github.com/TutteInstitute/vectorizers/issues/new>`_
 and we will try to provide any help and guidance that we can. Please also check
 the docstrings on the code, which provide some descriptions of the parameters.
