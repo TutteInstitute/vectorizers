@@ -246,3 +246,20 @@ class SlidingWindowTransformer(BaseEstimator, TransformerMixin):
             )
 
         return result
+
+
+class SequentialDifferenceTransformer(BaseEstimator, TransformerMixin):
+
+    def __init__(self, stride=1):
+        self.stride = stride
+
+    def fit(self, X, y=None, **fit_params):
+        self._sliding_window_transformer = SlidingWindowTransformer(
+            window_width=self.stride+1,
+            kernels=[("difference", 0, self.stride, self.stride)]
+        )
+        self._sliding_window_transformer.fit(X, y=None, **fit_params)
+
+    def transform(self, X, y=None):
+        check_is_fitted(self, ["_sliding_window_transformer"])
+        return self._sliding_window_transformer.transform(X)
