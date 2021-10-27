@@ -119,6 +119,79 @@ def sliding_window_generator(
     pad_value=0,
     test_window=None,
 ):
+    """Return a generator of sliding windows of sequences. Importantly this
+    function allows the sequences themselves to be a generator, ensuring that
+    the full set of sequences does not need to be a list in memory as long
+    as the next element can be created on demand via a generator.
+
+    Parameters
+    ----------
+    sequences: iterable of iterables
+        The sequences over which to generate sets of sliding windows.
+
+    sequence_shape: tuple
+        The shape of a given sequence as an ndarray; this allows results
+        space to be allocated without having to touch the generator.
+
+    window_width: int (optional, default=10)
+        How large of a window to use. This will determine the dimensionality of the
+        vector space in which the resulting point clouds will live unless a window
+        sample is specified.
+
+    window_stride: int (optional, default=1)
+        How far to step along when sliding the window. Setting ``window_stride``
+        to the same value as ``window_width`` will ensure non-overlapping windows. The
+        default of 1 will generate the maximum number of points in the resulting point
+        cloud.
+
+    window_sample: None, int, pair of ints, "random", or 1d array of integers (optional, default=None)
+        How to sample from each window. The default on None will simply rake the whole
+        window. If an int ``n`` is given this will be be used as a stride sampling every
+        ``n``th entry of the window. If a pair of integers ``(n, m)`` this will be
+        used as a start and stride sampling every ``m``th entry starting fron the ``n``th
+        entry. If "random" is given then a random sampling on ``window_sample_size`` indices
+        in the range ``(0, window_width)`` will be used. Finally if an array of integers
+        are given this will be used as the selected indices to take from each window.
+
+    window_sample_size: int (optional, default=0)
+        If using random sampling from a window this will determine he size of the random sample.
+
+    kernels: list of kernel descriptors or None (optional, default=None)
+        If None then no kernels are applied. Otherwise this should be
+        the sequence of kernels to be applied to each window. This can be named kernels
+        such as:
+            * "average"
+            * "differences"
+            * "position_velocity"
+            * "weight"
+            * "gaussian_weight"
+        The named kernels often take parameters; to pass these supply the kernel as
+        a tuple ``("name", param1, param2, ...)``. Check the named kernels for details
+        on params.
+        Alternatively a kernel can be an (appropriate shaped!) transformation matrix in
+        the form of an ndarray which will be left multiply against the window to be applied.
+        Finally kernels may also be (numba jitted) functions. Mixing functions and named
+        kernels is currently not supported.
+
+    pad_width: int (optional, default=0)
+        How much to pad the start and end of each sequence by. This can be useful for
+        centering a window on starting and ending points of the sequence for example.
+
+    pad_value: int or float (optional, default=0.0)
+        If the sequence is to be padded, use this value as the padding value.
+
+    test_window: ndarray of shape (window_sample_size,) or None (optional, default=None)
+        If using callable function kernels it is necessary to provide a single test window
+        to allow the code to determine the size and type of the output of the kernels when
+        applied to a window. The use of the test window ensures that the sequences generator
+        doesn't need to be touched.
+
+    Returns
+    -------
+    windows_per_sequence: generator
+        A generator that returns the windows for each sequence from the
+        sequences passed in.
+    """
     if window_sample is None:
         window_sample_ = np.arange(window_width)
     else:
@@ -184,6 +257,30 @@ class SlidingWindowTransformer(BaseEstimator, TransformerMixin):
 
     window_sample_size: int (optional, default=0)
         If using random sampling from a window this will determine he size of the random sample.
+
+    kernels: list of kernel descriptors or None (optional, default=None)
+        If None then no kernels are applied. Otherwise this should be
+        the sequence of kernels to be applied to each window. This can be named kernels
+        such as:
+            * "average"
+            * "differences"
+            * "position_velocity"
+            * "weight"
+            * "gaussian_weight"
+        The named kernels often take parameters; to pass these supply the kernel as
+        a tuple ``("name", param1, param2, ...)``. Check the named kernels for details
+        on params.
+        Alternatively a kernel can be an (appropriate shaped!) transformation matrix in
+        the form of an ndarray which will be left multiply against the window to be applied.
+        Finally kernels may also be (numba jitted) functions. Mixing functions and named
+        kernels is currently not supported.
+
+    pad_width: int (optional, default=0)
+        How much to pad the start and end of each sequence by. This can be useful for
+        centering a window on starting and ending points of the sequence for example.
+
+    pad_value: int or float (optional, default=0.0)
+        If the sequence is to be padded, use this value as the padding value.
     """
 
     def __init__(
@@ -316,6 +413,16 @@ class SlidingWindowTransformer(BaseEstimator, TransformerMixin):
 
 
 class SequentialDifferenceTransformer(BaseEstimator, TransformerMixin):
+    """Generate a sequence of sequential differences for each sequence in
+    a list of numeric sequences. This can be useful for converting a sequence
+    of timestamps into a sequence of inter-arrival times for example.
+
+    Parameters
+    ----------
+    stride: int (optional, default=1)
+        How far apart to take differences in the sequence.
+    """
+
     def __init__(self, stride=1):
         self.stride = stride
 
