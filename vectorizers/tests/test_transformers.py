@@ -6,6 +6,7 @@ from vectorizers.transformers import (
     CategoricalColumnTransformer,
     CountFeatureCompressionTransformer,
     SlidingWindowTransformer,
+    SequentialDifferenceTransformer,
     sliding_window_generator,
 )
 import numpy as np
@@ -379,3 +380,11 @@ def test_sliding_window_transformer_bad_params():
     swt = SlidingWindowTransformer(kernels=np.array([[1, 2, 3], [1, 2, 3]]))
     with pytest.raises(ValueError):
         result = swt.fit_transform(test_time_series)
+
+def test_seq_diff_transformer_basic():
+    sdt = SequentialDifferenceTransformer()
+    diffs = sdt.fit_transform(test_time_series)
+    transform_diffs = sdt.transform(test_time_series)
+    for i, seq_diffs in enumerate(diffs):
+        assert np.allclose(np.array(seq_diffs), np.array(transform_diffs[i]))
+        assert np.allclose(test_time_series[i][:-1] + np.ravel(seq_diffs), test_time_series[i][1:])
