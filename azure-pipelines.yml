@@ -33,5 +33,5 @@ steps:
 
 - script: |
     pip install pytest pytest-azurepipelines
-    pytest
+    pytest vectorizers/tests
   displayName: 'pytest'
