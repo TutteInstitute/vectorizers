@@ -37,7 +37,7 @@ test_time_series = [
     np.random.random(size=44),
 ]
 
-changepoint_position = np.random.randint(100)
+changepoint_position = np.random.randint(11, 100) # changepoint position must be at least window_width in
 changepoint_sequence = np.random.poisson(0.75, size=100)
 changepoint_sequence[changepoint_position] = 10
 
