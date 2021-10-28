@@ -3,7 +3,7 @@ import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
-from vectorizers._window_kernels import _SLIDING_WINDOW_KERNELS
+from vectorizers._window_kernels import _SLIDING_WINDOW_KERNELS, _SLIDING_WINDOW_FUNCTION_KERNELS
 
 
 @numba.njit(nogil=True)
@@ -93,19 +93,54 @@ def build_matrix_kernel(kernel_list, window_size, sequence_shape):
 
 def build_callable_kernel(kernel_list, test_window):
 
-    tuple_of_kernels = tuple(kernel_list)
+    tuple_of_kernels = []
+    for kernel in kernel_list:
+        if type(kernel) in (tuple, list):
+            kernel, *kernel_params = kernel
+        else:
+            kernel_params = ()
 
-    @numba.njit(nogil=True)
-    def _kernel_func(data):
-        result = data
-        for kernel in tuple_of_kernels:
-            result = kernel(result)
-        return result
+        if type(kernel) == str and kernel in _SLIDING_WINDOW_FUNCTION_KERNELS:
+            tuple_of_kernels.append(_SLIDING_WINDOW_FUNCTION_KERNELS[kernel](*kernel_params))
+        elif callable(kernel):
+            tuple_of_kernels.append(kernel)
+        else:
+            raise ValueError(f"Bad kernel {kernel} in kernel list")
+
+    tuple_of_kernels = tuple(tuple_of_kernels)
+
+    if len(tuple_of_kernels) == 1:
+        _kernel_func = tuple_of_kernels[0]
+    else:
+        @numba.njit(nogil=True)
+        def _kernel_func(data):
+            result = data
+            for kernel in tuple_of_kernels:
+                result = kernel(result)
+            return result
 
     kernel_output = _kernel_func(test_window)
 
     return _kernel_func, kernel_output.shape[0], kernel_output.dtype
 
+def check_function_kernels(kernels):
+
+    if kernels is None or len(kernels) < 1:
+        return False
+
+    for kernel in kernels:
+        if callable(kernel):
+            return True
+
+        if type(kernel) in (tuple, list):
+            kernel, *kernel_params = kernel
+        else:
+            kernel_params = ()
+
+        if type(kernel) is str and kernel in _SLIDING_WINDOW_FUNCTION_KERNELS:
+            return True
+    else:
+        return False
 
 
 def sliding_window_generator(
@@ -197,7 +232,7 @@ def sliding_window_generator(
     else:
         window_sample_ = np.asarray(window_sample, dtype=np.int32)
 
-    if any(callable(x) for x in kernels):
+    if check_function_kernels(kernels):
         if test_window is None:
             raise ValueError("Callable kernels need to also provide a test sequence to "
                              "determine kernel output size and type")
@@ -356,7 +391,9 @@ class SlidingWindowTransformer(BaseEstimator, TransformerMixin):
                 "kernels must be None or a list or tuple of kernels to apply"
             )
 
-        if self.kernels is not None and any(callable(x) for x in self.kernels):
+        use_function_kernels = check_function_kernels(self.kernels)
+
+        if use_function_kernels:
             test_window = np.asarray(X[0])[:self.window_width][self.window_sample_]
             (
                 self.kernel_,

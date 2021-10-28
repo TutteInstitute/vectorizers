@@ -37,6 +37,10 @@ test_time_series = [
     np.random.random(size=44),
 ]
 
+changepoint_position = np.random.randint(100)
+changepoint_sequence = np.random.poisson(0.75, size=100)
+changepoint_sequence[changepoint_position] = 10
+
 
 @pytest.mark.parametrize("include_column_name", [True, False])
 @pytest.mark.parametrize("unique_values", [True, False])
@@ -291,7 +295,7 @@ def test_sliding_window_transformer_basic(pad_width, kernel, sample):
         ("weight", np.array([0.1, 0.75, 1.5, 1.0, 0.25])),
         ("gaussian_weight", 2),
         np.random.random((5, 5)),
-        numba.njit(lambda x: x.cumsum()),
+        numba.njit(lambda x: x.cumsum(), cache=True),
     ],
 )
 @pytest.mark.parametrize("sample", [None, np.arange(5), [4, 1, 3, 2, 0]])
@@ -320,6 +324,13 @@ def test_sliding_window_generator_matches_transformer(pad_width, kernel, sample)
         for j, point in enumerate(point_cloud):
             assert np.allclose(point, generator_result[i][j])
 
+@pytest.mark.parametrize("window_width", [5, 10])
+def test_sliding_window_count_changepoint(window_width):
+    swt = SlidingWindowTransformer(
+        window_width=window_width, kernels=[("count_changepoint", 1.0, 2.0)],
+    )
+    changepoint_scores = swt.fit_transform([changepoint_sequence])[0].flatten()
+    assert np.argmax(changepoint_scores) + window_width - 1 == changepoint_position
 
 @pytest.mark.parametrize("pad_width", [0, 1])
 @pytest.mark.parametrize(
