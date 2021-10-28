@@ -167,9 +167,17 @@ def weight_kernel(n_cols, weights, *kernel_params):
     return np.diag(weights)
 
 
+def gaussian_weight_kernel(n_cols, sigma, *kernel_params):
+    width = n_cols / 2
+    xs = np.linspace(-width, width, n_cols)
+    weights = 1.0 / (sigma * 2 * np.pi) * np.exp(-((xs / sigma) ** 2) / 2.0)
+    return np.diag(weights)
+
+
 _SLIDING_WINDOW_KERNELS = {
     "average": averaging_kernel,
     "differences": difference_kernel,
     "position_velocity": positon_velocity_kernel,
     "weight": weight_kernel,
+    "gaussian_weight": gaussian_weight_kernel,
 }

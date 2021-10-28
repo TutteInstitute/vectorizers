@@ -6,11 +6,13 @@ from vectorizers.transformers import (
     CategoricalColumnTransformer,
     CountFeatureCompressionTransformer,
     SlidingWindowTransformer,
+    SequentialDifferenceTransformer,
     sliding_window_generator,
 )
 import numpy as np
 import scipy.sparse
 import pandas as pd
+import numba
 
 test_matrix = scipy.sparse.csr_matrix([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
 test_matrix_zero_row = scipy.sparse.csr_matrix([[1, 2, 3], [4, 5, 6], [0, 0, 0]])
@@ -253,6 +255,7 @@ def test_count_feature_compression_bad_input():
     with pytest.raises(ValueError):
         result = cfc.fit_transform(test_matrix)
 
+
 @pytest.mark.parametrize("pad_width", [0, 1])
 @pytest.mark.parametrize(
     "kernel",
@@ -261,10 +264,12 @@ def test_count_feature_compression_bad_input():
         ("differences", 0, 1, 1),
         ("position_velocity", 2, 1, 1),
         ("weight", np.array([0.1, 0.75, 1.5, 1.0, 0.25])),
+        ("gaussian_weight", 2),
         np.random.random((5, 5)),
+        numba.njit(lambda x: x.cumsum()),
     ],
 )
-@pytest.mark.parametrize("sample", [None, (0, 1), np.arange(5), [4,1,3,2,0]])
+@pytest.mark.parametrize("sample", [None, (0, 1), np.arange(5), [4, 1, 3, 2, 0]])
 def test_sliding_window_transformer_basic(pad_width, kernel, sample):
     swt = SlidingWindowTransformer(
         window_width=5, pad_width=pad_width, kernels=[kernel], window_sample=sample
@@ -277,31 +282,62 @@ def test_sliding_window_transformer_basic(pad_width, kernel, sample):
 
 
 @pytest.mark.parametrize("pad_width", [0, 1])
-@pytest.mark.parametrize("kernel", [
-    "average",
-    ("differences", 0, 1, 1),
-    ("position_velocity", 2, 1, 1),
-    ("weight", np.array([0.1, 0.75, 1.5, 1.0, 0.25])),
-    np.random.random((5, 5)),
-])
-@pytest.mark.parametrize("sample", [None, np.arange(5), [4,1,3,2,0]])
+@pytest.mark.parametrize(
+    "kernel",
+    [
+        "average",
+        ("differences", 0, 1, 1),
+        ("position_velocity", 2, 1, 1),
+        ("weight", np.array([0.1, 0.75, 1.5, 1.0, 0.25])),
+        ("gaussian_weight", 2),
+        np.random.random((5, 5)),
+        numba.njit(lambda x: x.cumsum()),
+    ],
+)
+@pytest.mark.parametrize("sample", [None, np.arange(5), [4, 1, 3, 2, 0]])
 def test_sliding_window_generator_matches_transformer(pad_width, kernel, sample):
-    swt = SlidingWindowTransformer(window_width=5, pad_width=pad_width, kernels=[kernel], window_sample=sample)
+    swt = SlidingWindowTransformer(
+        window_width=5, pad_width=pad_width, kernels=[kernel], window_sample=sample
+    )
     transformer_result = swt.fit_transform(test_time_series)
-    generator_result = list(sliding_window_generator(
-        test_time_series,
-        window_width=5,
-        pad_width=pad_width,
-        kernels=[kernel],
-        window_sample=sample,
-    ))
+    test_window = (
+        None
+        if not callable(kernel)
+        else np.asarray(test_time_series[0])[: swt.window_width][swt.window_sample_]
+    )
+    generator_result = list(
+        sliding_window_generator(
+            test_time_series,
+            test_time_series[0].shape,
+            window_width=5,
+            pad_width=pad_width,
+            kernels=[kernel],
+            window_sample=sample,
+            test_window=test_window,
+        )
+    )
     for i, point_cloud in enumerate(transformer_result):
         for j, point in enumerate(point_cloud):
             assert np.allclose(point, generator_result[i][j])
 
 
-def test_sliding_window_transformer_basic_w_lists():
-    swt = SlidingWindowTransformer()
+@pytest.mark.parametrize("pad_width", [0, 1])
+@pytest.mark.parametrize(
+    "kernel",
+    [
+        "average",
+        ("differences", 0, 1, 1),
+        ("position_velocity", 2, 1, 1),
+        ("weight", np.array([0.1, 0.75, 1.5, 1.0, 0.25])),
+        np.random.random((5, 5)),
+        numba.njit(lambda x: x.cumsum()),
+    ],
+)
+@pytest.mark.parametrize("sample", [None, np.arange(5), [4, 1, 3, 2, 0]])
+def test_sliding_window_transformer_basic_w_lists(pad_width, kernel, sample):
+    swt = SlidingWindowTransformer(
+        window_width=5, pad_width=pad_width, kernels=[kernel], window_sample=sample
+    )
     result = swt.fit_transform([list(x) for x in test_time_series])
     transform = swt.transform([list(x) for x in test_time_series])
     for i, point_cloud in enumerate(result):
@@ -331,7 +367,6 @@ def test_sliding_window_transformer_bad_params():
     with pytest.raises(ValueError):
         result = swt.fit_transform(test_time_series)
 
-
     swt = SlidingWindowTransformer(window_width=-1)
     with pytest.raises(ValueError):
         result = swt.fit_transform(test_time_series)
@@ -344,6 +379,14 @@ def test_sliding_window_transformer_bad_params():
     with pytest.raises(ValueError):
         result = swt.fit_transform(test_time_series)
 
-    swt = SlidingWindowTransformer(kernels=np.array([[1,2,3],[1,2,3]]))
+    swt = SlidingWindowTransformer(kernels=np.array([[1, 2, 3], [1, 2, 3]]))
     with pytest.raises(ValueError):
         result = swt.fit_transform(test_time_series)
+
+def test_seq_diff_transformer_basic():
+    sdt = SequentialDifferenceTransformer()
+    diffs = sdt.fit_transform(test_time_series)
+    transform_diffs = sdt.transform(test_time_series)
+    for i, seq_diffs in enumerate(diffs):
+        assert np.allclose(np.array(seq_diffs), np.array(transform_diffs[i]))
+        assert np.allclose(test_time_series[i][:-1] + np.ravel(seq_diffs), test_time_series[i][1:])
