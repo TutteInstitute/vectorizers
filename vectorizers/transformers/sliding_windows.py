@@ -154,7 +154,7 @@ def sliding_window_generator(
         are given this will be used as the selected indices to take from each window.
 
     window_sample_size: int (optional, default=0)
-        If using random sampling from a window this will determine he size of the random sample.
+        If using random sampling from a window this will determine the size of the random sample.
 
     kernels: list of kernel descriptors or None (optional, default=None)
         If None then no kernels are applied. Otherwise this should be
