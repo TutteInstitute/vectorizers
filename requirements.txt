@@ -5,3 +5,4 @@ numba
 pandas
 dask
 pynndescent>=0.5
+pomegranate
