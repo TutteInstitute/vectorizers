@@ -351,9 +351,28 @@ def contract_pair(char_list, pair_to_contract, new_code=-1):
 
 @numba.njit(nogil=True)
 def bpe_encode(chars, code_list, max_char_code):
+    """Encode a string given a BPE code_list
+
+    Parameters
+    ----------
+    chars: unicode_type
+        THe string to be encoded
+
+    code_list: list of code pairs (int64, int64)
+        The learned encoding dictionary
+
+    max_char_code: int64
+        The maximum allowed code char for the given learned encoding
+
+    Returns:
+    --------
+    compressed_array: ndarray of int64
+        The array of the encoded representation
+    """
     compressed_chars = np.empty(len(chars), dtype=np.int64)
     for i, c in enumerate(chars):
-        compressed_chars[i] = ord(c)
+        code = ord(c)
+        compressed_chars[i] = code if code <= max_char_code else 0
 
     new_code = max_char_code + 1
     for code_pair in code_list:
@@ -363,6 +382,23 @@ def bpe_encode(chars, code_list, max_char_code):
     return compressed_chars
 
 def bpe_decode(code_array, tokens, max_char_code):
+    """Decode a BPE code array into a string
+
+    Parameters
+    ----------
+    code_array: array of int64
+        The code array to decode
+
+    tokens: list of unicode_type
+        The string representations of learned codes
+
+    max_char_code: int64
+        The maximum allowed code char for the given learned encoding
+
+    Returns
+    -------
+
+    """
     result = [
         chr(c) if c <= max_char_code else tokens[c - max_char_code - 1]
         for c in code_array
@@ -370,8 +406,75 @@ def bpe_decode(code_array, tokens, max_char_code):
     return "".join(result)
 
 class LZCompressionVectorizer(BaseEstimator, TransformerMixin):
+    """Create a vector representations of arbitrary string or byte sequences
+    by using Lempel-Ziv compression. Each string is converted into the
+    vector of how many times each LZ encoding string is used. This means
+    that, for example, the Jacccard distance between such vectors is a
+    close approximation of the normalized compression distance between the
+    two strings under an LZ compression scheme.
 
-    def __init__(self, max_dict_size=1<<16, max_columns=1<<16, hash_function=identity_hash, base_dictionary=None, random_state=None):
+    Parameters
+    ----------
+    max_dict_size: int (optional, default=65536)
+        The maximum number of entries to allow in any LZ encoding dictionary
+
+    max_columns: int (optional, default=65536)
+        The maximum total number of columns to allow in the resulting
+        vectorization. This is the total number of unique encoding
+        strings over all the LZ encoding dictionaries for the entire
+        training set. If specified a hashing trick will be used
+        to constrain the columns.
+
+    hash_function: function (optional, default=indentity_hash)
+        A hash function taking encoding strings to unique identifiers.
+        This can be  used to constrain the total number of columns produced
+        via a hashing trick similar to a hashing vectorizer.
+
+    base_dictionary: dict or None (optional, default=None)
+        An initial dictionary to use for LZ compression. For example if the
+        initial dictionary is the set of ascii characters this will give
+        LZW compression.
+
+    random_state: int, numpy.random.random_state or None (optional, default=None)
+        The random state used in hash construction if using a fixed
+        maximum number of columns.
+
+    Attributes
+    ----------
+    column_label_dictionary_: dict
+        A mapping from encoding dictionary entries (or hashes thereof)
+        to the index of the column associated to that feature
+
+    hash_function_: function
+        The actual hash_function used for hashing; this may differ
+        from the ``hash_function`` attribute if, for example, a
+        max number of columns was specified.
+
+    metric_: string
+        The preferred metric to use with the resulting vetcorization.
+        This can be passed to other sklearn compatible models that require a metric.
+
+    References
+    ----------
+    * Raff, E., & Nicholas, C. (2017, August). An alternative to NCD for large sequences, Lempel-Ziv Jaccard distance.
+      In Proceedings of the 23rd ACM SIGKDD international conference on knowledge discovery and data mining (pp. 1007-1015).
+
+    * Bennett, C. H., Gács, P., Li, M., Vitányi, P. M., & Zurek, W. H. (1998). Information distance.
+      IEEE Transactions on information theory, 44(4), 1407-1423.
+
+    * Cilibrasi, R., & Vitányi, P. M. (2005). Clustering by compression.
+      IEEE Transactions on Information theory, 51(4), 1523-1545.
+    """
+
+    def __init__(
+            self,
+            max_dict_size=1<<16,
+            max_columns=1<<16,
+            hash_function=identity_hash,
+            base_dictionary=None,
+            random_state=None
+    ):
+
 
         self.max_dict_size = max_dict_size
         self.max_columns = max_columns
@@ -380,12 +483,27 @@ class LZCompressionVectorizer(BaseEstimator, TransformerMixin):
         self.random_state = random_state
 
     def fit_transform(self, X, y=None, **fit_params):
+        """Train the transformer on a list of strings ``X`` and
+        return the resulting vectorization.
 
+         Parameters
+         ----------
+         X: list of strings
+             The strings or byte sequences to apply LZ compression to
+
+         y: None (optional, default=None)
+             Ignored.
+
+        Returns
+        -------
+        vectorization: scipy.sparse.csr_matrix
+            The transformed training data.
+        """
         if self.max_columns is not None:
             random_state = check_random_state(self.random_state)
-            hash_function = make_hash(self.max_columns, np.int32(random_state.randint(MAX_INT32)))
+            self.hash_function_ = make_hash(self.max_columns, np.int32(random_state.randint(MAX_INT32)))
         else:
-            hash_function = self.hash_function
+            self.hash_function_ = self.hash_function
 
         if self.max_columns is not None:
             self.column_label_dictionary_ = numba.typed.Dict.empty(numba.types.int32, numba.types.int64)
@@ -409,7 +527,7 @@ class LZCompressionVectorizer(BaseEstimator, TransformerMixin):
                 for key, val in self.base_dictionary.items():
                     input_dict[key] = val
 
-            encoding_dict = lempel_ziv_based_encode(string, input_dict, hash_function, self.max_dict_size)
+            encoding_dict = lempel_ziv_based_encode(string, input_dict, self.hash_function_, self.max_dict_size)
 
             new_indices, new_data = counts_to_csr_data(encoding_dict, self.column_label_dictionary_)
             indices.extend(new_indices)
@@ -432,10 +550,46 @@ class LZCompressionVectorizer(BaseEstimator, TransformerMixin):
             dtype=np.float32,
         )
         self._train_matrix.sort_indices()
+        self.metric_ = "jaccard"
 
         return self._train_matrix
 
+    def fit(self, X, y=None, **fit_params):
+        """Train the transformer on a list of strings ``X``
+
+        Parameters
+        ----------
+        X: list of strings
+            The strings or byte sequences to apply LZ compression to
+
+        y: None (optional, default=None)
+            Ignored.
+
+        Returns
+        -------
+        self:
+            The trained model.
+        """
+        self.fit_transform(X, y=y, **fit_params)
+        return self
+
     def transform(self, X, y=None):
+        """Transform a list of strings ``X`` into a LZ compression
+        vectorization using the learned feature space.
+
+         Parameters
+         ----------
+         X: list of strings
+             The strings or byte sequences to apply LZ compression to
+
+         y: None (optional, default=None)
+             Ignored.
+
+        Returns
+        -------
+        vectorization: scipy.sparse.csr_matrix
+            The transformed data.
+        """
         indptr = []
         indices = []
         data = []
@@ -447,7 +601,7 @@ class LZCompressionVectorizer(BaseEstimator, TransformerMixin):
             else:
                 input_dict = self.base_dictionary.copy()
 
-            encoding_dict = lempel_ziv_based_encode(string, input_dict, self.hash_function, self.max_size)
+            encoding_dict = lempel_ziv_based_encode(string, input_dict, self.hash_function_, self.max_dict_size)
 
             for ngram in encoding_dict.keys():
                 if ngram in self.column_label_dictionary_:
@@ -478,15 +632,77 @@ class LZCompressionVectorizer(BaseEstimator, TransformerMixin):
 
 
 class BytePairEncodingVectorizer(BaseEstimator, TransformerMixin):
+    """Create vector representations of strings using a Byte Pair Encoding. This can
+    be viewed as a kind of compression vectorizer (since BPE is also a compression scheme),
+    or as a form a learned tokenization applicable to arbitrary strings or byte sequences
+    that don't have standard tokenizers available.
+
+    The vectorizer has multiple output types specified by ``return_type``:
+      * "matrix": an occurrence count matrix as a compression vectorizer
+      * "sequences": a list of arrays of integer codes providing the encodings of each string
+      * "tokens": a list of lists of string tokens with the vectorizer acting as a tokenizer
+
+    Passing the "tokens" ``return_type`` to the ``NgramVectorizer`` with n=1 will result in
+    the same output as the "matrix" ``return_type``, but obviously other ngram sizes are possible
+    and may bbe more useful.
+
+    The "tokens" ``return_type`` can also potentially be used with the
+    ``TokenCooccurrenceVectorizer`` to learn vector representations of the individual tokens.
+
+    Parameters
+    ----------
+    max_vocab_size: int (optional, default=10000)
+        The maximum number of distinct codes to use in the encoding dictionary
+
+    min_token_occurrence: int (optional, default=1)
+        The minimum number of occurrences of a pair for it to be considered for
+        adding as a new token to the encoding dictionary.
+
+    return_type: string (optional, default="matrix")
+        The type of data to return upon transforming.
+          * "matrix": an occurrence count matrix as a compression vectorizer
+          * "sequences": a list of arrays of integer codes providing the encodings of each string
+          * "tokens": a list of lists of string tokens with the vectorizer acting as a tokenizer
+
+    Attributes
+    ----------
+    code_list_: list of pairs of ints
+        The pairs merged to create new codes. The ``i``th entry is associated to
+        the code value ``i + max_char_code_ + 1``.
+
+    tokens_: list of strings
+        The string representations of the new codes. The ``i``th entry is associated to
+        the code value ``i + max_char_code_ + 1``.
+
+    max_char_code_: int
+        The maximum value of character codes in the training set. For ascii strings
+        this is simply 255, but for unicode strings it may be significantly larger. Code
+        values associated with new learned tokens begin at ``max_char_code_ + 1``.
+    """
 
     def __init__(self, max_vocab_size=10000, min_token_occurrence=1, return_type="matrix"):
-
         self.max_vocab_size = max_vocab_size
         self.min_token_occurence = min_token_occurrence
         self.return_type = return_type
 
 
     def fit_transform(self, X, y=None, **fit_params):
+        """Train the transformer on a list of strings ``X`` and
+        return the resulting vectorization.
+
+         Parameters
+         ----------
+         X: list of strings
+             The strings or byte sequences to learn byte pair encoding from and then encode
+
+         y: None (optional, default=None)
+             Ignored.
+
+        Returns
+        -------
+         vectorization: scipy.sparse.csr_matrix or list of array of int or list of lists of strings
+             The transformed data, with the return type depending on the value of ``return_type``.
+        """
         if self.return_type not in ("matrix", "tokens", "sequences"):
             raise ValueError(f"return_type must be one of 'matrix' 'tokens', or 'sequences', not {self.return_type}")
         if not type(self.max_vocab_size) == int or self.max_vocab_size <= 0:
@@ -533,10 +749,41 @@ class BytePairEncodingVectorizer(BaseEstimator, TransformerMixin):
             raise ValueError(f"return_type must be one of 'matrix' 'tokens', or 'sequences', not {self.return_type}")
 
     def fit(self, X, y=None, **fit_params):
+        """Train the transformer on a list of strings ``X``
+
+        Parameters
+        ----------
+        X: list of strings
+            The strings or byte sequences to learn byte pair encoding from.
+
+        y: None (optional, default=None)
+            Ignored.
+
+        Returns
+        -------
+        self:
+            The trained model.
+        """
         self.fit_transform(X, y, **fit_params)
         return self
 
     def transform(self, X, y=None):
+        """Transform a list of strings ``X`` into a byte pair encoding
+         vectorization using the learned byte pair encoding.
+
+          Parameters
+          ----------
+          X: list of strings
+              The strings or byte sequences to apply byte pair encoding to.
+
+          y: None (optional, default=None)
+              Ignored.
+
+         Returns
+         -------
+         vectorization: scipy.sparse.csr_matrix or list of array of int or list of lists of strings
+             The transformed data, with the return type depending on the value of ``return_type``.
+         """
         check_is_fitted(self, ["tokens_", "code_list_", "max_char_code_"])
 
         encodings = [bpe_encode(string) for string in X]
