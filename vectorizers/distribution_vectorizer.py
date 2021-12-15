@@ -10,7 +10,7 @@ from sklearn.utils.validation import (
 )
 from pandas.api.types import is_datetime64_any_dtype as is_datetime
 
-def distribution_type_from_series(series):
+def distribution_type_from_series(series): # pragma: no cover
     if series.dtype in (np.int, np.int8, np.int16, np.int32, np.int64, np.uint8, np.uint16, np.uint32, np.uint64):
         if series.min() >= 0:
             if series.max() == 1:
@@ -38,7 +38,7 @@ def distribution_type_from_series(series):
         raise ValueError(f"Failed to handle series {series}")
 
 
-def preprocess_dataframe(df, time_granularity="1s"):
+def preprocess_dataframe(df, time_granularity="1s"): # pragma: no cover
     for feature in df:
         if feature.dtype == object:
             df[feature] = pd.Categorical(df[feature])
@@ -47,7 +47,7 @@ def preprocess_dataframe(df, time_granularity="1s"):
 
     return
 
-class DataframeDistributionVectorizer(BaseEstimator, TransformerMixin):
+class DataframeDistributionVectorizer(BaseEstimator, TransformerMixin): # pragma: no cover
 
     def __init__(self, n_components=100):
         self.n_components = n_components
