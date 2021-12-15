@@ -645,18 +645,18 @@ class LZCompressionVectorizer(BaseEstimator, TransformerMixin):
         vectorization: scipy.sparse.csr_matrix
             The transformed training data.
         """
+        if self.max_dict_size <= 1:
+            raise ValueError("max_dict_size must be at least 2")
         if self.max_columns is not None:
+            if self.max_columns <= 1:
+                raise ValueError("max_columns must be at least 2")
             random_state = check_random_state(self.random_state)
             self.hash_function_ = make_hash(self.max_columns, np.int32(random_state.randint(MAX_INT32)))
-        else:
-            self.hash_function_ = self.hash_function
-
-        if self.max_columns is not None:
             self.column_label_dictionary_ = numba.typed.Dict.empty(numba.types.int32, numba.types.int64)
         else:
+            self.hash_function_ = self.hash_function
             self.column_label_dictionary_ = numba.typed.Dict.empty(numba.types.unicode_type, numba.types.int64)
 
-        dict_size = 0
         indptr = [0]
         indices = []
         data = []
@@ -736,16 +736,21 @@ class LZCompressionVectorizer(BaseEstimator, TransformerMixin):
         vectorization: scipy.sparse.csr_matrix
             The transformed data.
         """
-        indptr = []
+        indptr = [0]
         indices = []
         data = []
 
         for string in X:
 
-            if self.base_dictionary is None:
-                input_dict = {}
+            # Reset the input dict
+            if self.max_columns is not None:
+                input_dict = numba.typed.Dict.empty(numba.types.int32, numba.types.int64)
             else:
-                input_dict = self.base_dictionary.copy()
+                input_dict = numba.typed.Dict.empty(numba.types.unicode_type, numba.types.int64)
+
+            if self.base_dictionary is not None:
+                for key, val in self.base_dictionary.items():
+                    input_dict[key] = val
 
             encoding_dict = lempel_ziv_based_encode(string, input_dict, self.hash_function_, self.max_dict_size)
 
@@ -932,7 +937,10 @@ class BytePairEncodingVectorizer(BaseEstimator, TransformerMixin):
          """
         check_is_fitted(self, ["tokens_", "code_list_", "max_char_code_"])
 
-        encodings = [bpe_encode(string) for string in X]
+        encodings = [
+            bpe_encode(string, self.code_list_, self.max_char_code_)
+            for string in X
+        ]
 
         if self.return_type == "sequences":
             return encodings
