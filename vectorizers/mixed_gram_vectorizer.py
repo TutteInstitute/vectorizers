@@ -32,7 +32,7 @@ def unicode_to_uint8(string):
     return result
 
 # Duplicated from https://gist.github.com/stevesimmons/58b5e113a41c5c23775d17cc83929d88
-@numba.njit
+@numba.njit()
 def murmurhash(key, seed) -> int:
     length = len(key)
     n, t = divmod(length, 4)
@@ -113,6 +113,25 @@ def lempel_ziv_based_encode(string, dictionary, hash_function=identity_hash, max
 
 @numba.njit(nogil=True)
 def counts_to_csr_data(count_dict, column_dict):
+    """Convert a dictionary of count data to necessary inputs for a csr matrix.
+
+    Parameters
+    ----------
+    count_dict: dict of object to int
+        The count of (hashed) objects; often ngrams.
+
+    column_dict: dict of object to int
+        The indices of the columns of the (hashed) objects often ngrams
+        New entries will be added as necessary.
+
+    Returns
+    -------
+    indices:  list of int
+        The indices for the row
+
+    data: list of int
+        The data for the row
+    """
     indices = []
     data = []
     col_dict_size = len(column_dict)
@@ -133,6 +152,19 @@ def counts_to_csr_data(count_dict, column_dict):
 
 @numba.njit(nogil=True)
 def count_pairs(char_list):
+    """Generate pair counts for all pairs of codes in char_list.
+
+    Parameters
+    ----------
+    char_list: list of arrays of int64
+        A list of encoded arrays for which pairs will be counted
+
+    Returns
+    -------
+    pair_counts: dict of pairs to int
+        A dictionary mapping pairs of codes to the count of the total
+        number of occurrences of the pair in encoded arrays.
+    """
     result = {}
     for array in char_list:
         for i in range(array.shape[0] - 1):
@@ -161,6 +193,37 @@ def pair_length(pair, pair_lengths, max_char_code):
     )
 )
 def contract_and_count_pairs(char_list, pair_to_contract, pair_counts, new_code=-1):
+    """Generate a new encoding by replacing ``pair_to_contract`` with ``new_code``
+    and simultaneously updating the ``pair_counts`` dictionary to reflect the new
+    pair counts resulting from the merges. This allows counting and merging to be done
+    in a single pass.
+
+    Parameters
+    ----------
+    char_list: array of int64
+        The current encoding to be improved by contracting ``pair_to_contract`` to ``new_code``
+
+    pair_to_contract: pair of int64
+        The pair of codes to be contracted to a single new code
+
+    pair_counts: dict of pairs to int
+        The current counts of pairs that are being kept track of. This dict will
+        be updated to reflect the new counts resulting from the contractions.
+
+    new_code: int
+        The new code value to replace ``pair_to_contract`` with.
+
+    Returns
+    -------
+    new_char_list: array of int64
+        The new array of codes with ``pair_to_contract`` merged to ``new_code``
+        wherever it occurs.
+
+    pair_counts: dict of pairs to int
+        Updated counts for all the pairs in the original pair_counts dict, plus
+        any newly created pairs involving the new code. Note that pairs that are
+        not in the passed in pair_counts will not be decremented as required.
+    """
     skip_char = False
     len_char_list = len(char_list)
     last_char_added = -1
@@ -211,6 +274,38 @@ def contract_and_count_pairs(char_list, pair_to_contract, pair_counts, new_code=
 
 @numba.njit(nogil=True)
 def pruning_max_freq_pair(count_dict, code_lengths, max_char_code, min_count=1):
+    """Find the maximum frequency pair given a dictionary of counts of pair occurrences.
+    Ties are broken first on the lengths (as string token representation) of the pairs,
+    and then lexicographically on the pair's code values.
+
+    During the search for the max, we will also find pairs to be removed from the
+    dictionary based on the ``min_count`` value. This allows the dictionary to remain
+    smaller than it otherwise would.
+
+    Parameters
+    ----------
+    count_dict: dict of pairs to ints
+        The counts of the number of occurrences of pairs
+
+    code_lengths: dict of codes to ints
+        The lengths of different codes as string token representations
+
+    max_char_code: int
+        The maximum code value of any single character in the learned code
+
+    min_count: int
+        The minimum number of occurrences of a pair for it to remain
+        in the dictionary. Pairs with fewer than this number of occurences
+        will be pruned out.
+
+    Returns
+    -------
+    best_pair: pair of int64s
+        The pair of codes that are the most frequent
+
+    max_count: int
+        the number of occurrences of the best pair.
+    """
     result = (-1, -1)
     max_count = 0
     best_length = 0
@@ -268,6 +363,37 @@ def pair_to_list(pair, code_list, max_char_code):
 
 @numba.njit()
 def bpe_train(char_list, vocab_size=10000, min_count=1):
+    """Train a byye pair encoding on a given list of strings.
+
+    Parameters
+    ----------
+    char_list: list of strings
+        The strings to learn a byte pair encoding scheme from
+
+    vocab_size: int
+        The maximum number of new codes representing byte sequences to learn.
+
+    min_count: int
+        The minimum number of occurrences a pair must have to be considered for merging.
+
+    Returns
+    -------
+    tokens: list of strings
+        The string representations of the new codes. The ``i``th entry is associated to
+        the code value ``i + max_char_code_ + 1``.
+
+    code_list: list of pairs of int64s
+        The pairs merged to create new codes. The ``i``th entry is associated to
+        the code value ``i + max_char_code_ + 1``.
+
+    compressed_chars: list of arrays of int64s
+        The encoded versions of the input strings
+
+    max_char_code: int64
+        The maximum value of character codes in the training set. For ascii strings
+        this is simply 255, but for unicode strings it may be significantly larger. Code
+        values associated with new learned tokens begin at ``max_char_code_ + 1``.
+    """
     # Initialize compressed chars
     compressed_chars = [np.empty(len(chars), dtype=np.int64) for chars in char_list]
     max_char_code = 0
@@ -324,6 +450,26 @@ def bpe_train(char_list, vocab_size=10000, min_count=1):
 
 @numba.njit()
 def contract_pair(char_list, pair_to_contract, new_code=-1):
+    """Generate a new array on codes by contracting ``pair_to_contract`` to
+    the code ``new_code``.
+
+    Parameters
+    ----------
+    char_list: array of int64
+        The array to apply pair contraction to
+
+    pair_to_contract: pair of int64
+        The code pair to be contracted to a new code value
+
+    new_code: int64
+        The new code value to use in place of ``pair_to_contract``
+
+    Returns
+    -------
+    new_char_list: array of int64
+        The new array of codes with ``pair_to_contract`` merged to ``new_code``
+        wherever it occurs.
+    """
     skip_char = False
     len_char_list = len(char_list)
     new_char_list = np.zeros(len_char_list, dtype=np.int64)
