@@ -64,20 +64,34 @@ class EdgeListVectorizer(BaseEstimator, TransformerMixin):
         # Convert data from whatever format it came in into an Nx3 np.array
         self.edge_list_ = read_edge_data(X)
 
-        #TODO: Implement Joint space dictionary
-
-        # Initialize row and column label dictionaries.
-        if self.row_label_dictionary is None:
-            self.row_label_dictionary_ = {token: index for index, token in enumerate(np.unique(self.edge_list_[:, 0]))}
+        if self.joint_space:
+            if (self.column_label_dictionary is None) and (self.row_label_dictionary is None):
+                self.row_label_dictionary_ = {token: index for index, token in enumerate(np.unique(np.append(self.edge_list_[:, 0], self.edge_list_[:, 1])))}
+                self.column_label_dictionary_ = self.row_label_dictionary_
+            elif self.row_label_dictionary is None:
+                self.column_label_dictionary_ = self.column_label_dictionary
+                self.row_label_dictionary_ = self.column_label_dictionary
+            elif self.column_label_dictionary is None:
+                self.column_label_dictionary_ = self.row_label_dictionary
+                self.row_label_dictionary_ = self.row_label_dictionary
+            else:
+                raise ValueError("Joint_space=True: Please specify at most a single label dictionary (either one works).")
         else:
-            self.row_label_dictionary_ = self.row_label_dictionary
+            if self.row_label_dictionary is None:
+                self.row_label_dictionary_ = {token: index for index, token in enumerate(np.unique(self.edge_list_[:, 0]))}
+            else:
+                self.row_label_dictionary_ = self.row_label_dictionary
+            if self.column_label_dictionary is None:
+                self.column_label_dictionary_ = {token: index for index, token in enumerate(np.unique(self.edge_list_[:, 1]))}
+            else:
+                self.column_label_dictionary_ = self.column_label_dictionary
+        #Build reverse indexes
         self.row_index_dictionary_ = {y: x for (x, y) in self.row_label_dictionary_.items()}
-
-        if self.column_label_dictionary is None:
-            self.column_label_dictionary_ = {token: index for index, token in enumerate(np.unique(self.edge_list_[:, 1]))}
-        else:
-            self.column_label_dictionary_ = self.column_label_dictionary
         self.column_index_dictionary_ = {y: x for (x, y) in self.column_label_dictionary_.items()}
+        max_row = np.max(list(self.row_index_dictionary_.keys()))+1
+        max_col = np.max(list(self.column_index_dictionary_.keys()))+1
+
+        print(self.row_label_dictionary_)
 
         # Get row and column indices for only the edges who have both labels in our dictionary index
         valid_rows = np.isin(self.edge_list_[:, 0], list(self.row_label_dictionary_.keys()))
@@ -85,7 +99,9 @@ class EdgeListVectorizer(BaseEstimator, TransformerMixin):
         valid_edges = valid_rows & valid_cols
         row_indices = [self.row_label_dictionary_[x] for x in self.edge_list_[valid_edges, 0]]
         col_indices = [self.column_label_dictionary_[x] for x in self.edge_list_[valid_edges, 1]]
-        self._train_matrix = scipy.sparse.coo_matrix((self.edge_list_[valid_edges, 2].astype(float), (row_indices, col_indices))).tocsr()
+        # Must specify the shape to ensure that tailing zero rows/cols aren't suppressed.
+        self._train_matrix = scipy.sparse.coo_matrix((self.edge_list_[valid_edges, 2].astype(float), (row_indices, col_indices)),
+                                                     shape=(max_row, max_col)).tocsr()
         self._train_matrix.sum_duplicates()
 
         return self
