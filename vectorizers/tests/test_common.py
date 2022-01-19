@@ -20,6 +20,7 @@ from vectorizers import LabelledTreeCooccurrenceVectorizer
 from vectorizers import WassersteinVectorizer
 from vectorizers import ApproximateWassersteinVectorizer
 from vectorizers import SinkhornVectorizer
+from vectorizers import LZCompressionVectorizer, BytePairEncodingVectorizer
 
 from vectorizers.distances import kantorovich1d
 from vectorizers.ngram_vectorizer import ngrams_of
@@ -34,6 +35,7 @@ from vectorizers._window_kernels import (
     flat_kernel,
 )
 from vectorizers.utils import summarize_embedding, categorical_columns_to_list
+from vectorizers.mixed_gram_vectorizer import to_unicode
 
 token_data = (
     (1, 3, 1, 4, 2),
@@ -159,6 +161,18 @@ generator_reference_dist = np.full(16, 1.0 / 16.0)
 generator_reference_vectors = (
         np.mean(distributions_data.toarray(), axis=0) @ vectors_data
 ) + np.random.normal(scale=0.25 * np.mean(np.abs(vectors_data)), size=(16, 150))
+
+
+raw_string_data = [
+    "asdfj;afoosdaflksapokwerfoobarpokwersdfsadfsadfnbkajyfoopokwer",
+    "pokfoo;ohnASDbarfoobarpoksdf sgn;asregtjpoksdfpokpokwer",
+    "werqweoijsdcasdfpoktrfoobarpokqwernasdfasdpokpokpok",
+    "pokwerpokwqerpokwersadfpokqwepokwerpokpok",
+    "foobarfoofooasdfsdfgasdffoobarbazcabfoobarbarbazfoobaz",
+    "pokfoopokbarpokwerpokbazgfniusnvbgasgbabgsadfjnkr[pko",
+]
+
+
 
 def test_LabeledTreeCooccurrenceVectorizer():
     model = LabelledTreeCooccurrenceVectorizer(
@@ -1396,3 +1410,59 @@ def test_categorical_column_to_list_bad_param():
     df = pd.DataFrame(path_graph.todense(), columns=["a", "b", "c", "d"])
     with pytest.raises(ValueError):
         categorical_columns_to_list(df, ["a", "c", "foo"])
+
+
+def test_lzcompression_vectorizer_basic():
+    lzc = LZCompressionVectorizer()
+    result1 = lzc.fit_transform(raw_string_data)
+    result2 = lzc.transform(raw_string_data)
+    assert np.allclose(result1.toarray(), result2.toarray())
+
+def test_lzcompression_vectorizer_badparams():
+    with pytest.raises(ValueError):
+        lzc =  LZCompressionVectorizer(max_dict_size=-1)
+        lzc.fit(raw_string_data)
+
+    with pytest.raises(ValueError):
+        lzc =  LZCompressionVectorizer(max_columns=-1)
+        lzc.fit(raw_string_data)
+
+def test_bpe_vectorizer_basic():
+    bpe = BytePairEncodingVectorizer()
+    result1 = bpe.fit_transform(raw_string_data)
+    result2 = bpe.transform(raw_string_data)
+    assert np.allclose(result1.toarray(), result2.toarray())
+
+def test_bpe_tokens_ngram_matches():
+    bpe1 = BytePairEncodingVectorizer(return_type="matrix")
+    bpe2 = BytePairEncodingVectorizer(return_type="tokens")
+
+
+    result1 = bpe1.fit_transform(raw_string_data)
+    token_dictionary = {
+        to_unicode(code, bpe1.tokens_, bpe1.max_char_code_):n
+        for code, n in bpe1.column_label_dictionary_.items()
+    }
+
+    tokens = bpe2.fit_transform(raw_string_data)
+    result2 = NgramVectorizer(token_dictionary=token_dictionary).fit_transform(tokens)
+
+    assert np.allclose(result1.toarray(), result2.toarray())
+
+def test_bpe_bad_params():
+    with pytest.raises(ValueError):
+        bpe = BytePairEncodingVectorizer(max_vocab_size=-1)
+        bpe.fit(raw_string_data)
+
+    with pytest.raises(ValueError):
+        bpe = BytePairEncodingVectorizer(min_token_occurrence=-1)
+        bpe.fit(raw_string_data)
+
+    with pytest.raises(ValueError):
+        bpe = BytePairEncodingVectorizer(return_type=-1)
+        bpe.fit(raw_string_data)
+
+    with pytest.raises(ValueError):
+        bpe = BytePairEncodingVectorizer(return_type="nonsense")
+        bpe.fit(raw_string_data)
+
