@@ -36,6 +36,8 @@ class EdgeListVectorizer(BaseEstimator, TransformerMixin):
     and represents each row_name as a sparse matrix containing the values
     associated with each column_name.
 
+    This might also be thought of as a PivotTableVectorizer or a CrossTabVectorizer.
+
     Parameters
     ----------
     column_label_dictionary: dictionary or None (optional, default=None)
@@ -50,6 +52,8 @@ class EdgeListVectorizer(BaseEstimator, TransformerMixin):
         Are the first two columns of your edge list over the same token space.  If so build
         a single unified token dictionary over both columns.
     pre_indexed: bool (optional, default=False)
+        Not yet implemented.  I'm not sure that this feature is going to be used enought to prioritize implementing.
+        Please reach out if this would be useful to you.
         My row and columns are just the row and column indices and not row and column labels.
 
     """
