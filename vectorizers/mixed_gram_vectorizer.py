@@ -363,7 +363,7 @@ def pair_to_list(pair, code_list, max_char_code):
 
 @numba.njit()
 def bpe_train(char_list, vocab_size=10000, min_count=1):
-    """Train a byye pair encoding on a given list of strings.
+    """Train a byte pair encoding on a given list of strings.
 
     Parameters
     ----------
@@ -555,7 +555,7 @@ class LZCompressionVectorizer(BaseEstimator, TransformerMixin):
     """Create a vector representations of arbitrary string or byte sequences
     by using Lempel-Ziv compression. Each string is converted into the
     vector of how many times each LZ encoding string is used. This means
-    that, for example, the Jacccard distance between such vectors is a
+    that, for example, the Jaccard distance between such vectors is a
     close approximation of the normalized compression distance between the
     two strings under an LZ compression scheme.
 
@@ -795,7 +795,7 @@ class BytePairEncodingVectorizer(BaseEstimator, TransformerMixin):
 
     Passing the "tokens" ``return_type`` to the ``NgramVectorizer`` with n=1 will result in
     the same output as the "matrix" ``return_type``, but obviously other ngram sizes are possible
-    and may bbe more useful.
+    and may be more useful.
 
     The "tokens" ``return_type`` can also potentially be used with the
     ``TokenCooccurrenceVectorizer`` to learn vector representations of the individual tokens.
