@@ -11,6 +11,7 @@ from .linear_optimal_transport import (
     SinkhornVectorizer,
     ApproximateWassersteinVectorizer,
 )
+from .mixed_gram_vectorizer import LZCompressionVectorizer, BytePairEncodingVectorizer
 
 from .utils import cast_tokens_to_strings
 
@@ -25,6 +26,7 @@ __all__ = [
     "KDEVectorizer",
     "LabelledTreeCooccurrenceVectorizer",
     "WassersteinVectorizer",
+    "SinkhornVectorizer",
     "ApproximateWassersteinVectorizer",
     "EdgeListVectorizer",
     "__version__",
