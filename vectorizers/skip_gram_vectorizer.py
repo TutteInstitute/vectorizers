@@ -3,9 +3,7 @@ import numba
 
 from sklearn.base import BaseEstimator, TransformerMixin
 
-from sklearn.utils.validation import (
-    check_is_fitted,
-)
+from sklearn.utils.validation import check_is_fitted
 
 import scipy.linalg
 import scipy.stats
@@ -18,9 +16,7 @@ from .utils import (
 
 from .coo_utils import sum_coo_entries
 
-from .preprocessing import (
-    preprocess_token_sequences,
-)
+from .preprocessing import preprocess_token_sequences
 import vectorizers.distances as distances
 
 from ._window_kernels import (

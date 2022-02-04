@@ -8,6 +8,7 @@ environment:
       NUMPY_VERSION: "1.16.6"
       SCIPY_VERSION: "1.4.1"
       SKLEARN_VERSION: "0.22.1"
+      COVERAGE: 0
 
     - PYTHON: "C:\\Miniconda3-x64"
       PYTHON_VERSION: "3.8.x"
@@ -15,6 +16,15 @@ environment:
       NUMPY_VERSION: "*"
       SCIPY_VERSION: "*"
       SKLEARN_VERSION: "*"
+      COVERAGE: 0
+
+    - PYTHON: "C:\\Miniconda3-x64"
+      PYTHON_VERSION: "3.8.x"
+      PYTHON_ARCH: "64"
+      NUMPY_VERSION: "*"
+      SCIPY_VERSION: "*"
+      SKLEARN_VERSION: "*"
+      COVERAGE: 1
 
 install:
   # Prepend miniconda installed Python to the PATH of this build
@@ -23,7 +33,7 @@ install:
   - "SET PATH=%PYTHON%;%PYTHON%\\Scripts;%PYTHON%\\Library\\bin;%PATH%"
   # install the dependencies
   - "conda install --yes pip numpy==%NUMPY_VERSION% scipy==%SCIPY_VERSION% scikit-learn==%SKLEARN_VERSION% nose pytest pytest-cov"
-  - conda install --yes numba pandas
+  - conda install --yes numba pandas dask pomegranate
   - pip install pynndescent
   - pip install codecov
   - pip install .
@@ -31,9 +41,10 @@ install:
 test_script:
   - mkdir for_test
   - cd for_test
+  - IF %COVERAGE%==1 set NUMBA_DISABLE_JIT=1
   - pytest -v --cov=vectorizers --pyargs vectorizers
 
 after_test:
   - cp .coverage %APPVEYOR_BUILD_FOLDER%
   - cd %APPVEYOR_BUILD_FOLDER%
-  - codecov
+  - IF %COVERAGE%==1 codecov

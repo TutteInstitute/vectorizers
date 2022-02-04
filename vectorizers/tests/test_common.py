@@ -5,6 +5,7 @@ from sklearn.preprocessing import normalize
 
 import scipy.sparse
 import numpy as np
+import pandas as pd
 
 from vectorizers import TokenCooccurrenceVectorizer
 from vectorizers import NgramVectorizer
@@ -13,10 +14,13 @@ from vectorizers import DistributionVectorizer
 from vectorizers import HistogramVectorizer
 from vectorizers import KDEVectorizer
 from vectorizers import LabelledTreeCooccurrenceVectorizer
-from vectorizers.transformers import SequentialDifferenceTransformer
-from vectorizers.transformers import Wasserstein1DHistogramTransformer
+# Deprecated transformers
+# from vectorizers.transformers import SequentialDifferenceTransformer
+# from vectorizers.transformers import Wasserstein1DHistogramTransformer
 from vectorizers import WassersteinVectorizer
 from vectorizers import ApproximateWassersteinVectorizer
+from vectorizers import SinkhornVectorizer
+from vectorizers import LZCompressionVectorizer, BytePairEncodingVectorizer
 
 from vectorizers.distances import kantorovich1d
 from vectorizers.ngram_vectorizer import ngrams_of
@@ -30,6 +34,8 @@ from vectorizers._window_kernels import (
     harmonic_kernel,
     flat_kernel,
 )
+from vectorizers.utils import summarize_embedding, categorical_columns_to_list
+from vectorizers.mixed_gram_vectorizer import to_unicode
 
 token_data = (
     (1, 3, 1, 4, 2),
@@ -144,6 +150,28 @@ distributions_data = scipy.sparse.rand(
     100, 1000, format="csr", random_state=42, dtype=np.float64
 )
 vectors_data = np.random.normal(size=(1000, 150))
+
+distributions_data_list = [
+    np.array(x) for x in distributions_data.tolil().data
+]
+vectors_data_list = [
+    np.ascontiguousarray(vectors_data[indices]) for indices in distributions_data.tolil().rows
+]
+generator_reference_dist = np.full(16, 1.0 / 16.0)
+generator_reference_vectors = (
+        np.mean(distributions_data.toarray(), axis=0) @ vectors_data
+) + np.random.normal(scale=0.25 * np.mean(np.abs(vectors_data)), size=(16, 150))
+
+
+raw_string_data = [
+    "asdfj;afoosdaflksapokwerfoobarpokwersdfsadfsadfnbkajyfoopokwer",
+    "pokfoo;ohnASDbarfoobarpoksdf sgn;asregtjpoksdfpokpokwer",
+    "werqweoijsdcasdfpoktrfoobarpokqwernasdfasdpokpokpok",
+    "pokwerpokwqerpokwersadfpokqwepokwerpokpok",
+    "foobarfoofooasdfsdfgasdffoobarbazcabfoobarbarbazfoobaz",
+    "pokfoopokbarpokwerpokbazgfniusnvbgasgbabgsadfjnkr[pko",
+]
+
 
 
 def test_LabeledTreeCooccurrenceVectorizer():
@@ -508,6 +536,7 @@ def test_cooccurrence_vectorizer_coo_mem_limit():
         n_iter=0,
         normalize_windows=False,
     )
+    np.random.seed(42)
     data = [[np.random.randint(0, 10) for i in range(100)]]
     mat1 = vectorizer_a.fit_transform(data).toarray()
     mat2 = vectorizer_b.fit_transform(data).toarray()
@@ -881,27 +910,27 @@ def test_kde_vectorizer_basic():
     transform_result = vectorizer.transform(value_sequence_data)
     assert np.all(result == transform_result)
 
-
-def test_seq_diff_transformer():
-    transformer = SequentialDifferenceTransformer()
-    result = transformer.fit_transform(value_sequence_data)
-    for i in range(len(value_sequence_data)):
-        assert np.allclose(
-            result[i], value_sequence_data[i][1:] - value_sequence_data[i][:-1]
-        )
-
-
-def test_wass1d_transfomer():
-    vectorizer = HistogramVectorizer()
-    histogram_data = vectorizer.fit_transform(value_sequence_data)
-    transformer = Wasserstein1DHistogramTransformer()
-    result = transformer.fit_transform(histogram_data)
-    for i in range(result.shape[0]):
-        for j in range(i + 1, result.shape[0]):
-            assert np.isclose(
-                kantorovich1d(histogram_data[i], histogram_data[j]),
-                np.sum(np.abs(result[i] - result[j])),
-            )
+# Deprecated transformers; tests to be removed
+# def test_seq_diff_transformer():
+#     transformer = SequentialDifferenceTransformer()
+#     result = transformer.fit_transform(value_sequence_data)
+#     for i in range(len(value_sequence_data)):
+#         assert np.allclose(
+#             result[i], value_sequence_data[i][1:] - value_sequence_data[i][:-1]
+#         )
+#
+#
+# def test_wass1d_transfomer():
+#     vectorizer = HistogramVectorizer()
+#     histogram_data = vectorizer.fit_transform(value_sequence_data)
+#     transformer = Wasserstein1DHistogramTransformer()
+#     result = transformer.fit_transform(histogram_data)
+#     for i in range(result.shape[0]):
+#         for j in range(i + 1, result.shape[0]):
+#             assert np.isclose(
+#                 kantorovich1d(histogram_data[i], histogram_data[j]),
+#                 np.sum(np.abs(result[i] - result[j])),
+#             )
 
 
 def test_wasserstein_vectorizer_basic():
@@ -910,9 +939,72 @@ def test_wasserstein_vectorizer_basic():
     transform_result = vectorizer.transform(distributions_data, vectors=vectors_data)
     assert np.allclose(result, transform_result, rtol=1e-3, atol=1e-6)
 
+def test_wasserstein_vectorizer_lists():
+    vectorizer = WassersteinVectorizer(random_state=42)
+    result = vectorizer.fit_transform(distributions_data_list, vectors=vectors_data_list)
+    transform_result = vectorizer.transform(distributions_data_list, vectors=vectors_data_list)
+    assert np.allclose(result, transform_result, rtol=1e-3, atol=1e-6)
+
+def test_wasserstein_vectorizer_generators():
+    distributions_data_generator = (x for x in distributions_data_list)
+    vectors_data_generator = (x for x in vectors_data_list)
+    vectorizer = WassersteinVectorizer(random_state=42)
+    result = vectorizer.fit_transform(
+        distributions_data_generator,
+        vectors=vectors_data_generator,
+        reference_distribution=generator_reference_dist,
+        reference_vectors=generator_reference_vectors,
+        n_distributions=distributions_data.shape[0],
+        vector_dim=vectors_data.shape[1],
+    )
+    distributions_data_generator = (x for x in distributions_data_list)
+    vectors_data_generator = (x for x in vectors_data_list)
+    transform_result = vectorizer.transform(
+        distributions_data_generator,
+        vectors=vectors_data_generator,
+        n_distributions=distributions_data.shape[0],
+        vector_dim=vectors_data.shape[1],
+    )
+    assert np.allclose(result, transform_result, rtol=1e-3, atol=1e-6)
+
+def test_wasserstein_vectorizer_generators_blockwise():
+    distributions_data_generator = (x for x in distributions_data_list)
+    vectors_data_generator = (x for x in vectors_data_list)
+    vectorizer = WassersteinVectorizer(random_state=42, memory_size="50k")
+    result = vectorizer.fit_transform(
+        distributions_data_generator,
+        vectors=vectors_data_generator,
+        reference_distribution=generator_reference_dist,
+        reference_vectors=generator_reference_vectors,
+        n_distributions=distributions_data.shape[0],
+        vector_dim=vectors_data.shape[1],
+    )
+    distributions_data_generator = (x for x in distributions_data_list)
+    vectors_data_generator = (x for x in vectors_data_list)
+    transform_result = vectorizer.transform(
+        distributions_data_generator,
+        vectors=vectors_data_generator,
+        n_distributions=distributions_data.shape[0],
+        vector_dim=vectors_data.shape[1],
+    )
+    assert np.allclose(result, transform_result, rtol=1e-3, atol=1e-6)
 
 def test_wasserstein_vectorizer_blockwise():
     vectorizer = WassersteinVectorizer(random_state=42, memory_size="50k")
+    result = vectorizer.fit_transform(distributions_data, vectors=vectors_data)
+    transform_result = vectorizer.transform(distributions_data, vectors=vectors_data)
+    assert np.allclose(result, transform_result, rtol=1e-3, atol=1e-6)
+
+
+def test_sinkhorn_vectorizer_basic():
+    vectorizer = SinkhornVectorizer(random_state=42)
+    result = vectorizer.fit_transform(distributions_data, vectors=vectors_data)
+    transform_result = vectorizer.transform(distributions_data, vectors=vectors_data)
+    assert np.allclose(result, transform_result, rtol=1e-3, atol=1e-6)
+
+
+def test_sinkhorn_vectorizer_blockwise():
+    vectorizer = SinkhornVectorizer(random_state=42, memory_size="50k")
     result = vectorizer.fit_transform(distributions_data, vectors=vectors_data)
     transform_result = vectorizer.transform(distributions_data, vectors=vectors_data)
     assert np.allclose(result, transform_result, rtol=1e-3, atol=1e-6)
@@ -956,11 +1048,87 @@ def test_wasserstein_vectorizer_list_compared_to_sparse():
     assert np.allclose(result_sparse, result_list, rtol=1e-3, atol=1e-6)
 
 
+def test_wasserstein_vectorizer_generator_compared_to_sparse():
+    distributions_data_generator = (x for x in distributions_data_list)
+    vectors_data_generator = (x for x in vectors_data_list)
+    vectorizer_sparse = WassersteinVectorizer(random_state=42)
+    result_sparse = vectorizer_sparse.fit_transform(
+        distributions_data, vectors=vectors_data
+    )
+    vectorizer_gen = WassersteinVectorizer(random_state=42)
+    result_list = vectorizer_gen.fit_transform(
+        distributions_data_generator,
+        vectors=vectors_data_generator,
+        reference_distribution=vectorizer_sparse.reference_distribution_,
+        reference_vectors=vectorizer_sparse.reference_vectors_,
+        n_distributions=distributions_data.shape[0],
+        vector_dim=vectors_data.shape[1]
+    )
+    assert np.allclose(result_sparse, result_list, rtol=1e-3, atol=1e-6)
+
+
 def test_approx_wasserstein_vectorizer_basic():
     vectorizer = ApproximateWassersteinVectorizer(random_state=42)
     result = vectorizer.fit_transform(distributions_data, vectors=vectors_data)
     transform_result = vectorizer.transform(distributions_data, vectors=vectors_data)
     assert np.allclose(result, transform_result, rtol=1e-3, atol=1e-6)
+
+
+@pytest.mark.parametrize(
+    "wasserstein_class",
+    [WassersteinVectorizer, SinkhornVectorizer, ApproximateWassersteinVectorizer],
+)
+def test_wasserstein_based_vectorizer_bad_params(wasserstein_class):
+    with pytest.raises(ValueError):
+        vectorizer = wasserstein_class()
+        vectorizer.fit(distributions_data)
+
+    with pytest.raises(ValueError):
+        vectorizer = wasserstein_class()
+        vectorizer.fit(mixed_token_data, vectors=vectors_data)
+
+    with pytest.raises(ValueError):
+        vectorizer = wasserstein_class()
+        vectorizer.fit(point_data, vectors=vectors_data)
+
+    distributions_data_generator = (x for x in distributions_data_list)
+    vectors_data_generator = (x for x in vectors_data_list)
+    with pytest.raises(ValueError):
+        vectorizer = WassersteinVectorizer()
+        vectorizer.fit(distributions_data_generator, vectors=vectors_data_generator)
+
+    distributions_data_generator = (x for x in distributions_data_list)
+    vectors_data_generator = (x for x in vectors_data_list)
+    with pytest.raises(ValueError):
+        vectorizer = WassersteinVectorizer()
+        vectorizer.fit(
+            distributions_data_generator,
+            vectors=vectors_data_generator,
+            reference_vectors=np.random.random((10, vectors_data.shape[1])),
+        )
+
+    distributions_data_generator = (x for x in distributions_data_list)
+    vectors_data_generator = (x for x in vectors_data_list)
+    with pytest.raises(ValueError):
+        vectorizer = WassersteinVectorizer(reference_size=20)
+        vectorizer.fit(
+            distributions_data_generator,
+            vectors=vectors_data_generator,
+            reference_vectors=np.random.random((10, vectors_data.shape[1])),
+        )
+
+@pytest.mark.parametrize(
+    "wasserstein_class",
+    [WassersteinVectorizer, SinkhornVectorizer],
+)
+def test_wasserstein_based_vectorizer_bad_metrics(wasserstein_class):
+    with pytest.raises(ValueError):
+        vectorizer = wasserstein_class(metric="unsupported_metric")
+        vectorizer.fit(distributions_data, vectors=vectors_data)
+
+    with pytest.raises(ValueError):
+        vectorizer = wasserstein_class(metric=0.75)
+        vectorizer.fit(distributions_data, vectors=vectors_data)
 
 
 def test_node_removal():
@@ -994,7 +1162,7 @@ def test_node_removal():
 
 def test_multi_label_token_cooccurrence():
     vectorizer_a = TokenCooccurrenceVectorizer(
-        document_context=True,
+        multi_labelled_tokens=True,
         window_radii=[0, 1, 2],
         window_functions=["fixed", "fixed", "fixed"],
         kernel_functions=["flat", "flat", "flat"],
@@ -1024,7 +1192,7 @@ def test_multi_label_token_cooccurrence():
 
 def test_multi_label_token_cooccurrence_range():
     vectorizer_a = TokenCooccurrenceVectorizer(
-        document_context=True,
+        multi_labelled_tokens=True,
         window_radii=[1, 1],
         window_functions=["fixed", "fixed"],
         kernel_functions=["flat", "flat"],
@@ -1051,7 +1219,7 @@ def test_multi_label_token_cooccurrence_range():
 
 def test_multi_label_token_cooccurrence_harmonic():
     vectorizer_a = TokenCooccurrenceVectorizer(
-        document_context=True,
+        multi_labelled_tokens=True,
         window_radii=2,
         window_functions="fixed",
         kernel_functions="harmonic",
@@ -1078,7 +1246,7 @@ def test_multi_label_token_cooccurrence_harmonic():
 
 def test_multi_label_token_cooccurrence_em():
     vectorizer_a = TokenCooccurrenceVectorizer(
-        document_context=True,
+        multi_labelled_tokens=True,
         window_radii=[1, 1],
         window_functions=["fixed", "fixed"],
         kernel_functions=["flat", "flat"],
@@ -1095,7 +1263,7 @@ def test_multi_label_token_cooccurrence_em():
 @pytest.mark.parametrize("null", [True, False])
 def test_multi_label_token_cooccurrence_masking(null):
     vectorizer_a = TokenCooccurrenceVectorizer(
-        document_context=True,
+        multi_labelled_tokens=True,
         window_radii=[1, 1],
         window_functions=["fixed", "fixed"],
         kernel_functions=["flat", "flat"],
@@ -1110,3 +1278,156 @@ def test_multi_label_token_cooccurrence_masking(null):
     result = vectorizer_a.fit_transform(text_token_data_permutation)
     result2 = vectorizer_a.transform(text_token_data_permutation)
     assert np.allclose(result2.toarray(), result.toarray())
+
+
+@pytest.mark.parametrize("dense", [True, False])
+@pytest.mark.parametrize("include_values", [True, False])
+def test_summarize_embedding_list(dense, include_values):
+    vect = NgramVectorizer()
+    weight_matrix = vect.fit_transform(text_token_data)
+    if dense:
+        weight_matrix = weight_matrix.todense()
+    summary = summarize_embedding(
+        weight_matrix, vect.column_index_dictionary_, include_values=include_values
+    )
+    expected_result = (
+        [
+            ["foo", "wer", "pok"],
+            [],
+            ["bar", "foo", "wer"],
+            ["wer", "foo", "bar"],
+            ["bar", "foo", "wer"],
+            ["wer", "pok", "foo"],
+            ["wer", "foo", "pok"],
+        ],
+        [
+            [2.0, 1.0, 1.0],
+            [],
+            [4.0, 3.0, 2.0],
+            [2.0, 2.0, 2.0],
+            [4.0, 3.0, 2.0],
+            [3.0, 3.0, 3.0],
+            [4.0, 4.0, 2.0],
+        ],
+    )
+
+    if include_values:
+        if dense:
+            assert summary[0][2:7] == expected_result[0][2:7]
+            assert summary[1][2:7] == expected_result[1][2:7]
+        else:
+            assert summary == expected_result
+    else:
+        if dense:
+            assert summary[2:7] == expected_result[0][2:7]
+        else:
+            assert summary == expected_result[0]
+
+
+@pytest.mark.parametrize("dense", [True, False])
+@pytest.mark.parametrize("include_values", [True, False])
+def test_summarize_embedding_string(dense, include_values):
+    vect = NgramVectorizer()
+    weight_matrix = vect.fit_transform(text_token_data)
+    if dense:
+        weight_matrix = weight_matrix.todense()
+    summary = summarize_embedding(
+        weight_matrix,
+        vect.column_index_dictionary_,
+        k=2,
+        return_type="string",
+        include_values=include_values,
+    )
+    if include_values:
+        expected_result = [
+            "foo:2.0,wer:1.0",
+            "",
+            "bar:4.0,foo:3.0",
+            "wer:2.0,foo:2.0",
+            "bar:4.0,foo:3.0",
+            "wer:3.0,pok:3.0",
+            "wer:4.0,foo:4.0",
+        ]
+    else:
+        expected_result = [
+            "foo,wer",
+            "",
+            "bar,foo",
+            "wer,foo",
+            "bar,foo",
+            "wer,pok",
+            "wer,foo",
+        ]
+    if dense:
+        assert summary[2:7] == expected_result[2:7]
+    else:
+        assert summary == expected_result
+
+
+def test_categorical_columns_to_list():
+    df = pd.DataFrame(path_graph.todense(), columns=["a", "b", "c", "d"])
+    result_list = categorical_columns_to_list(df, ["a", "c"])
+    expected_result = [["a:0", "c:0"], ["a:0", "c:1"], ["a:0", "c:0"], ["a:0", "c:0"]]
+    assert expected_result == result_list
+
+
+def test_categorical_column_to_list_bad_param():
+    df = pd.DataFrame(path_graph.todense(), columns=["a", "b", "c", "d"])
+    with pytest.raises(ValueError):
+        categorical_columns_to_list(df, ["a", "c", "foo"])
+
+
+def test_lzcompression_vectorizer_basic():
+    lzc = LZCompressionVectorizer()
+    result1 = lzc.fit_transform(raw_string_data)
+    result2 = lzc.transform(raw_string_data)
+    assert np.allclose(result1.toarray(), result2.toarray())
+
+def test_lzcompression_vectorizer_badparams():
+    with pytest.raises(ValueError):
+        lzc =  LZCompressionVectorizer(max_dict_size=-1)
+        lzc.fit(raw_string_data)
+
+    with pytest.raises(ValueError):
+        lzc =  LZCompressionVectorizer(max_columns=-1)
+        lzc.fit(raw_string_data)
+
+def test_bpe_vectorizer_basic():
+    bpe = BytePairEncodingVectorizer()
+    result1 = bpe.fit_transform(raw_string_data)
+    result2 = bpe.transform(raw_string_data)
+    assert np.allclose(result1.toarray(), result2.toarray())
+
+def test_bpe_tokens_ngram_matches():
+    bpe1 = BytePairEncodingVectorizer(return_type="matrix")
+    bpe2 = BytePairEncodingVectorizer(return_type="tokens")
+
+
+    result1 = bpe1.fit_transform(raw_string_data)
+    token_dictionary = {
+        to_unicode(code, bpe1.tokens_, bpe1.max_char_code_):n
+        for code, n in bpe1.column_label_dictionary_.items()
+    }
+
+    tokens = bpe2.fit_transform(raw_string_data)
+    result2 = NgramVectorizer(token_dictionary=token_dictionary).fit_transform(tokens)
+
+    assert np.allclose(result1.toarray(), result2.toarray())
+
+def test_bpe_bad_params():
+    with pytest.raises(ValueError):
+        bpe = BytePairEncodingVectorizer(max_vocab_size=-1)
+        bpe.fit(raw_string_data)
+
+    with pytest.raises(ValueError):
+        bpe = BytePairEncodingVectorizer(min_token_occurrence=-1)
+        bpe.fit(raw_string_data)
+
+    with pytest.raises(ValueError):
+        bpe = BytePairEncodingVectorizer(return_type=-1)
+        bpe.fit(raw_string_data)
+
+    with pytest.raises(ValueError):
+        bpe = BytePairEncodingVectorizer(return_type="nonsense")
+        bpe.fit(raw_string_data)
+

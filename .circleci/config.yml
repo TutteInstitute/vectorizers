@@ -14,9 +14,10 @@ jobs:
             conda update --yes --quiet conda
             conda create -n testenv --yes --quiet python=3
             source activate testenv
-            conda install --yes pip numpy scipy scikit-learn pandas numba matplotlib sphinx sphinx_rtd_theme numpydoc pillow
+            conda install --yes pip numpy scipy scikit-learn pandas numba matplotlib sphinx sphinx_rtd_theme numpydoc pillow dask pandoc
             pip install pynndescent
             pip install sphinx-gallery
+            pip install nbsphinx
             pip install .
             cd doc
             make html
