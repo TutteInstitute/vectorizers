@@ -610,7 +610,7 @@ def preprocess_token_sequences(
             token_doc_frequencies=token_doc_frequencies,
             ignored_tokens=ignored_tokens,
             excluded_token_regex=excluded_token_regex,
-            max_unique_tokens= max_unique_tokens,
+            max_unique_tokens=max_unique_tokens,
             min_frequency=min_frequency,
             max_frequency=max_frequency,
             min_occurrences=min_occurrences,

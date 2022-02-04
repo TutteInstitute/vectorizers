@@ -396,7 +396,7 @@ def build_multi_sequence_grams(
                     kernel_result[w_i] = 0
                 else:
                     for doc_index, doc in enumerate(doc_window):
-                        kernel_result[ind: ind + len(doc)] = np.repeat(
+                        kernel_result[ind : ind + len(doc)] = np.repeat(
                             kernel_array[i][len(doc_window) - doc_index - 1], len(doc)
                         )
                         ind += len(doc)

@@ -520,7 +520,8 @@ def test_cooccurrence_vectorizer_em_iter(skip_grams_size):
         n_iter=0, skip_ngram_size=skip_grams_size
     )
     vectorizer_b = TokenCooccurrenceVectorizer(
-        n_iter=2, skip_ngram_size=skip_grams_size)
+        n_iter=2, skip_ngram_size=skip_grams_size
+    )
     assert (
         vectorizer_a.fit_transform(token_data).nnz
         == vectorizer_b.fit_transform(token_data).nnz
@@ -692,10 +693,12 @@ def test_token_cooccurrence_vectorizer_min_occur():
     assert result[0, 2] == 8
     assert result[1, 0] == 6
 
+
 def test_token_cooccurrence_vectorizer_max_unique_tokens():
     vectorizer = TokenCooccurrenceVectorizer(max_unique_tokens=2)
     vectorizer.fit(token_data)
-    assert vectorizer.token_label_dictionary_ == {1:0,2:1}
+    assert vectorizer.token_label_dictionary_ == {1: 0, 2: 1}
+
 
 def test_token_cooccurrence_vectorizer_max_freq():
     vectorizer = TokenCooccurrenceVectorizer(max_frequency=0.2)
