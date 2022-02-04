@@ -256,7 +256,6 @@ def test_equality_of_Tree_and_Token_CooccurrenceVectorizers(
 @pytest.mark.parametrize("mask_string", [None, "[MASK]"])
 @pytest.mark.parametrize("nullify_mask", [False, True])
 @pytest.mark.parametrize("normalize_windows", [False, True])
-@pytest.mark.parametrize("normalization", ["bayesian", "frequentist"])
 def test_equality_of_TokenCooccurrenceVectorizer(
     min_token_occurrences,
     max_document_frequency,
@@ -268,7 +267,6 @@ def test_equality_of_TokenCooccurrenceVectorizer(
     nullify_mask,
     n_iter,
     normalize_windows,
-    normalization,
 ):
     model1 = TokenCooccurrenceVectorizer(
         window_radii=[window_radius],
@@ -280,7 +278,6 @@ def test_equality_of_TokenCooccurrenceVectorizer(
         n_iter=n_iter,
         nullify_mask=nullify_mask and mask_string is not None,
         normalize_windows=normalize_windows,
-        normalization=normalization,
     )
     model2 = TokenCooccurrenceVectorizer(
         window_radii=window_radius,
@@ -292,7 +289,6 @@ def test_equality_of_TokenCooccurrenceVectorizer(
         n_iter=n_iter,
         nullify_mask=nullify_mask and mask_string is not None,
         normalize_windows=normalize_windows,
-        normalization=normalization,
     )
     assert np.allclose(
         model1.fit_transform(text_token_data_permutation).toarray(),
@@ -462,22 +458,6 @@ def test_token_cooccurrence_vectorizer_ngrams():
     assert np.allclose(result.toarray(), text_token_data_ngram_soln)
 
 
-def test_token_cooccurrence_vectorizer_window_normalization():
-    vectorizer = TokenCooccurrenceVectorizer(
-        n_iter=1, normalize_windows=True, window_normalization="bayesian"
-    )
-    result = vectorizer.fit_transform(token_data)
-    transform = vectorizer.transform(token_data)
-    assert (result != transform).nnz == 0
-
-    vectorizer = TokenCooccurrenceVectorizer(
-        n_iter=1, normalize_windows=True, window_normalization="frequentist"
-    )
-    result = vectorizer.fit_transform(token_data)
-    transform = vectorizer.transform(token_data)
-    assert (result != transform).nnz == 0
-
-
 def test_token_cooccurrence_vectorizer_window_args():
     vectorizer_a = TokenCooccurrenceVectorizer(window_functions="variable")
     vectorizer_b = TokenCooccurrenceVectorizer(
@@ -505,11 +485,9 @@ def test_token_cooccurrence_vectorizer_kernel_args():
 
 
 def test_cooccurrence_vectorizer_epsilon():
-    vectorizer_a = TokenCooccurrenceVectorizer(epsilon=0, normalization="frequentist")
-    vectorizer_b = TokenCooccurrenceVectorizer(
-        epsilon=1e-11, normalization="frequentist"
-    )
-    vectorizer_c = TokenCooccurrenceVectorizer(epsilon=1, normalization="frequentist")
+    vectorizer_a = TokenCooccurrenceVectorizer(epsilon=0)
+    vectorizer_b = TokenCooccurrenceVectorizer(epsilon=1e-11)
+    vectorizer_c = TokenCooccurrenceVectorizer(epsilon=1)
     mat1 = normalize(
         vectorizer_a.fit_transform(token_data).toarray(), axis=0, norm="l1"
     )
@@ -518,29 +496,11 @@ def test_cooccurrence_vectorizer_epsilon():
     assert vectorizer_c.fit_transform(token_data).nnz == 0
 
 
-def test_cooccurrence_vectorizer_coo_mem():
-    vectorizer_a = TokenCooccurrenceVectorizer(
-        window_functions="fixed",
-        n_iter=0,
-        coo_max_memory="2k",
-        normalize_windows=False,
-    )
-    vectorizer_b = TokenCooccurrenceVectorizer(
-        window_functions="fixed",
-        n_iter=0,
-        normalize_windows=False,
-    )
-
-    mat1 = vectorizer_a.fit_transform(token_data).toarray()
-    mat2 = vectorizer_b.fit_transform(token_data).toarray()
-    assert np.allclose(mat1, mat2)
-
-
 def test_cooccurrence_vectorizer_coo_mem_limit():
     vectorizer_a = TokenCooccurrenceVectorizer(
         window_functions="fixed",
         n_iter=0,
-        coo_max_memory="1k",
+        coo_initial_memory="1k",
         normalize_windows=False,
     )
     vectorizer_b = TokenCooccurrenceVectorizer(
@@ -560,8 +520,7 @@ def test_cooccurrence_vectorizer_em_iter(skip_grams_size):
         n_iter=0, skip_ngram_size=skip_grams_size
     )
     vectorizer_b = TokenCooccurrenceVectorizer(
-        n_iter=2, skip_ngram_size=skip_grams_size, normalization="frequentist"
-    )
+        n_iter=2, skip_ngram_size=skip_grams_size)
     assert (
         vectorizer_a.fit_transform(token_data).nnz
         == vectorizer_b.fit_transform(token_data).nnz
@@ -583,7 +542,6 @@ def test_cooccurrence_vectorizer_wide_iter():
         mix_weights=[1, 1],
         window_functions=["fixed", "variable"],
         window_orientations=["directional", "directional"],
-        normalization="frequentist",
         n_iter=2,
     )
     assert (
@@ -734,6 +692,10 @@ def test_token_cooccurrence_vectorizer_min_occur():
     assert result[0, 2] == 8
     assert result[1, 0] == 6
 
+def test_token_cooccurrence_vectorizer_max_unique_tokens():
+    vectorizer = TokenCooccurrenceVectorizer(max_unique_tokens=2)
+    vectorizer.fit(token_data)
+    assert vectorizer.token_label_dictionary_ == {1:0,2:1}
 
 def test_token_cooccurrence_vectorizer_max_freq():
     vectorizer = TokenCooccurrenceVectorizer(max_frequency=0.2)
@@ -1035,7 +997,7 @@ def test_multi_label_token_cooccurrence():
         kernel_functions=["flat", "flat", "flat"],
         window_orientations=["before", "before", "after"],
         normalize_windows=False,
-        coo_max_memory="1G",
+        coo_initial_memory="1G",
     )
 
     expected_result = scipy.sparse.csr_matrix(
@@ -1066,7 +1028,7 @@ def test_multi_label_token_cooccurrence_range():
         window_orientations=["before", "after"],
         kernel_args=[{"offset": 1}, {"offset": 1}],
         normalize_windows=False,
-        coo_max_memory="1G",
+        coo_initial_memory="1G",
     )
 
     expected_result = scipy.sparse.csr_matrix(
@@ -1093,7 +1055,7 @@ def test_multi_label_token_cooccurrence_harmonic():
         window_orientations="after",
         # kernel_args={'offset': 1},
         normalize_windows=False,
-        coo_max_memory="1G",
+        coo_initial_memory="1G",
     )
 
     expected_result = scipy.sparse.csr_matrix(

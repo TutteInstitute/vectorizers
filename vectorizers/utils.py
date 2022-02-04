@@ -141,7 +141,7 @@ def str_to_bytes(size_str):
         return int(np.ceil(float(parse_match.group(1))))
 
 
-def flatten(list_of_seq):
+def flatten(list_of_seq: object) -> object:
     assert isinstance(list_of_seq, Iterable)
     if type(list_of_seq[0]) in (list, tuple, np.ndarray):
         return tuple(itertools.chain.from_iterable(list_of_seq))

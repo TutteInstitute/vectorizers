@@ -23,7 +23,6 @@ from .utils import (
     pair_to_tuple,
     make_tuple_converter,
     dirichlet_process_normalize,
-    dp_normalize_vector,
     l1_normalize_vector,
 )
 
@@ -337,8 +336,6 @@ def build_multi_sequence_grams(
     array_lengths: numpy.array(int, size = (n_windows,))
         The lengths of the arrays per window used to the store the coo matrix triples.
 
-    document_context: bool
-        Indicates whether we have a sequence of tokens or a sequence of documents.
 
     Returns
     -------
@@ -367,13 +364,13 @@ def build_multi_sequence_grams(
     for d_i, seq in enumerate(token_sequences):
         for w_i, target_word in enumerate(seq):
             for i in range(n_windows):
-                if window_reversals[i] == False:
+                if not window_reversals[i]:
                     doc_window = token_sequences[
                         d_i : min(
                             [len(token_sequences), d_i + window_size_array[i, 0] + 1]
                         )
                     ]
-                elif window_reversals[i] == True:
+                else:
                     doc_window = token_sequences[
                         max([0, d_i - window_size_array[i, 0]]) : d_i + 1
                     ]
@@ -390,7 +387,7 @@ def build_multi_sequence_grams(
 
                 kernel_result = np.zeros(len(window_result)).astype(np.float64)
                 ind = 0
-                if window_reversals[i] == False:
+                if not window_reversals[i]:
                     for doc_index, doc in enumerate(doc_window):
                         kernel_result[ind : ind + len(doc)] = np.repeat(
                             kernel_array[i][np.abs(doc_index)], len(doc)
@@ -399,7 +396,7 @@ def build_multi_sequence_grams(
                     kernel_result[w_i] = 0
                 else:
                     for doc_index, doc in enumerate(doc_window):
-                        kernel_result[ind : ind + len(doc)] = np.repeat(
+                        kernel_result[ind: ind + len(doc)] = np.repeat(
                             kernel_array[i][len(doc_window) - doc_index - 1], len(doc)
                         )
                         ind += len(doc)
@@ -961,7 +958,7 @@ def em_cooccurrence_iteration(
             for d_i, seq in enumerate(token_sequences):
                 for w_i, target_word in enumerate(seq):
                     for i in range(n_windows):
-                        if window_reversals[i] == False:
+                        if not window_reversals[i]:
                             doc_window = token_sequences[
                                 d_i : min(
                                     [
@@ -970,7 +967,7 @@ def em_cooccurrence_iteration(
                                     ]
                                 )
                             ]
-                        elif window_reversals[i] == True:
+                        else:
                             doc_window = token_sequences[
                                 max([0, d_i - window_size_array[i, 0]]) : d_i + 1
                             ]
@@ -1085,6 +1082,11 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         A fixed dictionary mapping tokens to indices, or None if the dictionary
         should be learned from the training data.
 
+    max_unique_tokens: int or None (optional, default=None)
+        The maximal number of elements contained in the vocabulary.  If not None, this is
+        will prune the vocabulary to the top 'max_vocabulary_size' most frequent remaining tokens
+        after other possible preprocessing.
+
     min_occurrences: int or None (optional, default=None)
         The minimal number of occurrences of a token for it to be considered and
         counted. If None then there is no constraint, or the constraint is
@@ -1182,29 +1184,19 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
     n_iter: int (optional, default = 0)
         Number of EM iterations to perform
 
-    context_document_width: 2-tuple  (optional, default = (0,0) )
-        The number of additional documents before and after the target to potentially include in the context windows
-
     epsilon: float32 (optional default = 0)
         Sets values in the cooccurrence matrix (after l_1 normalizing the columns) less than epsilon to zero
 
-    normalization: str ("bayesian" or "frequentist")
-        Sets the feature normalization to be the frequentist L_1 norm or the Bayesian (Dirichlet Process) normalization
-
-    window_normalization: str ("bayesian" or "frequentist")
-        Sets the window normalization to be the frequentist L_1 norm or the Bayesian (Dirichlet Process) normalization
-
-    coo_max_memory: str (optional, default = "0.5 GiB")
+    coo_initial_memory: str (optional, default = "0.5 GiB")
         This value, giving a memory size in k, M, G or T, describes how much memory to initialize for acculumating the
-        (row, col, val) triples of larger data sets.  This should be at least 2 times the number of non-zero
-        entries in the final cooccurrence matrix for near optimal speed in performance.  Optimizations to use
-        significantly less memory are made for data sets with small expected numbers of non zeros. More memory
-        will be allocated during processing if need be.
+        (row, col, val) triples of larger data sets. Optimizations to use significantly less memory are made for data
+        sets with small expected numbers of non zeros. More memory will be allocated during processing if need be.
     """
 
     def __init__(
         self,
         token_dictionary=None,
+        max_unique_tokens=None,
         min_occurrences=None,
         max_occurrences=None,
         min_frequency=None,
@@ -1231,12 +1223,11 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         normalize_windows=True,
         n_iter=0,
         epsilon=0,
-        normalization="frequentist",
-        window_normalization="frequentist",
-        coo_max_memory="0.5 GiB",
+        coo_initial_memory="0.5 GiB",
         document_context=False,
     ):
         self.token_dictionary = token_dictionary
+        self.max_unique_tokens = max_unique_tokens
         self.min_occurrences = min_occurrences
         self.min_frequency = min_frequency
         self.max_occurrences = max_occurrences
@@ -1263,15 +1254,14 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self.normalize_windows = normalize_windows
         self.n_iter = n_iter
         self.epsilon = epsilon
-        self.coo_max_memory = coo_max_memory
-        self.normalization = normalization
-        self.window_normalization = window_normalization
         self.token_label_dictionary_ = {}
         self.token_index_dictionary_ = {}
         self._token_frequencies_ = np.array([])
-
-        self.coo_max_bytes = str_to_bytes(self.coo_max_memory)
+        self.coo_max_bytes = str_to_bytes(coo_initial_memory)
         self.document_context = document_context
+
+        self._normalize = normalize
+        self._window_normalize = l1_normalize_vector
 
         # Check the window orientations
         if not isinstance(self.window_radii, Iterable):
@@ -1395,16 +1385,6 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         assert len(self._kernel_functions) == self._n_wide
         assert len(self._kernel_args) == self._n_wide
 
-        if self.normalization == "bayesian":
-            self._normalize = dirichlet_process_normalize
-        else:
-            self._normalize = normalize
-
-        if self.window_normalization == "bayesian":
-            self._window_normalize = dp_normalize_vector
-        else:
-            self._window_normalize = l1_normalize_vector
-
     def _set_column_dicts(self):
         self.column_label_dictionary_ = {}
         colonnade = 0
@@ -1492,6 +1472,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
                 raw_ngram_dictionary,
                 ngram_frequencies,
                 token_doc_frequencies=ngram_doc_frequencies,
+                max_unique_tokens=self.max_unique_tokens,
                 min_frequency=self.min_frequency,
                 max_frequency=self.max_frequency,
                 min_occurrences=self.min_occurrences,
@@ -1533,6 +1514,7 @@ class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             X,
             flat_sequences,
             self.token_dictionary,
+            max_unique_tokens=self.max_unique_tokens,
             min_occurrences=self.min_occurrences,
             max_occurrences=self.max_occurrences,
             min_frequency=self.min_frequency,
