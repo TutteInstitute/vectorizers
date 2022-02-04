@@ -1,5 +1,6 @@
 import numpy as np
 import numba
+import pandas as pd
 import scipy.stats
 import scipy.sparse
 import itertools
@@ -141,7 +142,7 @@ def str_to_bytes(size_str):
         return int(np.ceil(float(parse_match.group(1))))
 
 
-def flatten(list_of_seq):
+def flatten(list_of_seq: object) -> object:
     assert isinstance(list_of_seq, Iterable)
     if type(list_of_seq[0]) in (list, tuple, np.ndarray):
         return tuple(itertools.chain.from_iterable(list_of_seq))
@@ -437,3 +438,109 @@ def procrustes_align(
     u, s, v = np.linalg.svd(covariance)
     rotation = u @ v
     return e1_scaled * rescale_factor, (e2_scaled @ rotation) * rescale_factor
+
+
+def summarize_embedding(
+    weight_matrix,
+    column_index_dictionary,
+    k=3,
+    return_type="list",
+    include_values=False,
+    sep=",",
+):
+    """
+    Summarizes each of the rows of a weight matrix via the k column names associated with the largest k values
+    in each row.
+
+    Parameters
+    ----------
+    weight_matrix: matrix (often sparse)
+    column_index_dictionary: dict
+        A dictionary mapping from the column numbers to their column names
+    k: int (default 3)
+        The number of column names with which to represent each row
+    return_type: string (default: 'list')
+        The type of summary you'd like to return this is chosen from ['list', 'string']
+    include_values: bool (default: False)
+        Should the values associated with the top k columns also be included in our summary?
+    sep: string (default: ',')
+        if the return type is string what separator should be used to create the string.
+
+    Returns
+    -------
+    A list of short summaries of length weight_matrix.shape[0].
+    By default each summary is a list of k column names.
+    If include_values==True then a second list is also returned with the corresponding sorted values.
+    If return_type=='string' then this list (or these lists) are packed together into a single string representation
+    per row.
+    """
+
+    # Quick and dirty casting to a dense matrix to get started.
+    # I'll likely need to juggle some csr data structures to do this right.
+    # One thing I'll need to deal with is the variable number of non-zeros in each row may mean that the
+    # there are less non-zeros than k in many of our rows.
+    if include_values:
+        values = []
+    if scipy.sparse.issparse(weight_matrix):
+        row_summary = []
+        for row in weight_matrix:
+            row_summary.append(
+                [
+                    column_index_dictionary[row.indices[x]]
+                    for x in np.argsort(row.data)[::-1][:k]
+                ]
+            )
+            if include_values:
+                values.append([row.data[x] for x in np.argsort(row.data)[::-1][:k]])
+    else:
+        largest_indices = np.array(np.argsort(weight_matrix, axis=1))
+        row_summary = [
+            list(map(column_index_dictionary.get, x[::-1][:k])) for x in largest_indices
+        ]
+        if include_values:
+            for i, row in enumerate(largest_indices):
+                values.append([weight_matrix[i, x] for x in row[::-1][:k]])
+
+    if include_values:
+        if return_type == "string":
+            if not isinstance(sep, str):
+                raise ValueError("sep must be a string")
+            summary = []
+            for i in range(len(row_summary)):
+                summary.append(
+                    sep.join([f"{x}:{y}" for x, y in zip(row_summary[i], values[i])])
+                )
+            return summary
+        else:
+            return row_summary, values
+    else:
+        if return_type == "string":
+            row_summary = [sep.join(x) for x in row_summary]
+        return row_summary
+
+
+def categorical_columns_to_list(data_frame, column_names):
+    """
+    Takes a data frame and a set of columns and represents each row a list of the appropriate non-empty columns
+    of the form column_name:value respecting the order of the rows.
+    Parameters
+    ----------
+    data_frame: pandas.DataFrame
+        A data frame with columns that match the column names provided.
+    column_names: list
+        A list of column names to be selected from our data frame.
+
+    Returns
+    -------
+    A list of lists
+    with one entry per row of our data_frame.
+    Each entry is a list of column_name:column_value string tokens for each selected column that was present.
+    """
+    if not set(column_names).issubset(data_frame.columns):
+        raise ValueError("Selected column_names must be a subset of your data_frame")
+
+    label_list = [
+        [f"{k}:{v}" for k, v in zip(column_names, t) if not pd.isnull(v)]
+        for t in zip(*map(data_frame.get, column_names))
+    ]
+    return label_list
