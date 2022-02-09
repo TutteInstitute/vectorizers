@@ -207,6 +207,11 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
         A fixed ditionary mapping tokens to indices, or None if the dictionary
         should be learned from the training data.
 
+    max_unique_tokens: int or None (optional, default=None)
+        The maximal number of elements contained in the vocabulary.  If not None, this
+        will prune the vocabulary to the top 'max_vocabulary_size' most frequent remaining tokens
+        after other possible preproccessing.
+
     min_occurrences: int or None (optional, default=None)
         The minimal number of occurrences of a token for it to be considered and
         counted. If None then there is no constraint, or the constraint is
@@ -296,6 +301,7 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
         max_document_occurrences=None,
         min_document_frequency=None,
         max_document_frequency=None,
+        max_unique_tokens=None,
         ignored_tokens=None,
         excluded_token_regex=None,
         window_function="fixed",
@@ -308,6 +314,7 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
         nullify_mask=False,
     ):
         self.token_dictionary = token_dictionary
+        self.max_unique_tokens = max_unique_tokens
         self.min_occurrences = min_occurrences
         self.min_frequency = min_frequency
         self.max_occurrences = max_occurrences
@@ -342,7 +349,8 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
         ) = preprocess_token_sequences(
             X,
             flat_sequence,
-            self.token_dictionary,
+            token_dictionary=self.token_dictionary,
+            max_unique_tokens=self.max_unique_tokens,
             min_occurrences=self.min_occurrences,
             max_occurrences=self.max_occurrences,
             min_frequency=self.min_frequency,

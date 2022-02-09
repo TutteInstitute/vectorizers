@@ -78,6 +78,11 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         A fixed dictionary mapping tokens to indices, or None if the dictionary
         should be learned from the training data.
 
+    max_unique_tokens: int or None (optional, default=None)
+        The maximal number of elements contained in the vocabulary.  If not None, this 
+        will prune the vocabulary to the top 'max_vocabulary_size' most frequent remaining tokens
+        after other possible preprocessing.
+
     min_occurrences: int or None (optional, default=None)
         The minimal number of occurrences of a token for it to be considered and
         counted. If None then there is no constraint, or the constraint is
@@ -122,7 +127,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         A set of tokens that should be ignored entirely. If None then no tokens will
         be ignored in this fashion.
 
-    excluded_regex: str or None (optional, default=None)
+    excluded_token_regex: str or None (optional, default=None)
         The regular expression by which tokens are ignored if re.fullmatch returns True.
 
     token_dictionary: dictionary or None (optional, default=None)
@@ -138,6 +143,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         ngram_behaviour="exact",
         ngram_dictionary=None,
         token_dictionary=None,
+        max_unique_tokens=None,
         min_occurrences=None,
         max_occurrences=None,
         min_frequency=None,
@@ -154,6 +160,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         self.ngram_behaviour = ngram_behaviour
         self.ngram_dictionary = ngram_dictionary
         self.token_dictionary = token_dictionary
+        self.max_unique_tokens = max_unique_tokens
         self.min_occurrences = min_occurrences
         self.min_frequency = min_frequency
         self.max_occurrences = max_occurrences
@@ -177,10 +184,11 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
             self._token_dictionary_,
             self._inverse_token_dictionary_,
             self._token_frequencies_,
-        ) = preprocess_token_sequences(
+    ) = preprocess_token_sequences(
             X,
             flat_sequence,
             self.token_dictionary,
+            max_unique_tokens=self.max_unique_tokens,
             min_occurrences=self.min_occurrences,
             max_occurrences=self.max_occurrences,
             min_frequency=self.min_frequency,
