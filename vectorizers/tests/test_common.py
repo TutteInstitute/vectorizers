@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from vectorizers import TokenCooccurrenceVectorizer
+from vectorizers import TimedTokenCooccurrenceVectorizer
 from vectorizers import NgramVectorizer
 from vectorizers import SkipgramVectorizer
 from vectorizers import DistributionVectorizer
@@ -172,7 +173,18 @@ raw_string_data = [
     "pokfoopokbarpokwerpokbazgfniusnvbgasgbabgsadfjnkr[pko",
 ]
 
-
+random_timed_token_data = (
+    (['a',0.1], ['c',0.2], ['a',0.4], ['d',0.5], ['b',0.6]),
+    (['d',1.1], ['a',1.3], ['a',1.5], ['c',1.7], ['b',2.0], ['d',2.5], ['b',3.0]),
+)
+tiny_token_data = (
+    (1, 3, 1, 4, 2),
+    (4, 1, 1, 3, 2, 4, 2),
+)
+timed_tiny_token_data = [
+    [['a',1], ['c',2], ['a',3], ['d',4], ['b',5]],
+    [['d',6], ['a',7], ['a',8], ['c',9], ['b',10], ['d',11], ['b',12]],
+]
 
 def test_LabeledTreeCooccurrenceVectorizer():
     model = LabelledTreeCooccurrenceVectorizer(
@@ -218,16 +230,14 @@ def test_LabeledTreeCooccurrenceVectorizer_reduced_vocab():
 
 
 @pytest.mark.parametrize("min_token_occurrences", [None, 2])
-@pytest.mark.parametrize("max_token_occurrences", [None, 2])
 @pytest.mark.parametrize("min_document_occurrences", [None, 1])
 @pytest.mark.parametrize("max_document_frequency", [None, 0.7])
-@pytest.mark.parametrize("window_orientation", ["before", "after", "directional"])
+@pytest.mark.parametrize("window_orientation", ["before", "after"])
 @pytest.mark.parametrize("window_radius", [1, 2])
-@pytest.mark.parametrize("kernel_function", ["harmonic", "flat", "geometric"])
+@pytest.mark.parametrize("kernel_function", ["harmonic", "geometric"])
 @pytest.mark.parametrize("mask_string", [None, "[MASK]"])
 def test_equality_of_Tree_and_Token_CooccurrenceVectorizers(
     min_token_occurrences,
-    max_token_occurrences,
     min_document_occurrences,
     max_document_frequency,
     window_radius,
@@ -240,7 +250,6 @@ def test_equality_of_Tree_and_Token_CooccurrenceVectorizers(
         window_orientation=window_orientation,
         kernel_function=kernel_function,
         min_occurrences=min_token_occurrences,
-        max_occurrences=max_token_occurrences,
         max_tree_frequency=max_document_frequency,
         min_tree_occurrences=min_document_occurrences,
         mask_string=mask_string,
@@ -250,7 +259,6 @@ def test_equality_of_Tree_and_Token_CooccurrenceVectorizers(
         window_orientations=window_orientation,
         kernel_functions=kernel_function,
         min_occurrences=min_token_occurrences,
-        max_occurrences=max_token_occurrences,
         max_document_frequency=max_document_frequency,
         min_document_occurrences=min_document_occurrences,
         mask_string=mask_string,
@@ -276,11 +284,8 @@ def test_equality_of_Tree_and_Token_CooccurrenceVectorizers(
 
 @pytest.mark.parametrize("min_token_occurrences", [None, 2])
 @pytest.mark.parametrize("max_document_frequency", [None, 0.7])
-@pytest.mark.parametrize("window_orientation", ["directional"])
 @pytest.mark.parametrize("window_radius", [1, 2])
 @pytest.mark.parametrize("n_iter", [0, 2])
-@pytest.mark.parametrize("kernel_function", ["flat"])
-@pytest.mark.parametrize("window_function", ["fixed"])
 @pytest.mark.parametrize("mask_string", [None, "[MASK]"])
 @pytest.mark.parametrize("nullify_mask", [False, True])
 @pytest.mark.parametrize("normalize_windows", [False, True])
@@ -288,9 +293,6 @@ def test_equality_of_TokenCooccurrenceVectorizer(
     min_token_occurrences,
     max_document_frequency,
     window_radius,
-    window_orientation,
-    kernel_function,
-    window_function,
     mask_string,
     nullify_mask,
     n_iter,
@@ -298,8 +300,6 @@ def test_equality_of_TokenCooccurrenceVectorizer(
 ):
     model1 = TokenCooccurrenceVectorizer(
         window_radii=[window_radius],
-        kernel_functions=[kernel_function],
-        window_functions=[window_function],
         min_occurrences=min_token_occurrences,
         max_document_frequency=max_document_frequency,
         mask_string=mask_string,
@@ -309,8 +309,6 @@ def test_equality_of_TokenCooccurrenceVectorizer(
     )
     model2 = TokenCooccurrenceVectorizer(
         window_radii=window_radius,
-        kernel_functions=kernel_function,
-        window_functions=window_function,
         min_occurrences=min_token_occurrences,
         max_document_frequency=max_document_frequency,
         mask_string=mask_string,
@@ -330,6 +328,47 @@ def test_equality_of_TokenCooccurrenceVectorizer(
         model2.fit_transform(text_token_data_permutation).toarray(),
         model2.transform(text_token_data_permutation).toarray(),
     )
+
+
+@pytest.mark.parametrize("window_radius", [3])
+@pytest.mark.parametrize("n_iter", [0])
+@pytest.mark.parametrize("kernel_function", ["flat", "geometric"])
+@pytest.mark.parametrize("window_function", ["fixed", "variable"])
+@pytest.mark.parametrize("mask_string", [None, "[MASK]"])
+@pytest.mark.parametrize("normalize_windows", [False, True])
+def test_equality_of_TimedTokenCooccurrenceVectorizer(
+        window_radius,
+        kernel_function,
+        window_function,
+        mask_string,
+        n_iter,
+        normalize_windows,
+):
+    model1 = TokenCooccurrenceVectorizer(
+        window_radii=[window_radius],
+        kernel_functions=[kernel_function],
+        window_functions=[window_function],
+        mask_string=mask_string,
+        n_iter=n_iter,
+        normalize_windows=normalize_windows,
+    )
+    model2 = TimedTokenCooccurrenceVectorizer(
+        window_radii=window_radius,
+        kernel_functions=kernel_function,
+        window_functions=window_function,
+        mask_string=mask_string,
+        n_iter=n_iter,
+        normalize_windows=normalize_windows,
+    )
+    assert np.allclose(
+        model1.fit_transform(tiny_token_data).toarray(),
+        model2.fit_transform(timed_tiny_token_data).toarray(),
+    )
+    assert np.allclose(
+        model2.fit_transform(timed_tiny_token_data).toarray(),
+        model2.transform(timed_tiny_token_data).toarray(),
+    )
+
 
 
 def test_reverse_cooccurrence_vectorizer():

@@ -1,4 +1,5 @@
 from .token_cooccurrence_vectorizer import TokenCooccurrenceVectorizer
+from .timed_token_cooccurrence_vectorizer import TimedTokenCooccurrenceVectorizer
 from ._vectorizers import DistributionVectorizer
 from ._vectorizers import HistogramVectorizer
 from .skip_gram_vectorizer import SkipgramVectorizer
@@ -19,6 +20,7 @@ from ._version import __version__
 
 __all__ = [
     "TokenCooccurrenceVectorizer",
+    "TimedTokenCooccurrenceVectorizer",
     "DistributionVectorizer",
     "HistogramVectorizer",
     "SkipgramVectorizer",

@@ -79,7 +79,7 @@ def geometric_kernel(
     offset=0,
     power=0.9,
 ):
-    result = power ** np.arange(0, len(window))
+    result = power ** np.arange(1, len(window)+1)
 
     if mask_index is not None:
         result[window == mask_index] = 0.0
@@ -108,6 +108,41 @@ def update_kernel(
     return result
 
 
+@numba.njit(nogil=True)
+def timed_geometric_kernel(
+    window,
+    time_deltas,
+    delta,
+    mask_index,
+    normalize,
+    power=0.9,
+):
+    result = power ** (time_deltas/delta)
+    if mask_index is not None:
+        result[window == mask_index] = 0
+    if normalize:
+        temp = result.sum()
+        if temp > 0:
+            result /= temp
+    return result
+
+@numba.njit(nogil=True)
+def timed_flat_kernel(
+    window,
+    time_deltas,
+    delta,
+    mask_index,
+    normalize,
+):
+    result = np.ones(len(time_deltas), dtype=np.float64)
+    if mask_index is not None:
+        result[window == mask_index] = 0
+    if normalize:
+        temp = result.sum()
+        if temp > 0:
+            result /= temp
+    return result
+
 # Parameter lists
 
 _WINDOW_FUNCTIONS = {
@@ -119,6 +154,11 @@ _KERNEL_FUNCTIONS = {
     "flat": flat_kernel,
     "harmonic": harmonic_kernel,
     "geometric": geometric_kernel,
+}
+
+_TIMED_KERNEL_FUNCTIONS = {
+    "flat": timed_flat_kernel,
+    "geometric": timed_geometric_kernel,
 }
 
 ####################################################
