@@ -1,7 +1,7 @@
 from .ngram_vectorizer import ngrams_of
 from .preprocessing import (
     prune_token_dictionary,
-    preprocess_timed_token_sequences,
+    preprocess_token_sequences,
     construct_token_dictionary_and_frequency,
     construct_document_frequency,
 )
@@ -34,13 +34,13 @@ from .coo_utils import (
 
 import numpy as np
 import numba
-from numba.typed import List
 import dask
 import scipy.sparse
 from ._window_kernels import (
-    _TIMED_KERNEL_FUNCTIONS,
+    _KERNEL_FUNCTIONS,
     _WINDOW_FUNCTIONS,
     window_at_index,
+    update_kernel,
 )
 
 MOCK_DICT = numba.typed.Dict()
@@ -48,9 +48,8 @@ MOCK_DICT[(-1, -1)] = -1
 
 
 @numba.njit(nogil=True)
-def build_multi_timed_skip_ngrams(
+def build_multi_skip_ngrams(
     token_sequences,
-    time_sequences,
     window_size_array,
     window_reversals,
     kernel_array,
@@ -115,8 +114,8 @@ def build_multi_timed_skip_ngrams(
 
     n_windows = window_size_array.shape[0]
     array_mul = n_windows * n_unique_tokens + 1
-    #kernel_masks = [ker[0] for ker in kernel_args]
-    #kernel_normalize = [ker[1] for ker in kernel_args]
+    kernel_masks = [ker[0] for ker in kernel_args]
+    kernel_normalize = [ker[1] for ker in kernel_args]
     window_reversal_const = np.zeros(len(window_reversals)).astype(np.int32)
     window_reversal_const[window_reversals] = 1
     coo_data = [
@@ -147,19 +146,14 @@ def build_multi_timed_skip_ngrams(
                     )
                     for i in range(n_windows)
                 ]
-                time_deltas = [
-                    np.abs(window_at_index(
-                        these_times,
-                        window_size_array[i, target_gram_ind],
-                        w_i - window_reversal_const[i] * (ngram_size - 1),
-                        reverse=window_reversals[i],
-                    ) - these_times[w_i - window_reversal_const[i] * (ngram_size - 1)])
-                    for i in range(n_windows)
-                ]
+
                 kernels = [
                     mix_weights[i]
-                    * kernel_array[i](
-                        windows[i], time_deltas[i], *kernel_args[i]
+                    * update_kernel(
+                        windows[i],
+                        kernel_array[i],
+                        kernel_masks[i],
+                        kernel_normalize[i],
                     )
                     for i in range(n_windows)
                 ]
@@ -183,288 +177,9 @@ def build_multi_timed_skip_ngrams(
 
     return coo_data
 
-
 @numba.njit(nogil=True)
-def build_multi_timed_skip_grams(
+def sequence_multi_skip_grams(
     token_sequences,
-    time_sequences,
-    window_size_array,
-    window_reversals,
-    kernel_array,
-    kernel_args,
-    mix_weights,
-    normalize_windows,
-    n_unique_tokens,
-    array_lengths,
-):
-    """Generate a matrix of (weighted) counts of co-occurrences of tokens within
-    windows in a set of sequences of tokens. Each sequence in the collection of
-    sequences provides an effective boundary over which skip-grams may not pass
-    (such as sentence boundaries in an NLP context). This is done for a collection
-    of different window and kernel types simultaneously.
-
-    Parameters
-    ----------
-    token_sequences: Iterable of Iterables
-        The collection of token sequences to generate skip-gram data for.
-
-    n_unique_tokens: int
-        The number of unique tokens in the token_dictionary.
-
-    window_size_array: numpy.ndarray(float, size = (n_windows, n_unique_tokens))
-        A collection of window sizes per vocabulary index per window function
-
-    window_reversals: numpy.array(bool, size = (n_windows,))
-        Array indicating whether the window is after or not.
-
-    kernel_array: numpy.ndarray(float, size = (n_windows, max_window_radius))
-        A collection of kernel values per window index per window funciton
-
-    kernel_args: tuple of tuples
-        Arguments to pass through to the kernel functions per function
-
-    mix_weights: numpy.array(bool, size = (n_windows,))
-        The scalars values used to combine the values of the kernel functions
-
-    normalize_windows: bool
-        Indicates whether or nor to L_1 normalize the kernel values per window occurrence
-
-    array_lengths: numpy.array(int, size = (n_windows,))
-        The lengths of the arrays per window used to the store the coo matrix triples.
-
-    Returns
-    -------
-    cooccurrence_matrix: CooArray
-        Weight counts of values (kernel weighted counts) that token_head[i] cooccurred with token_tail[i]
-    """
-
-    n_windows = window_size_array.shape[0]
-    array_mul = n_windows * n_unique_tokens + 1
-
-    coo_data = [
-        CooArray(
-            np.zeros(array_lengths[i], dtype=np.int32),
-            np.zeros(array_lengths[i], dtype=np.int32),
-            np.zeros(array_lengths[i], dtype=np.float32),
-            np.zeros(array_lengths[i], dtype=np.int64),
-            np.zeros(1, dtype=np.int64),
-            np.zeros(2 * np.int64(np.ceil(np.log2(array_lengths[i]))), dtype=np.int64),
-            np.zeros(1, dtype=np.int64),
-        )
-        for i in range(n_windows)
-    ]
-    for d_i, seq in enumerate(token_sequences):
-        these_times = time_sequences[d_i]
-        for w_i, target_word in enumerate(seq):
-            windows = [
-                window_at_index(
-                    seq,
-                    window_size_array[i, target_word],
-                    w_i,
-                    reverse=window_reversals[i],
-                )
-                for i in range(n_windows)
-            ]
-            time_deltas = [
-                np.abs(window_at_index(
-                    these_times,
-                    window_size_array[i, target_word],
-                    w_i,
-                    reverse=window_reversals[i],
-                ) - these_times[w_i])
-                for i in range(n_windows)
-            ]
-            kernels = [
-                mix_weights[i]
-                * kernel_array[i](
-                    windows[i], time_deltas[i], *kernel_args[i]
-                )
-                for i in range(n_windows)
-            ]
-
-            total = 0
-            if normalize_windows:
-                sums = np.array([np.sum(ker) for ker in kernels])
-                total = np.sum(sums)
-            if total <= 0:
-                total = 1
-
-            for i, window in enumerate(windows):
-                this_ker = kernels[i]
-                for j, context in enumerate(window):
-                    val = np.float32(this_ker[j] / total)
-                    if val > 0:
-                        row = target_word
-                        col = context + i * n_unique_tokens
-                        key = col + array_mul * row
-                        coo_data[i] = coo_append(coo_data[i], (row, col, val, key))
-
-    return coo_data
-
-
-@numba.njit(nogil=True)
-def build_multi_timed_sequence_grams(
-    token_sequences,
-    time_sequences,
-    window_size_array,
-    window_reversals,
-    kernel_array,
-    kernel_args,
-    mix_weights,
-    normalize_windows,
-    n_unique_tokens,
-    array_lengths,
-):
-    """Generate a matrix of (weighted) counts of co-occurrences of tokens within
-    windows in a set of sequences of tokens. Each sequence in the collection of
-    sequences provides an effective boundary over which skip-grams may not pass
-    (such as sentence boundaries in an NLP context). This is done for a collection
-    of different window and kernel types simultaneously.
-
-    Parameters
-    ----------
-    token_sequences: Iterable of Iterables
-        The collection of token sequences to generate skip-gram data for.
-
-    n_unique_tokens: int
-        The number of unique tokens in the token_dictionary.
-
-    window_size_array: numpy.ndarray(float, size = (n_windows, n_unique_tokens))
-        A collection of window sizes per vocabulary index per window function
-
-    window_reversals: numpy.array(bool, size = (n_windows,))
-        Array indicating whether the window is after or not.
-
-    kernel_array: numpy.ndarray(float, size = (n_windows, max_window_radius))
-        A collection of kernel values per window index per window funciton
-
-    kernel_args: tuple of tuples
-        Arguments to pass through to the kernel functions per function
-
-    mix_weights: numpy.array(bool, size = (n_windows,))
-        The scalars values used to combine the values of the kernel functions
-
-    normalize_windows: bool
-        Indicates whether or nor to L_1 normalize the kernel values per window occurrence
-
-    array_lengths: numpy.array(int, size = (n_windows,))
-        The lengths of the arrays per window used to the store the coo matrix triples.
-
-
-    Returns
-    -------
-    cooccurrence_matrix: CooArray
-        Weight counts of values (kernel weighted counts) that token_head[i] cooccurred with token_tail[i]
-    """
-
-    n_windows = window_size_array.shape[0]
-    array_mul = n_windows * n_unique_tokens + 1
-
-    coo_data = [
-        CooArray(
-            np.zeros(array_lengths[i], dtype=np.int32),
-            np.zeros(array_lengths[i], dtype=np.int32),
-            np.zeros(array_lengths[i], dtype=np.float32),
-            np.zeros(array_lengths[i], dtype=np.int64),
-            np.zeros(1, dtype=np.int64),
-            np.zeros(2 * np.int64(np.ceil(np.log2(array_lengths[i]))), dtype=np.int64),
-            np.zeros(1, dtype=np.int64),
-        )
-        for i in range(n_windows)
-    ]
-
-    for d_i, seq in enumerate(token_sequences):
-        for w_i, target_word in enumerate(seq):
-            for i in range(n_windows):
-                if not window_reversals[i]:
-                    doc_window = token_sequences[
-                        d_i : min(
-                            [len(token_sequences), d_i + window_size_array[i, 0] + 1]
-                        )
-                    ]
-                    time_window = time_sequences[
-                       d_i: min(
-                           [len(token_sequences), d_i + window_size_array[i, 0] + 1]
-                       )
-                       ]
-                else:
-                    doc_window = token_sequences[
-                                 max([0, d_i - window_size_array[i, 0]]): d_i + 1
-                                 ]
-                    time_window = time_sequences[
-                                  max([0, d_i - window_size_array[i, 0]]): d_i + 1
-                                  ]
-
-                result_len = 0
-                for window in doc_window:
-                    result_len += window.shape[0]
-                window_result = np.zeros(result_len).astype(np.int32)
-                time_result = np.zeros(result_len).astype(np.int32)
-                for i, window in enumerate(doc_window):
-                    these_times = time_window[i]
-                    for j, x in enumerate(window):
-                        window_result[j] = x
-                        time_result[j] = these_times[j]
-
-                kernel_result = np.zeros(len(window_result)).astype(np.float64)
-                ind = 0
-                if not window_reversals[i]:
-                    for doc_index, doc in enumerate(doc_window):
-                        kernel_result[ind : ind + len(doc)] = np.repeat(
-                            kernel_array[i][np.abs(doc_index)], len(doc)
-                        )
-                        ind += len(doc)
-                    kernel_result[w_i] = 0
-                else:
-                    for doc_index, doc in enumerate(doc_window):
-                        kernel_result[ind : ind + len(doc)] = np.repeat(
-                            kernel_array[i][len(doc_window) - doc_index - 1], len(doc)
-                        )
-                        ind += len(doc)
-                    kernel_result[ind - len(doc_window[-1]) + w_i] = 0
-
-                if kernel_masks[i] is not None:
-                    for w in range(window_result.shape[0]):
-                        if window_result[w] == kernel_masks[i]:
-                            kernel_result[w] = 0
-
-                if kernel_normalize[i]:
-                    temp = kernel_result.sum()
-                    if temp > 0:
-                        kernel_result /= temp
-
-                if i == 0:
-                    windows = [window_result]
-                    kernels = [mix_weights[i] * kernel_result]
-                else:
-                    windows.append(window_result)
-                    kernels.append(mix_weights[i] * kernel_result)
-
-            total = 0
-
-            if normalize_windows:
-                sums = np.array([np.sum(ker) for ker in kernels])
-                total = np.sum(sums)
-            if total <= 0:
-                total = 1
-
-            for i, window in enumerate(windows):
-                this_ker = kernels[i]
-                for j, context in enumerate(window):
-                    val = np.float32(this_ker[j] / total)
-                    if val > 0:
-                        row = target_word
-                        col = context + i * n_unique_tokens
-                        key = col + array_mul * row
-                        coo_append(coo_data[i], (row, col, val, key))
-
-    return coo_data
-
-
-@numba.njit(nogil=True)
-def sequence_multi_timed_skip_grams(
-    token_sequences,
-    time_sequences,
     window_size_array,
     window_reversals,
     kernel_array,
@@ -533,56 +248,20 @@ def sequence_multi_timed_skip_grams(
     token_head, token_tail, values: numpy.array, numpy.array, numpy.array:
         Weight counts of values (kernel weighted counts) that token_head[i] cooccurred with token_tail[i]
     """
-
-    if ngram_size > 1:
-        if multi_labelled_tokens == True:
-            raise ValueError(
-                f"Document contexts are not supported for ngrams at this time.  "
-                f"Please set multi_labelled_tokens=False."
-            )
-        '''coo_list = build_multi_timed_skip_ngrams(
-            token_sequences=token_sequences,
-            time_sequences=time_sequences,
-            window_size_array=window_size_array,
-            window_reversals=window_reversals,
-            kernel_array=kernel_array,
-            kernel_args=kernel_args,
-            mix_weights=mix_weights,
-            normalize_windows=normalize_windows,
-            n_unique_tokens=n_unique_tokens,
-            array_lengths=array_lengths,
-            ngram_dictionary=ngram_dictionary,
-            ngram_size=ngram_size,
-            array_to_tuple=array_to_tuple,
-        )'''
-    else:
-        if multi_labelled_tokens:
-            pass
-            # coo_list = build_multi_timed_sequence_grams(
-            #    token_sequences=token_sequences,
-            #    time_sequences=time_sequences,
-            #    window_size_array=window_size_array,
-            #    window_reversals=window_reversals,
-            #    kernel_array=kernel_array,
-            #    kernel_args=kernel_args,
-            #    mix_weights=mix_weights,
-            #    normalize_windows=normalize_windows,
-            #    n_unique_tokens=n_unique_tokens,
-            #    array_lengths=array_lengths,
-            #)
-        else:
-            coo_list = build_multi_timed_skip_grams(
-                token_sequences=token_sequences,
-                time_sequences=time_sequences,
-                window_size_array=window_size_array,
-                window_reversals=window_reversals,
-                kernel_array=kernel_array,
-                kernel_args=kernel_args,
-                mix_weights=mix_weights,
-                normalize_windows=normalize_windows,
-                n_unique_tokens=n_unique_tokens,
-                array_lengths=array_lengths,
-            )
+    coo_list = build_multi_skip_ngrams(
+        token_sequences=token_sequences,
+        window_size_array=window_size_array,
+        window_reversals=window_reversals,
+        kernel_array=kernel_array,
+        kernel_args=kernel_args,
+        mix_weights=mix_weights,
+        normalize_windows=normalize_windows,
+        n_unique_tokens=n_unique_tokens,
+        array_lengths=array_lengths,
+        ngram_dictionary=ngram_dictionary,
+        ngram_size=ngram_size,
+        array_to_tuple=array_to_tuple,
+    )
 
     for coo in coo_list:
         coo_sum_duplicates(coo, kind="quicksort")
@@ -593,7 +272,6 @@ def sequence_multi_timed_skip_grams(
         [coo.col[: coo.ind[0]] for coo in coo_list],
         [coo.val[: coo.ind[0]] for coo in coo_list],
     )
-
 
 def generate_chunk_boundaries(data, chunk_size=1 << 19):
     token_list_sizes = np.array([len(x) for x in data])
@@ -612,9 +290,8 @@ def generate_chunk_boundaries(data, chunk_size=1 << 19):
     return chunks
 
 
-def multi_timed_token_cooccurrence_matrix(
+def multi_token_cooccurrence_matrix(
     token_sequences,
-    time_sequences,
     n_unique_tokens,
     window_size_array,
     window_reversals,
@@ -642,9 +319,6 @@ def multi_timed_token_cooccurrence_matrix(
     ----------
     token_sequences: Iterable of Iterables
         The collection of token sequences to generate skip-gram data for.
-
-    time_sequences: Iterable of Iterables
-        The collection of time stamps sequences to associated to the tokens sequences.
 
     n_unique_tokens: int
         The number of unique tokens in the token_dictionary.
@@ -706,18 +380,13 @@ def multi_timed_token_cooccurrence_matrix(
             "Token dictionary is empty; try using less extreme constraints"
         )
 
-    if len(ngram_dictionary) == 1 or ngram_size == 1:
-        n_rows = n_unique_tokens
-        array_to_tuple = pair_to_tuple  # Mock function for this case; unused
-    else:
-        n_rows = len(ngram_dictionary)
-        array_to_tuple = make_tuple_converter(ngram_size)
+    n_rows = len(ngram_dictionary)
+    array_to_tuple = make_tuple_converter(ngram_size)
 
     @dask.delayed()
     def process_token_sequence_chunk(chunk_start, chunk_end):
-        coo_rows, coo_cols, coo_vals = sequence_multi_timed_skip_grams(
+        coo_rows, coo_cols, coo_vals = sequence_multi_skip_grams(
             token_sequences=token_sequences[chunk_start:chunk_end],
-            time_sequences=time_sequences[chunk_start:chunk_end],
             n_unique_tokens=n_unique_tokens,
             window_size_array=window_size_array,
             window_reversals=window_reversals,
@@ -767,7 +436,6 @@ def multi_timed_token_cooccurrence_matrix(
         new_data_per_chunk = [
             dask.delayed(em_cooccurrence_iteration)(
                 token_sequences=token_sequences[chunk_start:chunk_end],
-                time_sequences=time_sequences[chunk_start:chunk_end],
                 n_unique_tokens=n_unique_tokens,
                 window_size_array=window_size_array,
                 window_reversals=window_reversals,
@@ -896,7 +564,6 @@ def em_update_matrix(
 @numba.njit(nogil=True)
 def em_cooccurrence_iteration(
     token_sequences,
-    time_sequences,
     window_size_array,
     window_reversals,
     kernel_array,
@@ -979,179 +646,51 @@ def em_cooccurrence_iteration(
     window_reversal_const = np.zeros(len(window_reversals)).astype(np.int32)
     window_reversal_const[window_reversals] = 1
 
-    if ngram_size > 1:
-        for d_i, seq in enumerate(token_sequences):
-            these_times = time_sequences[d_i]
-            for w_i in range(ngram_size - 1, len(seq)):
-                ngram = array_to_tuple(seq[w_i - ngram_size + 1 : w_i + 1])
-                if ngram in ngram_dictionary:
-                    target_gram_ind = ngram_dictionary[ngram]
-                    windows = [
-                        window_at_index(
-                            seq,
-                            window_size_array[i, target_gram_ind],
-                            w_i - window_reversal_const[i] * (ngram_size - 1),
-                            reverse=window_reversals[i],
-                        )
-                        for i in range(n_windows)
-                    ]
-                    time_deltas = [
-                        np.abs(window_at_index(
-                            these_times,
-                            window_size_array[i, target_gram_ind],
-                            w_i - window_reversal_const[i] * (ngram_size - 1),
-                            reverse=window_reversals[i],
-                        ) - these_times[w_i - window_reversal_const[i] * (ngram_size - 1)])
-                        for i in range(n_windows)
-                    ]
-                    kernels = [
-                        mix_weights[i]
-                        * kernel_array[i](
-                            windows[i], time_deltas[i], *kernel_args[i]
-                        )
-                        for i in range(n_windows)
-                    ]
-                    posterior_data = em_update_matrix(
-                        posterior_data,
-                        prior_indices,
-                        prior_indptr,
-                        prior_data,
-                        n_unique_tokens,
-                        target_gram_ind,
-                        windows,
-                        kernels,
-                        window_normalizer,
+
+    for d_i, seq in enumerate(token_sequences):
+        for w_i in range(ngram_size - 1, len(seq)):
+            ngram = array_to_tuple(seq[w_i - ngram_size + 1 : w_i + 1])
+            if ngram in ngram_dictionary:
+                target_gram_ind = ngram_dictionary[ngram]
+                windows = [
+                    window_at_index(
+                        seq,
+                        window_size_array[i, target_gram_ind],
+                        w_i - window_reversal_const[i] * (ngram_size - 1),
+                        reverse=window_reversals[i],
                     )
+                    for i in range(n_windows)
+                ]
 
-    else:
-        if multi_labelled_tokens:
-            pass
-            '''
-            for d_i, seq in enumerate(token_sequences):
-                for w_i, target_word in enumerate(seq):
-                    for i in range(n_windows):
-                        if not window_reversals[i]:
-                            doc_window = token_sequences[
-                                d_i : min(
-                                    [
-                                        len(token_sequences),
-                                        d_i + window_size_array[i, 0] + 1,
-                                    ]
-                                )
-                            ]
-                        else:
-                            doc_window = token_sequences[
-                                max([0, d_i - window_size_array[i, 0]]) : d_i + 1
-                            ]
-
-                        result_len = 0
-                        for window in doc_window:
-                            result_len += window.shape[0]
-                        window_result = np.zeros(result_len).astype(np.int32)
-                        j = 0
-                        for window in doc_window:
-                            for x in window:
-                                window_result[j] = x
-                                j += 1
-
-                        kernel_result = np.zeros(len(window_result)).astype(np.float64)
-                        ind = 0
-                        if window_reversals[i] == False:
-                            for doc_index, doc in enumerate(doc_window):
-                                kernel_result[ind : ind + len(doc)] = np.repeat(
-                                    kernel_array[i][np.abs(doc_index)], len(doc)
-                                )
-                                ind += len(doc)
-                            kernel_result[w_i] = 0
-                        else:
-                            for doc_index, doc in enumerate(doc_window):
-                                kernel_result[ind : ind + len(doc)] = np.repeat(
-                                    kernel_array[i][len(doc_window) - doc_index - 1],
-                                    len(doc),
-                                )
-                                ind += len(doc)
-                            kernel_result[ind - len(doc_window[-1]) + w_i] = 0
-
-                        if kernel_masks[i] is not None:
-                            for w in range(window_result.shape[0]):
-                                if window_result[w] == kernel_masks[i]:
-                                    kernel_result[w] = 0
-
-                        if kernel_normalize[i]:
-                            temp = kernel_result.sum()
-                            if temp > 0:
-                                kernel_result /= temp
-
-                        if i == 0:
-                            windows = [window_result]
-                            kernels = [mix_weights[i] * kernel_result]
-                        else:
-                            windows.append(window_result)
-                            kernels.append(mix_weights[i] * kernel_result)
-
-                    posterior_data = em_update_matrix(
-                        posterior_data,
-                        prior_indices,
-                        prior_indptr,
-                        prior_data,
-                        n_unique_tokens,
-                        target_word,
-                        windows,
-                        kernels,
-                        window_normalizer,
+                kernels = [
+                    mix_weights[i]
+                    * update_kernel(
+                        windows[i],
+                        kernel_array[i],
+                        kernel_masks[i],
+                        kernel_normalize[i],
                     )
-            '''
-        else:
-            for d_i, seq in enumerate(token_sequences):
-                these_times = time_sequences[d_i]
-                for w_i, target_word in enumerate(seq):
-                    windows = [
-                        window_at_index(
-                            seq,
-                            window_size_array[i, target_word],
-                            w_i,
-                            reverse=window_reversals[i],
-                        )
-                        for i in range(n_windows)
-                    ]
-                    time_deltas = [
-                        np.abs(window_at_index(
-                            these_times,
-                            window_size_array[i, target_word],
-                            w_i,
-                            reverse=window_reversals[i],
-                        ) - these_times[w_i])
-                        for i in range(n_windows)
-                    ]
-                    kernels = [
-                        mix_weights[i]
-                        * kernel_array[i](
-                            windows[i], time_deltas[i], *kernel_args[i]
-                        )
-                        for i in range(n_windows)
-                    ]
-                    posterior_data = em_update_matrix(
-                        posterior_data,
-                        prior_indices,
-                        prior_indptr,
-                        prior_data,
-                        n_unique_tokens,
-                        target_word,
-                        windows,
-                        kernels,
-                        window_normalizer,
-                    )
-
-    return posterior_data
+                    for i in range(n_windows)
+                ]
+                posterior_data = em_update_matrix(
+                    posterior_data,
+                    prior_indices,
+                    prior_indptr,
+                    prior_data,
+                    n_unique_tokens,
+                    target_gram_ind,
+                    windows,
+                    kernels,
+                    window_normalizer,
+                )
 
 
-class TimedTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
-    """Given a sequence, or list of sequences of pairs (tokens, time_stamps) produce a collection of directed
-    co-occurrence count matrix of tokens.  If passed a single sequence of (tokens, timed_stamps) it
+class NgramTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
+    """Given a sequence, or list of sequences of tokens, produce a collection of directed
+    co-occurrence count matrix of tokens. If passed a single sequence of tokens it
     will use windows to determine co-occurrence. If passed a list of sequences of
-    (token, time_stamps) it will use windows within each sequence in the list -- with windows not
-    extending beyond the boundaries imposed by the individual sequences in the list.  If passed any of the above
-    of only tokens, and expected matching input structure of time_stamps is also expected as the 'y' input.
+    tokens it will use windows within each sequence in the list -- with windows not
+    extending beyond the boundaries imposed by the individual sequences in the list.
 
     Upon the construction of the count matrices, it will hstack them together and run
     n_iter iterations of EM to update the counts.
@@ -1276,10 +815,6 @@ class TimedTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         Optimizations to use significantly less memory are made for data sets with small expected numbers of
         non zeros. More memory will be allocated during processing if need be.
 
-    multi_labelled_tokens: bool (optional, default=False)
-        Indicates whether your contexts are a sequence of bags of tokens labels
-        with the context co-occurrence spanning the bags.  In other words if you have
-        sequences of multi-labelled tokens.
     """
 
     def __init__(
@@ -1312,7 +847,6 @@ class TimedTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         normalize_windows=True,
         n_iter=0,
         epsilon=0,
-        multi_labelled_tokens=False,
         coo_initial_memory="0.5 GiB",
     ):
         self.token_dictionary = token_dictionary
@@ -1347,8 +881,6 @@ class TimedTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self.token_index_dictionary_ = {}
         self._token_frequencies_ = np.array([])
         self.coo_max_bytes = str_to_bytes(coo_initial_memory)
-        self.multi_labelled_tokens = multi_labelled_tokens
-
         self._normalize = normalize
         self._window_normalize = l1_normalize_vector
 
@@ -1394,15 +926,15 @@ class TimedTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         if callable(self.kernel_functions) or isinstance(self.kernel_functions, str):
             self.kernel_functions = [self.kernel_functions]
 
-        self._kernel_functions = List()
+        self._kernel_functions = []
         for i, ker in enumerate(self.kernel_functions):
             if callable(ker):
                 self._kernel_functions.append(ker)
-            elif ker in _TIMED_KERNEL_FUNCTIONS:
-                self._kernel_functions.append(_TIMED_KERNEL_FUNCTIONS[ker])
+            elif ker in _KERNEL_FUNCTIONS:
+                self._kernel_functions.append(_KERNEL_FUNCTIONS[ker])
             else:
                 raise ValueError(
-                    f"Unrecognized kernel_function; should be callable or one of {_TIMED_KERNEL_FUNCTIONS.keys()}"
+                    f"Unrecognized kernel_function; should be callable or one of {_KERNEL_FUNCTIONS.keys()}"
                 )
             if self.window_orientations[i] == "directional":
                 self._kernel_functions.append(self._kernel_functions[-1])
@@ -1590,39 +1122,19 @@ class TimedTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
     def fit_transform(self, X, y=None, **fit_params):
 
-        #Parse the input
-        if y is None:
-            sequences = list()
-            times = list()
-            for x in X:
-                this_seq = list()
-                this_time = list()
-                for pair in x:
-                    this_seq.append(pair[0])
-                    this_time.append(pair[1])
-                sequences.append(this_seq)
-                times.append(this_time)
-            X = sequences
-            y = times
+        if self.validate_data:
+            validate_homogeneous_token_types(X)
 
-            if self.validate_data:
-                validate_homogeneous_token_types(X)
-        else:
-            if self.validate_data:
-                validate_homogeneous_token_types(X)
         flat_sequences = flatten(X)
-
         # noinspection PyTupleAssignmentBalance
         (
             token_sequences,
-            time_sequences,
             self.token_label_dictionary_,
             self.token_index_dictionary_,
             self._token_frequencies_,
-        ) = preprocess_timed_token_sequences(
+        ) = preprocess_token_sequences(
             X,
             flat_sequences,
-            y,
             self.token_dictionary,
             max_unique_tokens=self.max_unique_tokens,
             min_occurrences=self.min_occurrences,
@@ -1648,19 +1160,15 @@ class TimedTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self._process_n_grams(token_sequences)
 
         # Set the mask n_gram and frequencies
-        if self.skip_ngram_size > 1:
-            n_gram_frequencies = self._ngram_frequencies
-            if self.nullify_mask:
-                mask_ngram = tuple([mask_index for i in range(self.skip_ngram_size)])
-                if mask_ngram in self._raw_ngram_dictionary_:
-                    mask_ngram_index = self._raw_ngram_dictionary_[mask_ngram]
-                else:
-                    mask_ngram_index = None
+        n_gram_frequencies = self._ngram_frequencies
+        if self.nullify_mask:
+            mask_ngram = tuple([mask_index for i in range(self.skip_ngram_size)])
+            if mask_ngram in self._raw_ngram_dictionary_:
+                mask_ngram_index = self._raw_ngram_dictionary_[mask_ngram]
             else:
                 mask_ngram_index = None
         else:
-            n_gram_frequencies = self._token_frequencies_
-            mask_ngram_index = mask_index
+            mask_ngram_index = None
 
         # Set the window array
         self._window_array = []
@@ -1670,30 +1178,43 @@ class TimedTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
                     self._window_radii[i],
                     n_gram_frequencies,
                     mask_ngram_index,
-                    *self._window_args[i]
+                    *self._window_args[i],
                 )
             )
         self._window_array = np.array(self._window_array)
 
         # Set the kernel array and adjust args
-        self._full_kernel_args = []
-        self.delta_mean_ = 0
-        total_t = 0
-        for seq in time_sequences:
-            self.delta_mean_ += np.sum(seq[1:] - seq[:-1])
-            total_t += len(seq) - 1
-        self.delta_mean_ /= total_t
+        self._em_kernel_args = []
+        self._initial_kernel_args = []
+        max_ker_len = np.max(self._window_array) + 1
+        self._kernel_array = np.zeros((self._n_wide, max_ker_len), dtype=np.float64)
 
         for i, args in enumerate(self._kernel_args):
             default_kernel_array_args = {
-                "delta": self.delta_mean_,
                 "mask_index": None,
                 "normalize": False,
+                "offset": 0,
             }
             default_kernel_array_args.update(args)
-            self._full_kernel_args.append(tuple(default_kernel_array_args.values()))
+            default_kernel_array_args["normalize"] = False
+            self._kernel_array[i] = np.array(
+                self._kernel_functions[i](
+                    np.repeat(-1, max_ker_len),
+                    *tuple(default_kernel_array_args.values()),
+                )
+            )
+            default_initial_args = {
+                "mask_index": mask_index,
+                "normalize": False,
+                "offset": 0,
+            }
+            default_initial_args.update(args)
+            self._initial_kernel_args.append(tuple(default_initial_args.values()))
+            self._em_kernel_args.append(
+                tuple([mask_index, default_initial_args["normalize"]])
+            )
 
-        self._full_kernel_args = tuple(self._full_kernel_args)
+        self._em_kernel_args = tuple(self._em_kernel_args)
 
         # Set the coo_array size
         approx_coo_size = 0
@@ -1711,7 +1232,10 @@ class TimedTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
                     self._window_array,
                 )
         else:
-            average_window = self._window_radii
+            offsets = np.array(
+                [self._initial_kernel_args[i][2] for i in range(self._n_wide)]
+            )
+            average_window = self._window_radii - offsets
             self._coo_sizes = (self.coo_max_bytes // 20) // np.sum(average_window)
             self._coo_sizes = np.array(self._coo_sizes * average_window, dtype=np.int64)
 
@@ -1719,14 +1243,13 @@ class TimedTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             raise ValueError(f"The coo_max_mem is too small to process the data.")
 
         # Build the initial matrix
-        self.cooccurrences_ = multi_timed_token_cooccurrence_matrix(
+        self.cooccurrences_ = multi_token_cooccurrence_matrix(
             token_sequences,
-            time_sequences,
             len(self.token_label_dictionary_),
             window_size_array=self._window_array,
             window_reversals=self._window_reversals,
-            kernel_array=self._kernel_functions,
-            kernel_args=self._full_kernel_args,
+            kernel_array=self._kernel_array,
+            kernel_args=self._em_kernel_args,
             mix_weights=self._mix_weights,
             chunk_size=self.chunk_size,
             normalize_windows=self.normalize_windows,
@@ -1750,7 +1273,7 @@ class TimedTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self.fit_transform(X, y)
         return self
 
-    def transform(self, X, y=None):
+    def transform(self, X):
         """
         Build a token cooccurrence matrix out of an established vocabulary learned during a previous fit.
         Parameters
@@ -1763,47 +1286,27 @@ class TimedTokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         """
         check_is_fitted(self, ["column_label_dictionary_"])
 
-        # Parse the input
-        if y is None:
-            sequences = list()
-            times = list()
-            for x in X:
-                this_seq = list()
-                this_time = list()
-                for pair in x:
-                    this_seq.append(pair[0])
-                    this_time.append(pair[1])
-                sequences.append(this_seq)
-                times.append(this_time)
-            X = sequences
-            y = times
+        if self.validate_data:
+            validate_homogeneous_token_types(X)
 
-            if self.validate_data:
-                validate_homogeneous_token_types(X)
-        else:
-            if self.validate_data:
-                validate_homogeneous_token_types(X)
         flat_sequences = flatten(X)
-
         # noinspection PyTupleAssignmentBalance
         (
             token_sequences,
-            time_sequences,
             column_label_dictionary,
             column_index_dictionary,
             token_frequencies,
-        ) = preprocess_timed_token_sequences(
-            X, flat_sequences, y, self.token_label_dictionary_, masking=self.mask_string
+        ) = preprocess_token_sequences(
+            X, flat_sequences, self.token_label_dictionary_, masking=self.mask_string
         )
 
-        cooccurrences_ = multi_timed_token_cooccurrence_matrix(
+        cooccurrences_ = multi_token_cooccurrence_matrix(
             token_sequences,
-            time_sequences,
             len(self.token_label_dictionary_),
             window_size_array=self._window_array,
             window_reversals=self._window_reversals,
-            kernel_array=self._kernel_functions,
-            kernel_args=self._full_kernel_args,
+            kernel_array=self._kernel_array,
+            kernel_args=self._em_kernel_args,
             mix_weights=self._mix_weights,
             chunk_size=self.chunk_size,
             normalize_windows=self.normalize_windows,

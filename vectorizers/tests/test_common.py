@@ -331,7 +331,8 @@ def test_equality_of_TokenCooccurrenceVectorizer(
 
 
 @pytest.mark.parametrize("window_radius", [3])
-@pytest.mark.parametrize("n_iter", [0])
+@pytest.mark.parametrize("skip_ngram_size", [1])
+@pytest.mark.parametrize("n_iter", [0,1])
 @pytest.mark.parametrize("kernel_function", ["flat", "geometric"])
 @pytest.mark.parametrize("window_function", ["fixed", "variable"])
 @pytest.mark.parametrize("mask_string", [None, "[MASK]"])
@@ -343,6 +344,7 @@ def test_equality_of_TimedTokenCooccurrenceVectorizer(
         mask_string,
         n_iter,
         normalize_windows,
+        skip_ngram_size,
 ):
     model1 = TokenCooccurrenceVectorizer(
         window_radii=[window_radius],
@@ -351,6 +353,7 @@ def test_equality_of_TimedTokenCooccurrenceVectorizer(
         mask_string=mask_string,
         n_iter=n_iter,
         normalize_windows=normalize_windows,
+        skip_ngram_size=skip_ngram_size,
     )
     model2 = TimedTokenCooccurrenceVectorizer(
         window_radii=window_radius,
@@ -359,6 +362,7 @@ def test_equality_of_TimedTokenCooccurrenceVectorizer(
         mask_string=mask_string,
         n_iter=n_iter,
         normalize_windows=normalize_windows,
+        skip_ngram_size=skip_ngram_size,
     )
     assert np.allclose(
         model1.fit_transform(tiny_token_data).toarray(),

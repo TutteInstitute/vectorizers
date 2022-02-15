@@ -247,3 +247,116 @@ def update_coo_entries(seq, tup):
         seq[place - 1][3] += tup[3]
         return seq
     return seq.insert(place, tup)
+
+
+def generate_chunk_boundaries(data, chunk_size=1 << 19):
+    token_list_sizes = np.array([len(x) for x in data])
+    cumulative_sizes = np.cumsum(token_list_sizes)
+    chunks = []
+    last_chunk_end = 0
+    last_chunk_cumulative_size = 0
+    for chunk_index, size in enumerate(cumulative_sizes):
+        if size - last_chunk_cumulative_size >= chunk_size:
+            chunks.append((last_chunk_end, chunk_index))
+            last_chunk_end = chunk_index
+            last_chunk_cumulative_size = size
+
+    chunks.append((last_chunk_end, len(data)))
+
+    return chunks
+
+
+@numba.njit(nogil=True, inline="always")
+def em_update_matrix(
+    posterior_data,
+    prior_indices,
+    prior_indptr,
+    prior_data,
+    n_unique_tokens,
+    target_gram_ind,
+    windows,
+    kernels,
+    window_normalizer,
+):
+    """
+    Updated the csr matrix from one round of EM on the given (hstack of) n
+    cooccurrence matrices provided in csr format.
+
+    Parameters
+    ----------
+    posterior_data: numpy.array
+        The csr data of the hstacked cooccurrence matrix to be updated
+
+    prior_indices:  numpy.array
+        The csr indices of the hstacked cooccurrence matrix
+
+    prior_indptr: numpy.array
+        The csr indptr of the hstacked cooccurrence matrix
+
+    prior_data: numpy.array
+        The csr data of the hstacked cooccurrence matrix
+
+    n_unique_tokens: int
+        The number of unique tokens
+
+    target_gram_ind: int
+        The index of the target ngram to update
+
+    windows: List of List of int
+        The indices of the tokens in the windows
+
+    kernels: List of List of floats
+        The kernel values of the entries in the windows.
+
+    Returns
+    -------
+    posterior_data: numpy.array
+        The data of the updated csr matrix after an update of EM.
+    """
+    total_win_length = np.sum(np.array([len(w) for w in windows]))
+    window_posterior = np.zeros(total_win_length)
+    context_ind = np.zeros(total_win_length, dtype=np.int64)
+    win_offset = np.append(
+        np.zeros(1, dtype=np.int64),
+        np.cumsum(np.array([len(w) for w in windows])),
+    )[:-1]
+
+    col_ind = prior_indices[
+        prior_indptr[target_gram_ind] : prior_indptr[target_gram_ind + 1]
+    ]
+
+    for w, window in enumerate(windows):
+        for i, context in enumerate(window):
+            if kernels[w][i] > 0:
+                context_ind[i + win_offset[w]] = np.searchsorted(
+                    col_ind, context + w * n_unique_tokens
+                )
+                # assert(col_ind[context_ind[i + win_offset[w]]] == context+w * n_unique_tokens)
+                if (
+                    col_ind[context_ind[i + win_offset[w]]]
+                    == context + w * n_unique_tokens
+                ):
+                    window_posterior[i + win_offset[w]] = (
+                        kernels[w][i]
+                        * prior_data[
+                            prior_indptr[target_gram_ind]
+                            + context_ind[i + win_offset[w]]
+                        ]
+                    )
+                else:
+                    window_posterior[i + win_offset[w]] = 0
+
+    temp = window_posterior.sum()
+    if temp > 0:
+        window_posterior = window_normalizer(window_posterior)
+
+    # Partial M_step - Update the posteriors
+    for w, window in enumerate(windows):
+        for i, context in enumerate(window):
+            val = window_posterior[i + win_offset[w]]
+            if val > 0:
+                posterior_data[
+                    prior_indptr[target_gram_ind] + context_ind[i + win_offset[w]]
+                ] += val
+
+    return posterior_data
