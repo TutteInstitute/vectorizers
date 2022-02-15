@@ -25,7 +25,7 @@ from .coo_utils import (
     em_update_matrix,
     generate_chunk_boundaries,
     coo_sum_duplicates,
-    merge_all_sum_duplicates
+    merge_all_sum_duplicates,
 )
 
 import numpy as np
@@ -326,7 +326,7 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         counted. If None then there is no constraint, or the constraint is
         determined by max_document_occurrences.
 
-    ignored_tokens: set or None (optional, default=None)
+    excluded_tokens: set or None (optional, default=None)
         A set of tokens that should be ignored entirely. If None then no tokens will
         be ignored in this fashion.
 
@@ -413,16 +413,15 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         max_document_occurrences=None,
         min_document_frequency=None,
         max_document_frequency=None,
-        ignored_tokens=None,
+        excluded_tokens=None,
         excluded_token_regex=None,
         unknown_token=None,
         window_functions="fixed",
         kernel_functions="flat",
         window_args=None,
         kernel_args=None,
-        window_radii=5,
+        window_radii=10,
         mix_weights=None,
-        skip_ngram_size=1,
         window_orientations="directional",
         chunk_size=1 << 20,
         validate_data=True,
@@ -431,7 +430,6 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         normalize_windows=True,
         n_iter=0,
         epsilon=0,
-        multi_labelled_tokens=False,
         coo_initial_memory="0.5 GiB",
     ):
         self.token_dictionary = token_dictionary
@@ -444,7 +442,7 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self.min_document_frequency = min_document_frequency
         self.max_document_occurrences = max_document_occurrences
         self.max_document_frequency = max_document_frequency
-        self.ignored_tokens = ignored_tokens
+        self.ignored_tokens = excluded_tokens
         self.excluded_token_regex = excluded_token_regex
         self.unknown_token = unknown_token
         self.window_orientations = window_orientations
@@ -455,7 +453,6 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self.mix_weights = mix_weights
         self.window_radii = window_radii
         self.chunk_size = chunk_size
-        self.skip_ngram_size = skip_ngram_size
         self.validate_data = validate_data
         self.mask_string = mask_string
         self.nullify_mask = nullify_mask
@@ -464,25 +461,17 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self.epsilon = epsilon
         self.token_label_dictionary_ = {}
         self.token_index_dictionary_ = {}
-        self._token_frequencies_ = np.array([])
         self.coo_max_bytes = str_to_bytes(coo_initial_memory)
-        self.multi_labelled_tokens = multi_labelled_tokens
 
         self._normalize = normalize
         self._window_normalize = l1_normalize_vector
+        self._token_frequencies_ = np.array([])
 
         # Set attributes
         self.metric_ = distances.sparse_hellinger
 
         # Set params to be fit
         self._token_frequencies_ = None
-        self._col_mask_index_ = None
-        self._row_mask_index_ = None
-        self._row_frequencies_ = None
-        self._row_dict_ = None
-        self._coo_sizes_ = None
-        self._window_len_array_ = None
-        self._full_kernel_args_ = None
         self.cooccurrences_ = None
 
         # Check the window orientations
@@ -664,9 +653,8 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             item[1]: item[0] for item in self.column_label_dictionary_.items()
         }
 
-
-    def _set_row_information(self):
-        return self.token_label_dictionary_, self._token_frequencies_
+    def _set_row_information(self, token_sequences):
+        pass
 
     def _set_window_len_array(self):
         window_array = []
@@ -674,36 +662,64 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             window_array.append(
                 win_fn(
                     self._window_radii[i],
-                    self._row_frequencies_,
-                    self._row_mask_index_,
+                    self._token_frequencies_,
+                    self._mask_index,
                     *self._window_args[i],
                 )
             )
-        return np.array(window_array)
+        self._window_len_array = np.array(window_array)
 
     def _set_mask_indices(self):
         if self.nullify_mask:
-            mask_index = np.int32(len(self._token_frequencies_))
+            self._mask_index = np.int32(len(self._token_frequencies_))
         else:
-            mask_index = None
-        return mask_index, mask_index
+            self._mask_index = None
 
-    def _set_kernel_args(self):
-        pass
+    def _set_full_kernel_args(self):
+        # Set the kernel array and adjust args
+        self._full_kernel_args = []
 
-    def _set_coo_sizes(self):
-        pass
+        for i, args in enumerate(self._kernel_args):
+            default_kernel_array_args = {
+                "mask_index": None,
+                "normalize": False,
+            }
+            default_kernel_array_args.update(args)
+            self._full_kernel_args.append(tuple(default_kernel_array_args.values()))
+
+        self._full_kernel_args = tuple(self._full_kernel_args)
+
+    def _set_coo_sizes(self, token_sequences):
+        # Set the coo_array size
+        approx_coo_size = 0
+        for t in token_sequences:
+            approx_coo_size += len(t)
+        approx_coo_size *= (max(self.window_radii) + 1) * (20 * self._n_wide)
+        if approx_coo_size < self.coo_max_bytes:
+            self._coo_sizes = set_array_size(
+                token_sequences,
+                self._window_len_array_,
+            )
+        else:
+            offsets = np.array(
+                [self._initial_kernel_args[i][2] for i in range(self._n_wide)]
+            )
+            average_window = self._window_radii - offsets
+            coo_sizes = (self.coo_max_bytes // 20) // np.sum(average_window)
+            self._coo_sizes = np.array(coo_sizes * average_window, dtype=np.int64)
+        if np.any(self._coo_sizes == 0):
+            raise ValueError(f"The coo_initial_mem is too small to process any data.")
 
     def _set_additional_params(self):
         pass
 
-    def _em_cooccurrence_iteration(self, token_sequences):
-        # call the number function to return the new matrix.data
+    def _em_cooccurrence_iteration(self, token_sequences, cooccurrence_matrix):
+        # call the numba function to return the new matrix.data
         return []
 
     def _build_skip_grams(self, token_sequences):
-        # call the numba function for returning rows , cols, vals,
-        return [],[],[]
+        # call the numba function for returning rows , cols, vals, for each window
+        return [], [], []
 
     def _build_coo(self, token_sequences):
         coo_rows, coo_cols, coo_vals = self._build_skip_grams(token_sequences)
@@ -715,7 +731,10 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
                     np.hstack(coo_cols),
                 ),
             ),
-            shape=(len(self._row_dict_), len(self.token_label_dictionary_) * self._n_wide),
+            shape=(
+                len(self._row_dict_),
+                len(self.token_label_dictionary_) * self._n_wide,
+            ),
             dtype=np.float32,
         )
         result.sum_duplicates()
@@ -741,9 +760,10 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             window with token (j mod n_unique_tokens) for window/kernel function (j // n_unique_tokens).
         """
 
-
         matrix_per_chunk = [
-            dask.delayed(self._build_coo, token_sequences=token_sequences[chunk_start:chunk_end])
+            dask.delayed(
+                self._build_coo, token_sequences=token_sequences[chunk_start:chunk_end]
+            )
             for chunk_start, chunk_end in generate_chunk_boundaries(
                 token_sequences, chunk_size=self.chunk_size
             )
@@ -754,14 +774,19 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         cooccurrence_matrix = cooccurrence_matrix.tocsr()
 
         if self.n_iter > 0 or self.epsilon > 0:
-            cooccurrence_matrix = self.normalizer(cooccurrence_matrix, axis=0, norm="l1").tocsr()
+            cooccurrence_matrix = self.normalizer(
+                cooccurrence_matrix, axis=0, norm="l1"
+            ).tocsr()
             cooccurrence_matrix.data[cooccurrence_matrix.data < self.epsilon] = 0
             cooccurrence_matrix.eliminate_zeros()
 
         # Do the EM
         for iter in range(self.n_iter):
             new_data_per_chunk = [
-                dask.delayed(self._em_cooccurrence_iteration)(token_sequences=token_sequences[chunk_start:chunk_end])
+                dask.delayed(self._em_cooccurrence_iteration)(
+                    token_sequences=token_sequences[chunk_start:chunk_end],
+                    cooccurrence_matrix = cooccurrence_matrix
+                )
                 for chunk_start, chunk_end in generate_chunk_boundaries(
                     token_sequences, chunk_size=self.chunk_size
                 )
@@ -769,7 +794,9 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             new_data = dask.delayed(sum)(new_data_per_chunk)
             new_data = new_data.compute()
             cooccurrence_matrix.data = new_data
-            cooccurrence_matrix = self.normalizer(cooccurrence_matrix, axis=0, norm="l1").tocsr()
+            cooccurrence_matrix = self.normalizer(
+                cooccurrence_matrix, axis=0, norm="l1"
+            ).tocsr()
             cooccurrence_matrix.data[cooccurrence_matrix.data < self.epsilon] = 0
             cooccurrence_matrix.eliminate_zeros()
 
@@ -811,22 +838,22 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             )
 
         # Set the row dict and frequencies
-        self._row_dict_, self._row_frequencies_ = self._set_row_information(token_sequences)
+        self._set_row_information(token_sequences)
 
         # Set the row mask
-        self._row_mask_index_, self._col_mask_index_ = self._set_mask_indices()
+        self._set_mask_indices()
 
-        # Set columns information
+        # Set column dicts
         self._set_column_dicts()
 
         # Set the window_lengths per row label
-        self._window_len_array_ = self._set_window_len_array()
+        self._set_window_len_array()
 
-        # Update the kernel args to the tuple of default values
-        self._full_kernel_args_ = self._set_kernel_args()
+        # Update the kernel args to the tuple of default values with the added user inputs
+        self._set_full_kernel_args()
 
         # Set the coo_array size
-        self._coo_sizes_ = self._set_coo_sizes()
+        self._set_coo_sizes()
 
         # Set any other things
         self._set_additional_params()
@@ -873,22 +900,25 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             )
 
         # Set the row dict and frequencies
-        self._row_dict_, self._row_frequencies_ = self._set_row_information(token_sequences)
+        self._set_row_information(token_sequences)
 
         # Set the row mask
-        self._row_mask_index_, self._col_mask_index_ = self._set_mask_indices()
+        self._set_mask_indices()
 
-        # Set columns information
+        # Set column dicts
         self._set_column_dicts()
 
         # Set the window_lengths per row label
-        self._window_len_array_ = self._set_window_len_array()
+        self._set_window_len_array()
 
-        # Update the kernel args to the tuple of default values
-        self._full_kernel_args_ = self._set_kernel_args()
+        # Update the kernel args to the tuple of default values with the added user inputs
+        self._set_full_kernel_args()
 
         # Set the coo_array size
-        self._coo_sizes_ = self._set_coo_sizes()
+        self._set_coo_sizes()
+
+        # Set any other things
+        self._set_additional_params()
 
         return self
 

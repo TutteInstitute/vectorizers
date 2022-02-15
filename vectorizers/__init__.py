@@ -1,4 +1,4 @@
-from .token_cooccurrence_vectorizer import TokenCooccurrenceVectorizer
+from .old_token_cooccurrence_vectorizer import TokenCooccurrenceVectorizer
 from .timed_token_cooccurrence_vectorizer import TimedTokenCooccurrenceVectorizer
 from ._vectorizers import DistributionVectorizer
 from ._vectorizers import HistogramVectorizer
