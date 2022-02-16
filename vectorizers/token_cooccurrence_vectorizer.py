@@ -149,11 +149,7 @@ def numba_build_skip_grams(
         coo_sum_duplicates(coo, kind="quicksort")
         merge_all_sum_duplicates(coo)
 
-    return (
-        [coo.row[: coo.ind[0]] for coo in coo_data],
-        [coo.col[: coo.ind[0]] for coo in coo_data],
-        [coo.val[: coo.ind[0]] for coo in coo_data],
-    )
+    return coo_data
 
 
 @numba.njit(nogil=True)
@@ -408,6 +404,7 @@ class TokenCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
         mix_weights=None,
         window_orientations="directional",
         chunk_size=1 << 20,
+        n_threads = 1,
         validate_data=True,
         mask_string=None,
         nullify_mask=False,
@@ -439,6 +436,7 @@ class TokenCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
             mix_weights=mix_weights,
             window_orientations=window_orientations,
             chunk_size=chunk_size,
+            n_threads=n_threads,
             validate_data=validate_data,
             mask_string=mask_string,
             nullify_mask=nullify_mask,
@@ -457,7 +455,7 @@ class TokenCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
             window_reversals=self._window_reversals,
             kernel_array=self._kernel_functions,
             kernel_args=self._full_kernel_args,
-            mix_weights=self.mix_weights,
+            mix_weights=self._mix_weights,
             window_normalizer=self._window_normalize,
             prior_data=cooccurrence_matrix.data,
             prior_indices=cooccurrence_matrix.indices,
@@ -472,7 +470,7 @@ class TokenCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
             window_reversals=self._window_reversals,
             kernel_array=self._kernel_functions,
             kernel_args=self._full_kernel_args,
-            mix_weights=self.mix_weights,
+            mix_weights=self._mix_weights,
             normalize_windows=self.normalize_windows,
             n_unique_tokens=len(self.token_label_dictionary_),
             array_lengths=self._coo_sizes,
