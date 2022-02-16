@@ -510,7 +510,7 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         if callable(self.kernel_functions) or isinstance(self.kernel_functions, str):
             self.kernel_functions = [self.kernel_functions]
 
-        self._kernel_functions = numba.typed.List([])
+        self._kernel_functions = []
         for i, ker in enumerate(self.kernel_functions):
             if callable(ker):
                 self._kernel_functions.append(ker)
@@ -522,6 +522,7 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
                 )
             if self.window_orientations[i] == "directional":
                 self._kernel_functions.append(self._kernel_functions[-1])
+        self._kernel_functions = tuple(self._kernel_functions)
 
         # Set window functions
         if callable(self.window_functions) or isinstance(self.window_functions, str):

@@ -5,7 +5,7 @@ from collections import namedtuple
 CooArray = namedtuple("CooArray", ["row", "col", "val", "key", "ind", "min", "depth"])
 
 COO_QUICKSORT_LIMIT = 1 << 16
-COO_MEM_MULTIPLIER = 2.0
+COO_MEM_MULTIPLIER = 1.5
 
 
 @numba.njit(nogil=True)
@@ -266,7 +266,7 @@ def generate_chunk_boundaries(data, chunk_size=1 << 19):
     return chunks
 
 
-@numba.njit(nogil=True, inline="always")
+@numba.njit(nogil=True)
 def em_update_matrix(
     posterior_data,
     prior_indices,

@@ -41,14 +41,14 @@ from ._window_kernels import (
     update_kernel,
 )
 
-
 @numba.njit(nogil=True)
 def numba_build_skip_grams(
     token_sequences,
     window_size_array,
     window_reversals,
     kernel_array,
-    kernel_args,
+    kernel_masks,
+    kernel_normalize,
     mix_weights,
     normalize_windows,
     n_unique_tokens,
@@ -124,7 +124,10 @@ def numba_build_skip_grams(
             ]
 
             kernels = [
-                mix_weights[i] * kernel_array[i](windows[i], *kernel_args[i])
+                mix_weights[i]
+                * update_kernel(
+                    windows[i], kernel_array[i], kernel_masks[i], kernel_normalize[i]
+                )
                 for i in range(n_windows)
             ]
 
@@ -158,7 +161,8 @@ def numba_em_cooccurrence_iteration(
     window_size_array,
     window_reversals,
     kernel_array,
-    kernel_args,
+    kernel_masks,
+    kernel_normalize,
     mix_weights,
     window_normalizer,
     n_unique_tokens,
@@ -233,7 +237,10 @@ def numba_em_cooccurrence_iteration(
             ]
 
             kernels = [
-                mix_weights[i] * kernel_array[i](windows[i], *kernel_args[i])
+                mix_weights[i]
+                * update_kernel(
+                    windows[i], kernel_array[i], kernel_masks[i], kernel_normalize[i]
+                )
                 for i in range(n_windows)
             ]
 
@@ -404,7 +411,7 @@ class TokenCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
         mix_weights=None,
         window_orientations="directional",
         chunk_size=1 << 20,
-        n_threads = 1,
+        n_threads=1,
         validate_data=True,
         mask_string=None,
         nullify_mask=False,
@@ -453,8 +460,9 @@ class TokenCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
             n_unique_tokens=len(self.token_label_dictionary_),
             window_size_array=self._window_len_array,
             window_reversals=self._window_reversals,
-            kernel_array=self._kernel_functions,
-            kernel_args=self._full_kernel_args,
+            kernel_array=self._kernel_array,
+            kernel_masks=self._kernel_mask_array,
+            kernel_normalize=self._kernel_normalize_array,
             mix_weights=self._mix_weights,
             window_normalizer=self._window_normalize,
             prior_data=cooccurrence_matrix.data,
@@ -468,10 +476,43 @@ class TokenCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
             token_sequences=token_sequences,
             window_size_array=self._window_len_array,
             window_reversals=self._window_reversals,
-            kernel_array=self._kernel_functions,
-            kernel_args=self._full_kernel_args,
+            kernel_array=self._kernel_array,
+            kernel_masks=self._kernel_mask_array,
+            kernel_normalize=self._kernel_normalize_array,
             mix_weights=self._mix_weights,
             normalize_windows=self.normalize_windows,
             n_unique_tokens=len(self.token_label_dictionary_),
             array_lengths=self._coo_sizes,
         )
+
+    def _set_full_kernel_args(self):
+        # Set the kernel array and adjust args
+
+        self._kernel_mask_array = []
+        self._kernel_normalize_array = []
+        self._full_kernel_args = []
+        max_ker_len = np.max(self._window_len_array) + 1
+        self._kernel_array = np.zeros((self._n_wide, max_ker_len), dtype=np.float64)
+
+        for i, args in enumerate(self._kernel_args):
+            default_kernel_array_args = {
+                "mask_index": None,
+                "normalize": False,
+                "offset": 0,
+            }
+            default_kernel_array_args.update(args)
+            default_kernel_array_args["normalize"] = False
+            self._kernel_array[i] = np.array(
+                self._kernel_functions[i](
+                    np.repeat(-1, max_ker_len),
+                    *tuple(default_kernel_array_args.values()),
+                )
+            )
+            default_kernel_array_args.update(args)
+            self._kernel_mask_array.append(self._mask_index)
+            self._kernel_normalize_array.append(default_kernel_array_args["normalize"])
+            self._full_kernel_args.append(tuple(default_kernel_array_args.values()))
+
+        self._full_kernel_args = tuple(self._full_kernel_args)
+        self._kernel_mask_array = tuple(self._kernel_mask_array)
+        self._kernel_normalize_array = tuple(self._kernel_normalize_array)
