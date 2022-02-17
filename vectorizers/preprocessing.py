@@ -35,6 +35,32 @@ def construct_document_frequency(token_by_doc_sequence, token_dictionary):
 
     return doc_freq / len(token_by_doc_sequence)
 
+def construct_timed_document_frequency(token_by_doc_sequence, token_dictionary):
+    """Returns the frequency of documents that each token appears in.
+
+    Parameters
+    ----------
+    token_by_doc_sequence: Iterable
+        A sequence of sequences of tokens
+
+    token_dictionary: dictionary
+        A fixed dictionary providing the mapping of tokens to indices
+
+    Returns
+    -------
+    document_frequency: np.array
+        The document frequency of tokens ordered by token_dictionary
+    """
+
+    n_tokens = len(token_dictionary)
+    doc_freq = np.zeros(n_tokens)
+    for doc in token_by_doc_sequence:
+        doc_freq += np.bincount(
+            [token_dictionary[token[0]] for token in set(doc)], minlength=n_tokens
+        )
+
+    return doc_freq / len(token_by_doc_sequence)
+
 
 def construct_token_dictionary_and_frequency(token_sequence, token_dictionary=None):
     """Construct a dictionary mapping tokens to indices and a table of token
@@ -670,7 +696,6 @@ def preprocess_token_sequences(
 def preprocess_timed_token_sequences(
     token_sequences,
     flat_sequence,
-    time_sequences,
     token_dictionary=None,
     max_unique_tokens=None,
     min_occurrences=None,
@@ -767,11 +792,12 @@ def preprocess_timed_token_sequences(
 
     # Get vocabulary and word frequencies
 
+    flat_only_tokens = [pair[0] for pair in flat_sequence]
     (
         token_dictionary_,
         token_frequencies,
         total_tokens,
-    ) = construct_token_dictionary_and_frequency(flat_sequence, token_dictionary)
+    ) = construct_token_dictionary_and_frequency(flat_only_tokens, token_dictionary)
 
     if token_dictionary is None:
         if {
@@ -781,7 +807,7 @@ def preprocess_timed_token_sequences(
             max_document_occurrences,
             max_unique_tokens,
         } != {None}:
-            token_doc_frequencies = construct_document_frequency(
+            token_doc_frequencies = construct_timed_document_frequency(
                 token_sequences, token_dictionary_
             )
         else:
@@ -813,27 +839,15 @@ def preprocess_timed_token_sequences(
             result_sequences.append(
                 np.array(
                     [
-                        token_dictionary[token]
+                        (token_dictionary[token[0]], token[1])
                         for token in sequence
-                        if token in token_dictionary
-                    ],
-                    dtype=np.int32,
-                )
-            )
-            these_times = np.array(time_sequences[i])
-            result_times.append(
-                np.array(
-                    [
-                        these_times[j]
-                        for j, token in enumerate(sequence)
-                        if token in token_dictionary
+                        if token[0] in token_dictionary
                     ],
                     dtype=np.float32,
                 )
             )
     else:
         result_sequences = List()
-        result_times = List()
         if masking in token_dictionary:
             del token_dictionary[masking]
 
@@ -841,16 +855,14 @@ def preprocess_timed_token_sequences(
             result_sequences.append(
                 np.array(
                     [
-                        len(token_dictionary)
-                        if not (token in token_dictionary)
-                        else token_dictionary[token]
+                        (len(token_dictionary), token[1])
+                        if not (token[0] in token_dictionary)
+                        else (token_dictionary[token], token[1])
                         for token in sequence
                     ],
-                    dtype=np.int32,
+                    dtype=np.float32,
                 )
             )
-            result_times.append(np.array(time_sequences[i], dtype=np.float32))
-
         token_dictionary[masking] = len(token_dictionary)
 
     inverse_token_dictionary = {
@@ -859,7 +871,6 @@ def preprocess_timed_token_sequences(
 
     return (
         result_sequences,
-        result_times,
         token_dictionary,
         inverse_token_dictionary,
         token_frequencies,

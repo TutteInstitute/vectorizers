@@ -9,7 +9,7 @@ EPSILON = 1e-8
 @numba.njit(nogil=True)
 def window_at_index(token_sequence, window_size, ind, reverse=False):
     if reverse:
-        return np.flip(token_sequence[max(ind - window_size, 0) : ind])
+        return np.flipud(token_sequence[max(ind - window_size, 0) : ind])
     return token_sequence[ind + 1 : min(ind + window_size + 1, len(token_sequence))]
 
 
@@ -115,11 +115,13 @@ def timed_geometric_kernel(
     delta,
     mask_index,
     normalize,
+    offset,
     power=0.9,
 ):
     result = power ** (time_deltas/delta)
     if mask_index is not None:
         result[window == mask_index] = 0
+    result[0 : min(offset, len(result))] = 0
     if normalize:
         temp = result.sum()
         if temp > 0:

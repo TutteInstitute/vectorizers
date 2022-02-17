@@ -269,19 +269,19 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         if callable(self.kernel_functions) or isinstance(self.kernel_functions, str):
             self.kernel_functions = [self.kernel_functions]
 
+        built_in_kernels = self._get_default_kernel_functions()
         self._kernel_functions = numba.typed.List([])
         for i, ker in enumerate(self.kernel_functions):
             if callable(ker):
                 self._kernel_functions.append(ker)
-            elif ker in _KERNEL_FUNCTIONS:
-                self._kernel_functions.append(_KERNEL_FUNCTIONS[ker])
+            elif ker in built_in_kernels:
+                self._kernel_functions.append(built_in_kernels[ker])
             else:
                 raise ValueError(
-                    f"Unrecognized kernel_function; should be callable or one of {_KERNEL_FUNCTIONS.keys()}"
+                    f"Unrecognized kernel_function; should be callable or one of {built_in_kernels.keys()}"
                 )
             if self.window_orientations[i] == "directional":
                 self._kernel_functions.append(self._kernel_functions[-1])
-        # self._kernel_functions = tuple(self._kernel_functions)
 
         # Set window functions
         if callable(self.window_functions) or isinstance(self.window_functions, str):
@@ -355,6 +355,9 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         assert self.n_threads > 0
         assert self.n_iter >= 0
         assert self.epsilon >= 0
+
+    def _get_default_kernel_functions(self):
+        return _KERNEL_FUNCTIONS
 
     def _set_column_dicts(self):
         self.column_label_dictionary_ = {}
