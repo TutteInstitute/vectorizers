@@ -3,12 +3,14 @@ from .preprocessing import (
     prune_token_dictionary,
     construct_token_dictionary_and_frequency,
     construct_document_frequency,
+    preprocess_token_sequences,
 )
 from .base_cooccurrence_vectorizer import BaseCooccurrenceVectorizer
 from collections.abc import Iterable
 from .utils import (
     flatten,
     make_tuple_converter,
+    validate_homogeneous_token_types,
 )
 from .coo_utils import (
     coo_append,
@@ -106,12 +108,13 @@ def numba_build_skip_grams(
     for d_i, seq in enumerate(token_sequences):
         for w_i in range(ngram_size - 1, len(seq)):
             ngram = array_to_tuple(seq[w_i - ngram_size + 1 : w_i + 1])
-            if ngram in ngram_dictionary:
-                target_gram_ind = ngram_dictionary[ngram]
+            target_gram_ind = np.int32(ngram_dictionary.get(ngram, default=-1))
+            if target_gram_ind >= 0:
+                target_gram_ind = np.int64(target_gram_ind)
                 windows = [
                     window_at_index(
                         seq,
-                        window_size_array[i, target_gram_ind],
+                        window_size_array[i][target_gram_ind],
                         w_i - window_reversal_const[i] * (ngram_size - 1),
                         reverse=window_reversals[i],
                     )
@@ -225,13 +228,13 @@ def numba_em_cooccurrence_iteration(
 
     for d_i, seq in enumerate(token_sequences):
         for w_i in range(ngram_size - 1, len(seq)):
-            ngram = array_to_tuple(seq[w_i - ngram_size + 1 : w_i + 1])
-            if ngram in ngram_dictionary:
-                target_gram_ind = ngram_dictionary[ngram]
+            ngram = array_to_tuple(seq[w_i - ngram_size + 1: w_i + 1])
+            target_gram_ind = np.int32(ngram_dictionary.get(ngram, default=-1))
+            if target_gram_ind >= 0:
                 windows = [
                     window_at_index(
                         seq,
-                        window_size_array[i, target_gram_ind],
+                        window_size_array[i][target_gram_ind],
                         w_i - window_reversal_const[i] * (ngram_size - 1),
                         reverse=window_reversals[i],
                     )

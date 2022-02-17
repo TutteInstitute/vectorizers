@@ -635,7 +635,59 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         return self.cooccurrences_
 
     def fit(self, X, y=None, **fit_params):
-        self.fit_transform(X, y)
+        if self.validate_data:
+            validate_homogeneous_token_types(X)
+
+        # noinspection PyTupleAssignmentBalance
+        (
+            token_sequences,
+            self.token_label_dictionary_,
+            self.token_index_dictionary_,
+            self._token_frequencies_,
+        ) = preprocess_token_sequences(
+            X,
+            flatten(X),
+            self.token_dictionary,
+            max_unique_tokens=self.max_unique_tokens,
+            min_occurrences=self.min_occurrences,
+            max_occurrences=self.max_occurrences,
+            min_frequency=self.min_frequency,
+            max_frequency=self.max_frequency,
+            min_document_occurrences=self.min_document_occurrences,
+            max_document_occurrences=self.max_document_occurrences,
+            min_document_frequency=self.min_document_frequency,
+            max_document_frequency=self.max_document_frequency,
+            ignored_tokens=self.excluded_tokens,
+            excluded_token_regex=self.excluded_token_regex,
+            masking=self.mask_string,
+        )
+
+        if len(self.token_label_dictionary_) == 0:
+            raise ValueError(
+                "Token dictionary is empty; try using less extreme constraints"
+            )
+
+        # Set the row dict and frequencies
+        self._set_row_information(token_sequences)
+
+        # Set the row mask
+        self._set_mask_indices()
+
+        # Set column dicts
+        self._set_column_dicts()
+
+        # Set the window_lengths per row label
+        self._set_window_len_array()
+
+        # Update the kernel args to the tuple of default values with the added user inputs
+        self._set_full_kernel_args()
+
+        # Set the coo_array size
+        self._set_coo_sizes(token_sequences)
+
+        # Set any other things
+        self._set_additional_params()
+
         return self
 
     def transform(self, X):
