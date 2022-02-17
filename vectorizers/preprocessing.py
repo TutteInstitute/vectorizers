@@ -93,6 +93,7 @@ def prune_token_dictionary(
     token_doc_frequencies=np.array([]),
     ignored_tokens=None,
     excluded_token_regex=None,
+    max_unique_tokens=None,
     min_frequency=0.0,
     max_frequency=1.0,
     min_occurrences=None,
@@ -123,6 +124,11 @@ def prune_token_dictionary(
     ignored_tokens: set or None (optional, default=None)
         A set of tokens that should be ignored, and thus removed from the
         dictionary. This could be, for example, top words in an NLP context.
+
+    max_unique_tokens: int or None (optional, default=None)
+        The maximal number of elements contained in the vocabulary.  If not None, this
+        will prune the vocabulary to the top 'max_vocabulary_size' most frequent remaining tokens
+        after other possible preproccessing.
 
     min_frequency: float (optional, default=0.0)
         The minimum frequency of occurrence allowed for tokens. Tokens that occur
@@ -238,10 +244,18 @@ def prune_token_dictionary(
         )
 
     vocab_tokens = [token for token in token_dictionary if token not in tokens_to_prune]
-    new_vocabulary = dict(zip(vocab_tokens, range(len(vocab_tokens))))
+    vocab_set = set(vocab_tokens)
     new_token_frequency = np.array(
-        [token_frequencies[token_dictionary[token]] for token in new_vocabulary]
+        [token_frequencies[token_dictionary[token]] for token in vocab_set]
     )
+
+    if max_unique_tokens is not None:
+        if len(new_token_frequency) > max_unique_tokens:
+            inds = np.sort(np.argsort(new_token_frequency)[-max_unique_tokens:])
+            new_token_frequency = new_token_frequency[inds]
+            vocab_tokens = [vocab_tokens[i] for i in inds]
+
+    new_vocabulary = dict(zip(vocab_tokens, range(len(vocab_tokens))))
 
     return new_vocabulary, new_token_frequency
 
@@ -476,6 +490,7 @@ def preprocess_token_sequences(
     token_sequences,
     flat_sequence,
     token_dictionary=None,
+    max_unique_tokens=None,
     min_occurrences=None,
     max_occurrences=None,
     min_frequency=None,
@@ -508,6 +523,11 @@ def preprocess_token_sequences(
         A fixed dictionary mapping tokens to indices, constraining the tokens
         that are allowed. If None then the allowed tokens and a mapping will
         be learned from the data and returned.
+
+    max_unique_tokens: int or None (optional, default=None)
+        The maximal number of elements contained in the vocabulary.  If not None, this is
+        will prune the vocabulary to the top 'max_vocabulary_size' most frequent remaining tokens
+        after other possible preproccessing.
 
     min_occurrences: int or None (optional, default=None)
         A constraint on the minimum number of occurrences for a token to be considered
@@ -577,6 +597,7 @@ def preprocess_token_sequences(
             min_document_occurrences,
             max_document_frequency,
             max_document_occurrences,
+            max_unique_tokens,
         } != {None}:
             token_doc_frequencies = construct_document_frequency(
                 token_sequences, token_dictionary_
@@ -590,6 +611,7 @@ def preprocess_token_sequences(
             token_doc_frequencies=token_doc_frequencies,
             ignored_tokens=ignored_tokens,
             excluded_token_regex=excluded_token_regex,
+            max_unique_tokens=max_unique_tokens,
             min_frequency=min_frequency,
             max_frequency=max_frequency,
             min_occurrences=min_occurrences,
