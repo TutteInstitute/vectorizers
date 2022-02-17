@@ -277,7 +277,6 @@ def em_update_matrix(
     target_gram_ind,
     windows,
     kernels,
-    window_normalizer,
 ):
     """
     Updated the csr matrix from one round of EM on the given (hstack of) n
@@ -349,7 +348,7 @@ def em_update_matrix(
 
     temp = window_posterior.sum()
     if temp > 0:
-        window_posterior = window_normalizer(window_posterior)
+        window_posterior /= temp
 
     # Partial M_step - Update the posteriors
     for w, window in enumerate(windows):

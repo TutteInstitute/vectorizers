@@ -15,17 +15,12 @@ from .utils import (
     flatten,
     str_to_bytes,
     dirichlet_process_normalize,
-    l1_normalize_vector,
 )
 
 from .coo_utils import (
-    coo_append,
     CooArray,
     set_array_size,
-    em_update_matrix,
     generate_chunk_boundaries,
-    coo_sum_duplicates,
-    merge_all_sum_duplicates,
 )
 
 import numpy as np
@@ -35,234 +30,7 @@ import scipy.sparse
 from ._window_kernels import (
     _KERNEL_FUNCTIONS,
     _WINDOW_FUNCTIONS,
-    window_at_index,
-    update_kernel,
 )
-
-MOCK_DICT = numba.typed.Dict()
-MOCK_DICT[(-1, -1)] = -1
-
-
-@numba.njit(nogil=True)
-def numba_build_skip_grams(
-    token_sequences,
-    window_size_array,
-    window_reversals,
-    kernel_array,
-    kernel_args,
-    mix_weights,
-    normalize_windows,
-    n_unique_tokens,
-    array_lengths,
-):
-    """Generate a matrix of (weighted) counts of co-occurrences of tokens within
-    windows in a set of sequences of tokens. Each sequence in the collection of
-    sequences provides an effective boundary over which skip-grams may not pass
-    (such as sentence boundaries in an NLP context). This is done for a collection
-    of different window and kernel types simultaneously.
-
-    Parameters
-    ----------
-    token_sequences: Iterable of Iterables
-        The collection of token sequences to generate skip-gram data for.
-
-    n_unique_tokens: int
-        The number of unique tokens in the token_dictionary.
-
-    window_size_array: numpy.ndarray(float, size = (n_windows, n_unique_tokens))
-        A collection of window sizes per vocabulary index per window function
-
-    window_reversals: numpy.array(bool, size = (n_windows,))
-        Array indicating whether the window is after or not.
-
-    kernel_array: numpy.ndarray(float, size = (n_windows, max_window_radius))
-        A collection of kernel values per window index per window funciton
-
-    kernel_args: tuple of tuples
-        Arguments to pass through to the kernel functions per function
-
-    mix_weights: numpy.array(bool, size = (n_windows,))
-        The scalars values used to combine the values of the kernel functions
-
-    normalize_windows: bool
-        Indicates whether or nor to L_1 normalize the kernel values per window occurrence
-
-    array_lengths: numpy.array(int, size = (n_windows,))
-        The lengths of the arrays per window used to the store the coo matrix triples.
-
-    Returns
-    -------
-    cooccurrence_matrix: CooArray
-        Weight counts of values (kernel weighted counts) that token_head[i] cooccurred with token_tail[i]
-    """
-
-    n_windows = window_size_array.shape[0]
-    array_mul = n_windows * n_unique_tokens + 1
-    kernel_masks = [ker[0] for ker in kernel_args]
-    kernel_normalize = [ker[1] for ker in kernel_args]
-
-    coo_data = [
-        CooArray(
-            np.zeros(array_lengths[i], dtype=np.int32),
-            np.zeros(array_lengths[i], dtype=np.int32),
-            np.zeros(array_lengths[i], dtype=np.float32),
-            np.zeros(array_lengths[i], dtype=np.int64),
-            np.zeros(1, dtype=np.int64),
-            np.zeros(2 * np.int64(np.ceil(np.log2(array_lengths[i]))), dtype=np.int64),
-            np.zeros(1, dtype=np.int64),
-        )
-        for i in range(n_windows)
-    ]
-    for d_i, seq in enumerate(token_sequences):
-        for w_i, target_word in enumerate(seq):
-            windows = [
-                window_at_index(
-                    seq,
-                    window_size_array[i, target_word],
-                    w_i,
-                    reverse=window_reversals[i],
-                )
-                for i in range(n_windows)
-            ]
-
-            kernels = [
-                mix_weights[i]
-                * update_kernel(
-                    windows[i], kernel_array[i], kernel_masks[i], kernel_normalize[i]
-                )
-                for i in range(n_windows)
-            ]
-
-            total = 0
-            if normalize_windows:
-                sums = np.array([np.sum(ker) for ker in kernels])
-                total = np.sum(sums)
-            if total <= 0:
-                total = 1
-
-            for i, window in enumerate(windows):
-                this_ker = kernels[i]
-                for j, context in enumerate(window):
-                    val = np.float32(this_ker[j] / total)
-                    if val > 0:
-                        row = target_word
-                        col = context + i * n_unique_tokens
-                        key = col + array_mul * row
-                        coo_data[i] = coo_append(coo_data[i], (row, col, val, key))
-
-    for coo in coo_data:
-        coo_sum_duplicates(coo, kind="quicksort")
-        merge_all_sum_duplicates(coo)
-
-    return (
-        [coo.row[: coo.ind[0]] for coo in coo_data],
-        [coo.col[: coo.ind[0]] for coo in coo_data],
-        [coo.val[: coo.ind[0]] for coo in coo_data],
-    )
-
-
-@numba.njit(nogil=True)
-def numba_em_cooccurrence_iteration(
-    token_sequences,
-    window_size_array,
-    window_reversals,
-    kernel_array,
-    kernel_args,
-    mix_weights,
-    window_normalizer,
-    n_unique_tokens,
-    prior_indices,
-    prior_indptr,
-    prior_data,
-):
-    """
-    Performs one round of EM on the given (hstack of) n cooccurrence matrices provided in csr format.
-
-    Note: The algorithm assumes the matrix is an hstack of cooccurrence matrices with the same vocabulary,
-    with kernel and window parameters given in the same order.
-
-    Parameters
-    ----------
-
-    token_sequences: Iterable of Iterables
-        The collection of token sequences to generate skip-gram data for.
-
-    window_size_array : numpy.ndarray of shape(n, n_vocab)
-        The collection of window sizes per token per directed cooccurrence
-
-    window_reversals: numpy.array(bool)
-        The collection of indicators whether or not the window is after the target token.
-
-    kernel_array: numpy.array of shape(n, max(window_size_array))
-        The n-tuple of evaluated kernel functions of maximal length
-
-    kernel_args: tuple(tuples)
-        The n-tuple of update_kernel args per kernel function
-
-    mix_weights: tuple
-        The n-tuple of mix weights to apply to the kernel functions
-
-    n_unique_tokens: int
-        The number of unique tokens
-
-    prior_indices:  numpy.array
-        The csr indices of the hstacked cooccurrence matrix
-
-    prior_indptr: numpy.array
-        The csr indptr of the hstacked cooccurrence matrix
-
-    prior_data: numpy.array
-        The csr data of the hstacked cooccurrence matrix
-
-    Returns
-    -------
-    posterior_data: numpy.array
-        The data of the updated csr matrix after one iteration of EM.
-
-    """
-
-    posterior_data = np.zeros_like(prior_data)
-    n_windows = window_size_array.shape[0]
-    kernel_masks = [ker[0] for ker in kernel_args]
-    kernel_normalize = [ker[1] for ker in kernel_args]
-    window_reversal_const = np.zeros(len(window_reversals)).astype(np.int32)
-    window_reversal_const[window_reversals] = 1
-
-    for d_i, seq in enumerate(token_sequences):
-        for w_i, target_word in enumerate(seq):
-            windows = [
-                window_at_index(
-                    seq,
-                    window_size_array[i, target_word],
-                    w_i,
-                    reverse=window_reversals[i],
-                )
-                for i in range(n_windows)
-            ]
-
-            kernels = [
-                mix_weights[i]
-                * update_kernel(
-                    windows[i],
-                    kernel_array[i],
-                    kernel_masks[i],
-                    kernel_normalize[i],
-                )
-                for i in range(n_windows)
-            ]
-            posterior_data = em_update_matrix(
-                posterior_data,
-                prior_indices,
-                prior_indptr,
-                prior_data,
-                n_unique_tokens,
-                target_word,
-                windows,
-                kernels,
-                window_normalizer,
-            )
-
-    return posterior_data
 
 
 class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
@@ -407,12 +175,11 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         max_document_frequency=None,
         excluded_tokens=None,
         excluded_token_regex=None,
-        unknown_token=None,
         window_functions="fixed",
         kernel_functions="flat",
         window_args=None,
         kernel_args=None,
-        window_radii=10,
+        window_radii=5,
         mix_weights=None,
         window_orientations="directional",
         n_threads=1,
@@ -434,9 +201,8 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self.min_document_frequency = min_document_frequency
         self.max_document_occurrences = max_document_occurrences
         self.max_document_frequency = max_document_frequency
-        self.ignored_tokens = excluded_tokens
+        self.excluded_tokens = excluded_tokens
         self.excluded_token_regex = excluded_token_regex
-        self.unknown_token = unknown_token
         self.window_orientations = window_orientations
         self.window_functions = window_functions
         self.kernel_functions = kernel_functions
@@ -453,9 +219,7 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self.epsilon = epsilon
         self.token_label_dictionary_ = {}
         self.token_index_dictionary_ = {}
-        self.coo_max_bytes = str_to_bytes(coo_initial_memory)
-        self._normalize = normalize
-        self._window_normalize = l1_normalize_vector
+        self.coo_initial_bytes = str_to_bytes(coo_initial_memory)
 
         # Set attributes
         self.metric_ = distances.sparse_hellinger
@@ -691,7 +455,7 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         for t in token_sequences:
             approx_coo_size += len(t)
         approx_coo_size *= (max(self.window_radii) + 1) * (20 * self._n_wide)
-        if approx_coo_size < self.coo_max_bytes:
+        if approx_coo_size < self.coo_initial_bytes:
             self._coo_sizes = set_array_size(
                 token_sequences,
                 self._window_len_array,
@@ -701,7 +465,7 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
                 [self._full_kernel_args[i][2] for i in range(self._n_wide)]
             )
             average_window = self._window_radii - offsets
-            coo_sizes = (self.coo_max_bytes // 20) // np.sum(average_window)
+            coo_sizes = (self.coo_initial_bytes // 20) // np.sum(average_window)
             self._coo_sizes = np.array(coo_sizes * average_window, dtype=np.int64)
 
         self._coo_sizes = np.divmod(self._coo_sizes, self.n_threads)[0]
@@ -774,7 +538,7 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         cooccurrence_matrix = cooccurrence_matrix.tocsr()
 
         if self.n_iter > 0 or self.epsilon > 0:
-            cooccurrence_matrix = self._normalize(
+            cooccurrence_matrix = normalize(
                 cooccurrence_matrix, axis=0, norm="l1"
             ).tocsr()
             cooccurrence_matrix.data[cooccurrence_matrix.data < self.epsilon] = 0
@@ -800,7 +564,7 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
                     cooccurrence_matrix=cooccurrence_matrix,
                 )
             cooccurrence_matrix.data = new_data
-            cooccurrence_matrix = self._normalize(
+            cooccurrence_matrix = normalize(
                 cooccurrence_matrix, axis=0, norm="l1"
             ).tocsr()
             cooccurrence_matrix.data[cooccurrence_matrix.data < self.epsilon] = 0
@@ -832,7 +596,7 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             max_document_occurrences=self.max_document_occurrences,
             min_document_frequency=self.min_document_frequency,
             max_document_frequency=self.max_document_frequency,
-            ignored_tokens=self.ignored_tokens,
+            ignored_tokens=self.excluded_tokens,
             excluded_token_regex=self.excluded_token_regex,
             masking=self.mask_string,
         )
@@ -911,24 +675,20 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         dimension=150,
         algorithm="arpack",
         n_iter=10,
-        row_norm="frequentist",
         power=0.25,
     ):
         check_is_fitted(self, ["column_label_dictionary_"])
-        if row_norm == "bayesian":
-            row_normalize = dirichlet_process_normalize
-        else:
-            row_normalize = normalize
+
 
         if self.n_iter < 1:
-            self.reduced_matrix_ = self._normalize(
+            self.reduced_matrix_ = normalize(
                 self.cooccurrences_, axis=0, norm="l1"
             )
-            self.reduced_matrix_ = row_normalize(
+            self.reduced_matrix_ = normalize(
                 self.reduced_matrix_, axis=1, norm="l1"
             )
         else:
-            self.reduced_matrix_ = row_normalize(self.cooccurrences_, axis=1, norm="l1")
+            self.reduced_matrix_ = normalize(self.cooccurrences_, axis=1, norm="l1")
 
         self.reduced_matrix_.data = np.power(self.reduced_matrix_.data, power)
 

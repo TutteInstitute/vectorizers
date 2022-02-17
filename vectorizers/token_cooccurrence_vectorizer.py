@@ -133,7 +133,6 @@ def numba_em_cooccurrence_iteration(
     kernel_functions,
     kernel_args,
     mix_weights,
-    window_normalizer,
     n_unique_tokens,
     prior_indices,
     prior_indptr,
@@ -219,7 +218,6 @@ def numba_em_cooccurrence_iteration(
                 target_word,
                 windows,
                 kernels,
-                window_normalizer,
             )
 
     return posterior_data
@@ -367,7 +365,6 @@ class TokenCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
         max_document_frequency=None,
         excluded_tokens=None,
         excluded_token_regex=None,
-        unknown_token=None,
         window_functions="fixed",
         kernel_functions="flat",
         window_args=None,
@@ -397,7 +394,6 @@ class TokenCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
             max_document_frequency=max_document_frequency,
             excluded_tokens=excluded_tokens,
             excluded_token_regex=excluded_token_regex,
-            unknown_token=unknown_token,
             window_functions=window_functions,
             kernel_functions=kernel_functions,
             window_args=window_args,
@@ -425,7 +421,6 @@ class TokenCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
             kernel_functions=self._kernel_functions,
             kernel_args=self._full_kernel_args,
             mix_weights=self._mix_weights,
-            window_normalizer=self._window_normalize,
             prior_data=cooccurrence_matrix.data,
             prior_indices=cooccurrence_matrix.indices,
             prior_indptr=cooccurrence_matrix.indptr,
