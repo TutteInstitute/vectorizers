@@ -865,7 +865,7 @@ def lot_vectors_dense(
         for i in range(len(sample_vectors) // 512 + 1):
             start = i * 512
             end = min(start + 512, len(sample_vectors))
-            normalized_sample_vectors.extend([normalize(v, norm="l2") for v in sample_vectors[start:end]])
+            normalized_sample_vectors.extend([np.ascontiguousarray(normalize(v, norm="l2")) for v in sample_vectors[start:end]])
         sample_vectors = normalized_sample_vectors
         # sample_vectors = tuple([normalize(v, norm="l2") for v in sample_vectors])
 
@@ -1646,7 +1646,7 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
             for i in range(len(vectors) // 512 + 1):
                 start = i * 512
                 end = min(start + 512, len(X))
-                sample_vectors.extend(tuple(vectors[start:end]))
+                sample_vectors.extend(tuple(np.ascontiguousarray(vectors[start:end])))
 
             if len(vectors[0].shape) <= 1:
                 raise ValueError(
@@ -1924,13 +1924,13 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                     start = i * 512
                     end = min(start + 512, len(X))
                     sample_vectors.extend(
-                        tuple([normalize(v, norm="l2") for v in vectors[start:end]])
+                        tuple([np.ascontiguousarray(normalize(v, norm="l2")) for v in vectors[start:end]])
                     )
             else:
                 for i in range(len(vectors) // 512 + 1):
                     start = i * 512
                     end = min(start + 512, len(X))
-                    sample_vectors.extend(tuple(vectors[start:end]))
+                    sample_vectors.extend(tuple(np.ascontiguousarray(vectors[start:end])))
 
             result_blocks = []
 
