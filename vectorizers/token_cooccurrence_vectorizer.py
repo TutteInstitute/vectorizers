@@ -11,7 +11,6 @@ import numpy as np
 import numba
 from ._window_kernels import (
     window_at_index,
-    update_kernel,
 )
 
 
@@ -164,9 +163,6 @@ def numba_em_cooccurrence_iteration(
 
     mix_weights: tuple
         The n-tuple of mix weights to apply to the kernel functions
-
-    window_normalizer: numba.jit() function
-        A function that normalizes the windows
 
     n_unique_tokens: int
         The number of unique tokens
@@ -427,7 +423,7 @@ class TokenCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
         )
 
     def _build_skip_grams(self, token_sequences):
-        # call the numba function for returning rows , cols, vals, for each window
+        # call the numba function for returning the list of CooArrays
         return numba_build_skip_grams(
             token_sequences=token_sequences,
             window_size_array=self._window_len_array,

@@ -14,12 +14,10 @@ from .utils import (
     validate_homogeneous_token_types,
     flatten,
     str_to_bytes,
-    dirichlet_process_normalize,
 )
 
 from .coo_utils import (
     CooArray,
-    set_array_size,
     generate_chunk_boundaries,
 )
 
@@ -456,10 +454,9 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             approx_coo_size += len(t)
         approx_coo_size *= (max(self.window_radii) + 1) * (20 * self._n_wide)
         if approx_coo_size < self.coo_initial_bytes:
-            self._coo_sizes = set_array_size(
-                token_sequences,
-                self._window_len_array,
-            )
+            self._coo_sizes = np.repeat(
+                approx_coo_size // self._n_wide, self._n_wide
+            ).astype(np.int64)
         else:
             offsets = np.array(
                 [self._full_kernel_args[i][2] for i in range(self._n_wide)]
@@ -679,14 +676,9 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
     ):
         check_is_fitted(self, ["column_label_dictionary_"])
 
-
         if self.n_iter < 1:
-            self.reduced_matrix_ = normalize(
-                self.cooccurrences_, axis=0, norm="l1"
-            )
-            self.reduced_matrix_ = normalize(
-                self.reduced_matrix_, axis=1, norm="l1"
-            )
+            self.reduced_matrix_ = normalize(self.cooccurrences_, axis=0, norm="l1")
+            self.reduced_matrix_ = normalize(self.reduced_matrix_, axis=1, norm="l1")
         else:
             self.reduced_matrix_ = normalize(self.cooccurrences_, axis=1, norm="l1")
 
