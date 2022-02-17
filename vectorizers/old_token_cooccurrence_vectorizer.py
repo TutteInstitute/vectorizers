@@ -763,7 +763,7 @@ def multi_token_cooccurrence_matrix(
     return cooccurrence_matrix.tocsr()
 
 
-@numba.njit(nogil=True, inline="always")
+@numba.njit(nogil=True)
 def em_update_matrix(
     posterior_data,
     prior_indices,
@@ -858,6 +858,241 @@ def em_update_matrix(
 
     return posterior_data
 
+
+@numba.njit(nogil=True)
+def em_cooccurrence_iteration(
+    token_sequences,
+    window_size_array,
+    window_reversals,
+    kernel_array,
+    kernel_args,
+    mix_weights,
+    window_normalizer,
+    n_unique_tokens,
+    prior_indices,
+    prior_indptr,
+    prior_data,
+    ngram_dictionary=MOCK_DICT,
+    ngram_size=1,
+    array_to_tuple=pair_to_tuple,
+    multi_labelled_tokens=False,
+):
+    """
+    Performs one round of EM on the given (hstack of) n cooccurrence matrices provided in csr format.
+
+    Note: The algorithm assumes the matrix is an hstack of cooccurrence matrices with the same vocabulary,
+    with kernel and window parameters given in the same order.
+
+    Parameters
+    ----------
+
+    token_sequences: Iterable of Iterables
+        The collection of token sequences to generate skip-gram data for.
+
+    window_size_array : numpy.ndarray of shape(n, n_vocab)
+        The collection of window sizes per token per directed cooccurrence
+
+    window_reversals: numpy.array(bool)
+        The collection of indicators whether or not the window is after the target token.
+
+    kernel_array: numpy.array of shape(n, max(window_size_array))
+        The n-tuple of evaluated kernel functions of maximal length
+
+    kernel_args: tuple(tuples)
+        The n-tuple of update_kernel args per kernel function
+
+    mix_weights: tuple
+        The n-tuple of mix weights to apply to the kernel functions
+
+    n_unique_tokens: int
+        The number of unique tokens
+
+    prior_indices:  numpy.array
+        The csr indices of the hstacked cooccurrence matrix
+
+    prior_indptr: numpy.array
+        The csr indptr of the hstacked cooccurrence matrix
+
+    prior_data: numpy.array
+        The csr data of the hstacked cooccurrence matrix
+
+    ngram_dictionary: dict (optional)
+        The dictionary from tuples of token indices to an n_gram index
+
+    ngram_size: int (optional, default = 1)
+        The size of ngrams to encode token cooccurences of.
+
+    array_to_tuple: numba.jitted callable (optional)
+        Function that casts arrays of fixed length to tuples
+
+    multi_labelled_tokens: bool (optional, default=False)
+        Indicates whether your contexts are a sequence of bags of tokens labels with the context
+        co-occurrence spanning the bags.  In other words if you have sequences of
+        multi-labelled tokens.
+
+    Returns
+    -------
+    posterior_data: numpy.array
+        The data of the updated csr matrix after one iteration of EM.
+
+    """
+
+    posterior_data = np.zeros_like(prior_data)
+    n_windows = window_size_array.shape[0]
+    kernel_masks = [ker[0] for ker in kernel_args]
+    kernel_normalize = [ker[1] for ker in kernel_args]
+    window_reversal_const = np.zeros(len(window_reversals)).astype(np.int32)
+    window_reversal_const[window_reversals] = 1
+
+    if ngram_size > 1:
+        for d_i, seq in enumerate(token_sequences):
+            for w_i in range(ngram_size - 1, len(seq)):
+                ngram = array_to_tuple(seq[w_i - ngram_size + 1 : w_i + 1])
+                if ngram in ngram_dictionary:
+                    target_gram_ind = ngram_dictionary[ngram]
+                    windows = [
+                        window_at_index(
+                            seq,
+                            window_size_array[i, target_gram_ind],
+                            w_i - window_reversal_const[i] * (ngram_size - 1),
+                            reverse=window_reversals[i],
+                        )
+                        for i in range(n_windows)
+                    ]
+
+                    kernels = [
+                        mix_weights[i]
+                        * update_kernel(
+                            windows[i],
+                            kernel_array[i],
+                            kernel_masks[i],
+                            kernel_normalize[i],
+                        )
+                        for i in range(n_windows)
+                    ]
+                    posterior_data = em_update_matrix(
+                        posterior_data,
+                        prior_indices,
+                        prior_indptr,
+                        prior_data,
+                        n_unique_tokens,
+                        target_gram_ind,
+                        windows,
+                        kernels,
+                        window_normalizer,
+                    )
+
+    else:
+        if multi_labelled_tokens:
+            for d_i, seq in enumerate(token_sequences):
+                for w_i, target_word in enumerate(seq):
+                    for i in range(n_windows):
+                        if not window_reversals[i]:
+                            doc_window = token_sequences[
+                                d_i : min(
+                                    [
+                                        len(token_sequences),
+                                        d_i + window_size_array[i, 0] + 1,
+                                    ]
+                                )
+                            ]
+                        else:
+                            doc_window = token_sequences[
+                                max([0, d_i - window_size_array[i, 0]]) : d_i + 1
+                            ]
+
+                        result_len = 0
+                        for window in doc_window:
+                            result_len += window.shape[0]
+                        window_result = np.zeros(result_len).astype(np.int32)
+                        j = 0
+                        for window in doc_window:
+                            for x in window:
+                                window_result[j] = x
+                                j += 1
+
+                        kernel_result = np.zeros(len(window_result)).astype(np.float64)
+                        ind = 0
+                        if window_reversals[i] == False:
+                            for doc_index, doc in enumerate(doc_window):
+                                kernel_result[ind : ind + len(doc)] = np.repeat(
+                                    kernel_array[i][np.abs(doc_index)], len(doc)
+                                )
+                                ind += len(doc)
+                            kernel_result[w_i] = 0
+                        else:
+                            for doc_index, doc in enumerate(doc_window):
+                                kernel_result[ind : ind + len(doc)] = np.repeat(
+                                    kernel_array[i][len(doc_window) - doc_index - 1],
+                                    len(doc),
+                                )
+                                ind += len(doc)
+                            kernel_result[ind - len(doc_window[-1]) + w_i] = 0
+
+                        if kernel_masks[i] is not None:
+                            for w in range(window_result.shape[0]):
+                                if window_result[w] == kernel_masks[i]:
+                                    kernel_result[w] = 0
+
+                        if kernel_normalize[i]:
+                            temp = kernel_result.sum()
+                            if temp > 0:
+                                kernel_result /= temp
+
+                        if i == 0:
+                            windows = [window_result]
+                            kernels = [mix_weights[i] * kernel_result]
+                        else:
+                            windows.append(window_result)
+                            kernels.append(mix_weights[i] * kernel_result)
+
+                    posterior_data = em_update_matrix(
+                        posterior_data,
+                        prior_indices,
+                        prior_indptr,
+                        prior_data,
+                        n_unique_tokens,
+                        target_word,
+                        windows,
+                        kernels,
+                        window_normalizer,
+                    )
+        else:
+            for d_i, seq in enumerate(token_sequences):
+                for w_i, target_word in enumerate(seq):
+                    windows = [
+                        window_at_index(
+                            seq,
+                            window_size_array[i, target_word],
+                            w_i,
+                            reverse=window_reversals[i],
+                        )
+                        for i in range(n_windows)
+                    ]
+
+                    kernels = [
+                        mix_weights[i]
+                        * update_kernel(
+                            windows[i],
+                            kernel_array[i],
+                            kernel_masks[i],
+                            kernel_normalize[i],
+                        )
+                        for i in range(n_windows)
+                    ]
+                    posterior_data = em_update_matrix(
+                        posterior_data,
+                        prior_indices,
+                        prior_indptr,
+                        prior_data,
+                        n_unique_tokens,
+                        target_word,
+                        windows,
+                        kernels,
+                        window_normalizer,
+                    )
+
+    return posterior_data
 
 
 class TokenCooccurrenceVectorizer(BaseEstimator, TransformerMixin):

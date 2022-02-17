@@ -249,9 +249,10 @@ def update_coo_entries(seq, tup):
     return seq.insert(place, tup)
 
 
-def generate_chunk_boundaries(data, chunk_size=1 << 19):
+def generate_chunk_boundaries(data, n_threads):
     token_list_sizes = np.array([len(x) for x in data])
     cumulative_sizes = np.cumsum(token_list_sizes)
+    chunk_size = np.ceil(cumulative_sizes[-1] / n_threads)
     chunks = []
     last_chunk_end = 0
     last_chunk_cumulative_size = 0
