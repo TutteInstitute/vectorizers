@@ -189,7 +189,7 @@ class HistogramVectorizer(BaseEstimator, TransformerMixin):
         The method to use for bin selection in the histogram. In general the
         quantile option, which will select variable width bins based on the
         distribution of the training data, is suggested, but uniformly spaced
-        identically sized bins, or soft gns learned from a Gaussian mixture model
+        identically sized bins, or soft bins learned from a Gaussian mixture model
         are also available.
 
     ground_distance: {'euclidean'}
