@@ -241,6 +241,13 @@ def test_count_feature_compression_basic(algorithm):
     assert np.allclose(result, transform)
 
 
+@pytest.mark.parametrize("algorithm", ["randomized", "arpack"])
+def test_count_feature_compression_fit_transform_is_fit_and_transform(algorithm):
+    make_cfc = lambda: CountFeatureCompressionTransformer(n_components=2, algorithm=algorithm)
+    cfc_fit = make_cfc().fit(test_matrix)
+    assert np.allclose(cfc_fit.transform(test_matrix), make_cfc().fit_transform(test_matrix))
+
+
 def test_count_feature_compression_warns():
     cfc = CountFeatureCompressionTransformer(n_components=5)
     with pytest.warns(UserWarning):
