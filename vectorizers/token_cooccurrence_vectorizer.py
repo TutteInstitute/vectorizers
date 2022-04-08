@@ -12,7 +12,7 @@ import numba
 from ._window_kernels import (
     window_at_index,
 )
-
+from .preprocessing import preprocess_token_sequences
 
 @numba.njit(nogil=True)
 def numba_build_skip_grams(
@@ -95,15 +95,16 @@ def numba_build_skip_grams(
                 for i in range(n_windows)
             ]
 
-            kernels = [
-                mix_weights[i] * kernel_functions[i](windows[i], *kernel_args[i])
-                for i in range(n_windows)
-            ]
+            kernels = []
+            for i in range(n_windows):
+                ker = kernel_functions[i]
+                kernels.append(mix_weights[i] * ker(windows[i], *kernel_args[i]))
 
             total = 0
             if normalize_windows:
                 sums = np.array([np.sum(ker) for ker in kernels])
                 total = np.sum(sums)
+
             if total <= 0:
                 total = 1
 
@@ -406,6 +407,10 @@ class TokenCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
             epsilon=epsilon,
             coo_initial_memory=coo_initial_memory,
         )
+
+        #Other Params
+        self._preprocessing = preprocess_token_sequences
+
 
     def _em_cooccurrence_iteration(self, token_sequences, cooccurrence_matrix):
         # call the numba function to return the new matrix.data

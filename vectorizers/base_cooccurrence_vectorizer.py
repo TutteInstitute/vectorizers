@@ -19,6 +19,7 @@ from .utils import (
 from .coo_utils import (
     CooArray,
     generate_chunk_boundaries,
+    COO_QUICKSORT_LIMIT
 )
 
 import numpy as np
@@ -221,6 +222,7 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
         # Set attributes
         self.metric_ = distances.sparse_hellinger
+        self._preprocessing = preprocess_token_sequences
 
         # Set params to be fit
         self._token_frequencies_ = np.array([])
@@ -270,7 +272,7 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             self.kernel_functions = [self.kernel_functions]
 
         built_in_kernels = self._get_default_kernel_functions()
-        self._kernel_functions = numba.typed.List([])
+        self._kernel_functions = []
         for i, ker in enumerate(self.kernel_functions):
             if callable(ker):
                 self._kernel_functions.append(ker)
@@ -282,6 +284,11 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
                 )
             if self.window_orientations[i] == "directional":
                 self._kernel_functions.append(self._kernel_functions[-1])
+        if len(set(self._kernel_functions)) > 1:
+            raise ValueError(
+                f"All kernel functions must be the same."
+            )
+        self._kernel_functions = tuple(self._kernel_functions)
 
         # Set window functions
         if callable(self.window_functions) or isinstance(self.window_functions, str):
@@ -443,8 +450,8 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
         for i, args in enumerate(self._kernel_args):
             default_kernel_array_args = {
-                "mask_index": None,
-                "normalize": False,
+                "mask_index": self._mask_index,
+                "normalize": self.normalize_windows,
                 "offset": 0,
             }
             default_kernel_array_args.update(args)
@@ -469,10 +476,9 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             self._coo_sizes = np.array(coo_sizes * average_window, dtype=np.int64)
 
         self._coo_sizes = np.divmod(self._coo_sizes, self.n_threads)[0]
-        if np.any(self._coo_sizes == 0):
-            raise ValueError(f"The coo_initial_mem is too small to process any data.")
+        self._coo_sizes[self._coo_sizes <= COO_QUICKSORT_LIMIT] = COO_QUICKSORT_LIMIT + 1
 
-    def _set_additional_params(self):
+    def _set_additional_params(self, token_sequences):
         pass
 
     def _em_cooccurrence_iteration(self, token_sequences, cooccurrence_matrix):
@@ -583,9 +589,8 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             self.token_label_dictionary_,
             self.token_index_dictionary_,
             self._token_frequencies_,
-        ) = preprocess_token_sequences(
+        ) = self._preprocessing(
             X,
-            flatten(X),
             self.token_dictionary,
             max_unique_tokens=self.max_unique_tokens,
             min_occurrences=self.min_occurrences,
@@ -609,6 +614,9 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         # Set the row dict and frequencies
         self._set_row_information(token_sequences)
 
+        # Set any other things
+        self._set_additional_params(token_sequences)
+
         # Set the row mask
         self._set_mask_indices()
 
@@ -623,9 +631,6 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
         # Set the coo_array size
         self._set_coo_sizes(token_sequences)
-
-        # Set any other things
-        self._set_additional_params()
 
         # Build the matrix
         self.cooccurrences_ = self._build_token_cooccurrence_matrix(
@@ -644,10 +649,9 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             self.token_label_dictionary_,
             self.token_index_dictionary_,
             self._token_frequencies_,
-        ) = preprocess_token_sequences(
+        ) = self._preprocessing(
             X,
-            flatten(X),
-            self.token_dictionary,
+            token_dictionary=self.token_dictionary,
             max_unique_tokens=self.max_unique_tokens,
             min_occurrences=self.min_occurrences,
             max_occurrences=self.max_occurrences,
@@ -670,6 +674,9 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         # Set the row dict and frequencies
         self._set_row_information(token_sequences)
 
+        # Set any other things
+        self._set_additional_params(token_sequences)
+
         # Set the row mask
         self._set_mask_indices()
 
@@ -684,9 +691,6 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
         # Set the coo_array size
         self._set_coo_sizes(token_sequences)
-
-        # Set any other things
-        self._set_additional_params()
 
         return self
 
@@ -712,8 +716,8 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             column_label_dictionary,
             column_index_dictionary,
             token_frequencies,
-        ) = preprocess_token_sequences(
-            X, flatten(X), self.token_label_dictionary_, masking=self.mask_string
+        ) = self._preprocessing(
+            X, token_dictionary=self.token_label_dictionary_, masking=self.mask_string
         )
 
         cooccurrences_ = self._build_token_cooccurrence_matrix(

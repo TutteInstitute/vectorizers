@@ -348,7 +348,6 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
             self._token_frequencies_,
         ) = preprocess_token_sequences(
             X,
-            flat_sequence,
             token_dictionary=self.token_dictionary,
             max_unique_tokens=self.max_unique_tokens,
             min_occurrences=self.min_occurrences,
@@ -445,10 +444,8 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
                 "_column_is_kept",
             ],
         )
-        flat_sequence = flatten(X)
         (token_sequences, _, _, _) = preprocess_token_sequences(
             X,
-            flat_sequence,
             self._token_dictionary_,
         )
 

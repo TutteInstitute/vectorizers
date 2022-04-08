@@ -575,5 +575,5 @@ class NgramCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
             )
         self._window_len_array = np.array(window_array)
 
-    def _set_additional_params(self):
+    def _set_additional_params(self, token_sequences):
         self._array_to_tuple = make_tuple_converter(self.ngram_size)

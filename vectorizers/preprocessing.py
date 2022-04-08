@@ -7,6 +7,7 @@ import scipy.linalg
 import scipy.stats
 import scipy.sparse
 import re
+from .utils import flatten, full_flatten, semi_flatten
 
 
 def construct_document_frequency(token_by_doc_sequence, token_dictionary):
@@ -513,7 +514,6 @@ def preprocess_tree_sequences(
 
 def preprocess_token_sequences(
     token_sequences,
-    flat_sequence,
     token_dictionary=None,
     max_unique_tokens=None,
     min_occurrences=None,
@@ -540,9 +540,6 @@ def preprocess_token_sequences(
     token_sequences: Iterable of (tuple | list | numpy.array)
         A list of token sequences. Each sequence should be tuple, list or
         numpy array of tokens.
-
-    flat_sequence: tuple
-        A tuple tokens for processing.
 
     token_dictionary: dictionary or None (optional, default=None)
         A fixed dictionary mapping tokens to indices, constraining the tokens
@@ -614,7 +611,7 @@ def preprocess_token_sequences(
         token_dictionary_,
         token_frequencies,
         total_tokens,
-    ) = construct_token_dictionary_and_frequency(flat_sequence, token_dictionary)
+    ) = construct_token_dictionary_and_frequency(flatten(token_sequences), token_dictionary)
 
     if token_dictionary is None:
         if {
@@ -695,7 +692,6 @@ def preprocess_token_sequences(
 
 def preprocess_timed_token_sequences(
     token_sequences,
-    flat_sequence,
     token_dictionary=None,
     max_unique_tokens=None,
     min_occurrences=None,
@@ -722,9 +718,6 @@ def preprocess_timed_token_sequences(
     token_sequences: Iterable of (tuple | list | numpy.array)
         A list of token sequences. Each sequence should be tuple, list or
         numpy array of tokens.
-
-    flat_sequence: tuple
-        A tuple tokens for processing.
 
     token_dictionary: dictionary or None (optional, default=None)
         A fixed dictionary mapping tokens to indices, constraining the tokens
@@ -792,7 +785,7 @@ def preprocess_timed_token_sequences(
 
     # Get vocabulary and word frequencies
 
-    flat_only_tokens = [pair[0] for pair in flat_sequence]
+    flat_only_tokens = [pair[0] for pair in flatten(token_sequences)]
     (
         token_dictionary_,
         token_frequencies,
@@ -871,6 +864,195 @@ def preprocess_timed_token_sequences(
 
     return (
         result_sequences,
+        token_dictionary,
+        inverse_token_dictionary,
+        token_frequencies,
+    )
+
+
+def preprocess_multi_token_sequences(
+    token_sequences,
+    token_dictionary=None,
+    max_unique_tokens=None,
+    min_occurrences=None,
+    max_occurrences=None,
+    min_frequency=None,
+    max_frequency=None,
+    min_document_occurrences=None,
+    max_document_occurrences=None,
+    min_document_frequency=None,
+    max_document_frequency=None,
+    ignored_tokens=None,
+    excluded_token_regex=None,
+    masking=None,
+):
+    """Perform a standard set of preprocessing for token sequences. This includes
+    constructing a token dictionary and token frequencies, pruning the dictionary
+    according to frequency and ignored token constraints, and editing the token
+    sequences to only include tokens in the pruned dictionary. Note that either
+    min_occurrences or min_frequency can be provided (respectively
+    max_occurences or max_frequency). If both are provided they must agree.
+
+    Parameters
+    ----------
+    token_sequences: Iterable of (tuple | list | numpy.array)
+        A list of token sequences. Each sequence should be tuple, list or
+        numpy array of tokens.
+
+    token_dictionary: dictionary or None (optional, default=None)
+        A fixed dictionary mapping tokens to indices, constraining the tokens
+        that are allowed. If None then the allowed tokens and a mapping will
+        be learned from the data and returned.
+
+    max_unique_tokens: int or None (optional, default=None)
+        The maximal number of elements contained in the vocabulary.  If not None, this is
+        will prune the vocabulary to the top 'max_vocabulary_size' most frequent remaining tokens
+        after other possible preproccessing.
+
+    min_occurrences: int or None (optional, default=None)
+        A constraint on the minimum number of occurrences for a token to be considered
+        valid. If None then no constraint will be applied.
+
+    max_occurrences: int or None (optional, default=None)
+        A constraint on the maximum number of occurrences for a token to be considered
+        valid. If None then no constraint will be applied.
+
+    min_frequency: float or None (optional, default=None)
+        A constraint on the minimum frequency of occurrence for a token to be
+        considered valid. If None then no constraint will be applied.
+
+    max_frequency: float or None (optional, default=None)
+        A constraint on the minimum frequency of occurrence for a token to be
+        considered valid. If None then no constraint will be applied.
+
+    min_document_occurrences: int or None (optional, default=None)
+        A constraint on the minimum number of documents with occurrences for a token to be considered
+        valid. If None then no constraint will be applied.
+
+    max_document_occurrences: int or None (optional, default=None)
+        A constraint on the maximum number of documents with occurrences for a token to be considered
+        valid. If None then no constraint will be applied.
+
+    min_document_frequency: float or None (optional, default=None)
+        A constraint on the minimum frequency of documents with occurrences for a token to be
+        considered valid. If None then no constraint will be applied.
+
+    max_document_frequency: float or None (optional, default=None)
+        A constraint on the minimum frequency of documents with occurrences for a token to be
+        considered valid. If None then no constraint will be applied.
+
+    excluded_token_regex: str (optional, default=None)
+        A regular expression which constrains the vocabulary to exclude tokens that match the expression.
+
+    ignored_tokens: set or None (optional, default=None)
+        A set of tokens that should be ignored. If None then no tokens will
+        be ignored.
+
+    masking: str (optional, default=None)
+        Prunes the filtered tokens when None, otherwise replaces them with the provided mask_string.
+
+    Returns
+    -------
+    result_sequences: list of np.ndarray
+        The sequences, pruned of tokens not meeting constraints.
+
+    token_dictionary: dictionary
+        The token dictionary mapping tokens to indices.
+
+    token_frequencies: array of shape (len(token_dictionary),)
+        The frequency of occurrence of the tokens in the token_dictionary.
+    """
+
+    # Get vocabulary and word frequencies
+
+    seq0 = token_sequences[0]
+    if not type(seq0[0]) in (list, tuple, np.ndarray):
+        token_sequences = [token_sequences]
+
+    (
+        token_dictionary_,
+        token_frequencies,
+        total_tokens,
+    ) = construct_token_dictionary_and_frequency(full_flatten(token_sequences), token_dictionary)
+
+    if token_dictionary is None:
+        if {
+            min_document_frequency,
+            min_document_occurrences,
+            max_document_frequency,
+            max_document_occurrences,
+            max_unique_tokens,
+        } != {None}:
+            token_doc_frequencies = construct_document_frequency(
+                semi_flatten(token_sequences), token_dictionary_
+            )
+        else:
+            token_doc_frequencies = np.array([])
+
+        token_dictionary, token_frequencies = prune_token_dictionary(
+            token_dictionary_,
+            token_frequencies,
+            token_doc_frequencies=token_doc_frequencies,
+            ignored_tokens=ignored_tokens,
+            excluded_token_regex=excluded_token_regex,
+            max_unique_tokens=max_unique_tokens,
+            min_frequency=min_frequency,
+            max_frequency=max_frequency,
+            min_occurrences=min_occurrences,
+            max_occurrences=max_occurrences,
+            min_document_frequency=min_document_frequency,
+            max_document_frequency=max_document_frequency,
+            min_document_occurrences=min_document_occurrences,
+            max_document_occurrences=max_document_occurrences,
+            total_tokens=total_tokens,
+            total_documents=len(token_sequences),
+        )
+
+    if masking is None:
+        full_sequence = List()
+        for set_sequence in token_sequences:
+            result_sequences = List()
+            for sequence in set_sequence:
+                result_sequences.append(
+                    np.array(
+                        [
+                            token_dictionary[token]
+                            for token in sequence
+                            if token in token_dictionary
+                        ],
+                        dtype=np.int32,
+                    )
+                )
+            full_sequence.append(result_sequences)
+    else:
+        if masking in token_dictionary:
+            del token_dictionary[masking]
+
+        full_sequence = List()
+        for set_sequence in token_sequences:
+            result_sequences = List()
+            for sequence in set_sequence:
+                result_sequences.append(
+                    np.array(
+                        [
+                            len(token_dictionary)
+                            if not (token in token_dictionary)
+                            else token_dictionary[token]
+                            for token in sequence
+                        ],
+                        dtype=np.int32,
+                    )
+                )
+            full_sequence.append(result_sequences)
+
+        token_dictionary[masking] = len(token_dictionary)
+
+    inverse_token_dictionary = {
+        index: token for token, index in token_dictionary.items()
+    }
+
+    return (
+        full_sequence,
         token_dictionary,
         inverse_token_dictionary,
         token_frequencies,

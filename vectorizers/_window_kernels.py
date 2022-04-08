@@ -92,6 +92,73 @@ def geometric_kernel(
 
 
 @numba.njit(nogil=True)
+def multi_flat_kernel(
+    window,
+    target_ind,
+    mask_index=None,
+    normalize=False,
+    offset=0,
+):
+    result_len = 0
+    for mset in window:
+        result_len += mset.shape[0]
+
+    ker = np.ones(len(window))
+    kernel_result = np.zeros(result_len).astype(np.float64)
+
+    ind = 0
+    for i, mset in enumerate(window[offset:]):
+        kernel_result[ind: ind + len(mset)] = np.repeat(ker[i], len(mset))
+        if mask_index is not None:
+            for w_i, token in enumerate(mset):
+                if token == mask_index:
+                    kernel_result[ind + w_i] = 0
+        ind += len(mset)
+    kernel_result[target_ind] = 0
+
+    if normalize:
+        temp = kernel_result.sum()
+    if temp > 0:
+        kernel_result /= temp
+
+    return kernel_result
+
+
+@numba.njit(nogil=True)
+def multi_geometric_kernel(
+    window,
+    target_ind,
+    mask_index=None,
+    normalize=False,
+    offset=0,
+    power=0.9,
+):
+    result_len = 0
+    for mset in window:
+        result_len += mset.shape[0]
+
+    ker = power ** np.arange(len(window))
+
+    kernel_result = np.zeros(result_len).astype(np.float64)
+    ind = 0
+    for i, mset in enumerate(window[offset:]):
+        kernel_result[ind: ind + len(mset)] = np.repeat(ker[i], len(mset))
+        if mask_index is not None:
+            for w_i, token in enumerate(mset):
+                if token == mask_index:
+                    kernel_result[ind + w_i] = 0
+        ind += len(mset)
+    kernel_result[target_ind] = 0
+
+    if normalize:
+        temp = kernel_result.sum()
+        if temp > 0:
+            kernel_result /= temp
+
+    return kernel_result
+
+
+@numba.njit(nogil=True)
 def update_kernel(
     window,
     kernel,
@@ -135,10 +202,12 @@ def timed_flat_kernel(
     delta,
     mask_index,
     normalize,
+    offset,
 ):
     result = np.ones(len(time_deltas), dtype=np.float64)
     if mask_index is not None:
         result[window == mask_index] = 0
+    result[0: min(offset, len(result))] = 0
     if normalize:
         temp = result.sum()
         if temp > 0:
@@ -161,6 +230,11 @@ _KERNEL_FUNCTIONS = {
 _TIMED_KERNEL_FUNCTIONS = {
     "flat": timed_flat_kernel,
     "geometric": timed_geometric_kernel,
+}
+
+_MULTI_KERNEL_FUNCTIONS = {
+    "flat": multi_flat_kernel,
+    "geometric": multi_geometric_kernel,
 }
 
 ####################################################

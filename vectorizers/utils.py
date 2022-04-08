@@ -150,6 +150,17 @@ def flatten(list_of_seq):
         return list_of_seq
 
 
+def full_flatten(list_of_seq):
+    assert isinstance(list_of_seq, Iterable)
+    if type(list_of_seq[0]) in (list, tuple, np.ndarray):
+        return flatten(tuple(itertools.chain.from_iterable(list_of_seq)))
+    else:
+        return list_of_seq
+
+def semi_flatten(list_of_seq):
+    return [flatten(tuple(itertools.chain.from_iterable(seq_of_lists))) for seq_of_lists in list_of_seq]
+
+
 def sparse_collapse(matrix, labels, sparse=True):
     """
     Groups the rows and columns of a matrix by the the labels array.

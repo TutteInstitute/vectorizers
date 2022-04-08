@@ -3,10 +3,7 @@ from .preprocessing import (
 )
 from collections.abc import Iterable
 from .base_cooccurrence_vectorizer import BaseCooccurrenceVectorizer
-from .utils import (
-    validate_homogeneous_token_types,
-    flatten,
-)
+from .preprocessing import preprocess_timed_token_sequences
 from .coo_utils import (
     coo_append,
     coo_sum_duplicates,
@@ -421,6 +418,7 @@ class TimedTokenCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
             coo_initial_memory=coo_initial_memory,
         )
         self.delta_mean_ = None
+        self._preprocessing = preprocess_timed_token_sequences
 
     def _get_default_kernel_functions(self):
         return _TIMED_KERNEL_FUNCTIONS
@@ -454,6 +452,15 @@ class TimedTokenCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
             array_lengths=self._coo_sizes,
         )
 
+    def _set_additional_params(self, token_sequences):
+        self.delta_mean_ = 0
+        total_t = 0
+        for doc in token_sequences:
+            seq = np.array([pair[1] for pair in doc])
+            self.delta_mean_ += np.sum(seq[1:] - seq[:-1])
+            total_t += len(seq) - 1
+        self.delta_mean_ /= total_t
+
     def _set_full_kernel_args(self):
         # Set the full kernel args
         self._full_kernel_args = numba.typed.List([])
@@ -466,73 +473,3 @@ class TimedTokenCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
             }
             default_kernel_array_args.update(args)
             self._full_kernel_args.append(tuple(default_kernel_array_args.values()))
-
-    def fit_transform(self, X, y=None, **fit_params):
-
-        if self.validate_data:
-            validate_homogeneous_token_types(X)
-
-        # noinspection PyTupleAssignmentBalance
-        (
-            token_sequences,
-            self.token_label_dictionary_,
-            self.token_index_dictionary_,
-            self._token_frequencies_,
-        ) = preprocess_timed_token_sequences(
-            X,
-            flatten(X),
-            self.token_dictionary,
-            max_unique_tokens=self.max_unique_tokens,
-            min_occurrences=self.min_occurrences,
-            max_occurrences=self.max_occurrences,
-            min_frequency=self.min_frequency,
-            max_frequency=self.max_frequency,
-            min_document_occurrences=self.min_document_occurrences,
-            max_document_occurrences=self.max_document_occurrences,
-            min_document_frequency=self.min_document_frequency,
-            max_document_frequency=self.max_document_frequency,
-            ignored_tokens=self.excluded_tokens,
-            excluded_token_regex=self.excluded_token_regex,
-            masking=self.mask_string,
-        )
-
-        if len(self.token_label_dictionary_) == 0:
-            raise ValueError(
-                "Token dictionary is empty; try using less extreme constraints"
-            )
-
-        self.delta_mean_ = 0
-        total_t = 0
-        for doc in X:
-            seq = np.array([pair[1] for pair in doc])
-            self.delta_mean_ += np.sum(seq[1:] - seq[:-1])
-            total_t += len(seq) - 1
-        self.delta_mean_ /= total_t
-
-        # Set the row dict and frequencies
-        self._set_row_information(token_sequences)
-
-        # Set the row mask
-        self._set_mask_indices()
-
-        # Set column dicts
-        self._set_column_dicts()
-
-        # Set the window_lengths per row label
-        self._set_window_len_array()
-
-        # Update the kernel args to the tuple of default values with the added user inputs
-        self._set_full_kernel_args()
-
-        # Set the coo_array size
-        self._set_coo_sizes(token_sequences)
-
-        # Set any other things
-        self._set_additional_params()
-
-        # Build the matrix
-        self.cooccurrences_ = self._build_token_cooccurrence_matrix(
-            token_sequences,
-        )
-
-        return self.cooccurrences_
