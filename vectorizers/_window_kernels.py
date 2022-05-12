@@ -118,8 +118,8 @@ def multi_flat_kernel(
 
     if normalize:
         temp = kernel_result.sum()
-    if temp > 0:
-        kernel_result /= temp
+        if temp > 0:
+            kernel_result /= temp
 
     return kernel_result
 

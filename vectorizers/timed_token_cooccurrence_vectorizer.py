@@ -103,7 +103,7 @@ def numba_build_skip_grams(
                 )
 
                 this_window = np.array([w[0] for w in win], dtype=np.int32)
-                time_deltas = np.array([np.abs(w[1] - target_time) for w in win])
+                time_deltas = np.array([np.abs(w[1] - target_time) for w in win], dtype=np.float32)
                 this_kernel = mix_weights[i] * kernel_functions[i](this_window, time_deltas, *kernel_args[i])
                 windows.append(this_window)
                 kernels.append(this_kernel)
@@ -126,7 +126,7 @@ def numba_build_skip_grams(
                         coo_data[i] = coo_append(coo_data[i], (row, col, val, key))
 
     for coo in coo_data:
-        coo_sum_duplicates(coo, kind="quicksort")
+        coo_sum_duplicates(coo)
         merge_all_sum_duplicates(coo)
 
     return coo_data
@@ -453,8 +453,8 @@ class TimedTokenCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
         )
 
     def _set_additional_params(self, token_sequences):
-        self.delta_mean_ = 0
-        total_t = 0
+        self.delta_mean_ = 0.0
+        total_t = 0.0
         for doc in token_sequences:
             seq = np.array([pair[1] for pair in doc])
             self.delta_mean_ += np.sum(seq[1:] - seq[:-1])
@@ -467,7 +467,7 @@ class TimedTokenCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
         for i, args in enumerate(self._kernel_args):
             default_kernel_array_args = {
                 "delta": self.delta_mean_,
-                "mask_index": None,
+                "mask_index": self._mask_index,
                 "normalize": False,
                 "offset": 0,
             }

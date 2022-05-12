@@ -18,7 +18,6 @@ from .utils import (
 
 from .coo_utils import (
     CooArray,
-    generate_chunk_boundaries,
     COO_QUICKSORT_LIMIT
 )
 
@@ -451,7 +450,7 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         for i, args in enumerate(self._kernel_args):
             default_kernel_array_args = {
                 "mask_index": self._mask_index,
-                "normalize": self.normalize_windows,
+                "normalize": False,
                 "offset": 0,
             }
             default_kernel_array_args.update(args)
@@ -477,6 +476,22 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
         self._coo_sizes = np.divmod(self._coo_sizes, self.n_threads)[0]
         self._coo_sizes[self._coo_sizes <= COO_QUICKSORT_LIMIT] = COO_QUICKSORT_LIMIT + 1
+
+    def _generate_chunk_boundaries(self, data, n_threads):
+        token_list_sizes = np.array([len(x) for x in data])
+        cumulative_sizes = np.cumsum(token_list_sizes)
+        chunk_size = np.ceil(cumulative_sizes[-1] / n_threads)
+        chunks = []
+        last_chunk_end = 0
+        last_chunk_cumulative_size = 0
+        for chunk_index, size in enumerate(cumulative_sizes):
+            if size - last_chunk_cumulative_size >= chunk_size:
+                chunks.append((last_chunk_end, chunk_index))
+                last_chunk_end = chunk_index
+                last_chunk_cumulative_size = size
+
+        chunks.append((last_chunk_end, len(data)))
+        return chunks
 
     def _set_additional_params(self, token_sequences):
         pass
@@ -531,7 +546,7 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
                 dask.delayed(self._build_coo)(
                     token_sequences=token_sequences[chunk_start:chunk_end],
                 )
-                for chunk_start, chunk_end in generate_chunk_boundaries(
+                for chunk_start, chunk_end in self._generate_chunk_boundaries(
                     token_sequences, self.n_threads
                 )
             ]
@@ -558,7 +573,7 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
                         token_sequences=token_sequences[chunk_start:chunk_end],
                         cooccurrence_matrix=cooccurrence_matrix,
                     )
-                    for chunk_start, chunk_end in generate_chunk_boundaries(
+                    for chunk_start, chunk_end in self._generate_chunk_boundaries(
                         token_sequences, self.n_threads
                     )
                 ]

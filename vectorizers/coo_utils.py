@@ -110,11 +110,11 @@ def merge_all_sum_duplicates(coo):
 
 
 @numba.njit(nogil=True)
-def coo_sum_duplicates(coo, kind):
+def coo_sum_duplicates(coo):
     upper_lim = coo.ind[0]
     lower_lim = np.abs(coo.min[0])
 
-    perm = np.argsort(coo.key[lower_lim:upper_lim], kind=kind)
+    perm = np.argsort(coo.key[lower_lim:upper_lim])
 
     coo.row[lower_lim:upper_lim] = coo.row[lower_lim:upper_lim][perm]
     coo.col[lower_lim:upper_lim] = coo.col[lower_lim:upper_lim][perm]
@@ -202,14 +202,14 @@ def coo_append(coo, tup):
     coo.ind[0] += 1
 
     if (coo.ind[0] - np.abs(coo.min[0])) >= COO_QUICKSORT_LIMIT:
-        coo_sum_duplicates(coo, kind="quicksort")
+        coo_sum_duplicates(coo)
         if (coo.key.shape[0] - np.abs(coo.min[0])) <= COO_QUICKSORT_LIMIT:
             merge_all_sum_duplicates(coo)
             if coo.ind[0] >= 0.95 * coo.key.shape[0]:
                 coo = coo_increase_mem(coo)
 
     if coo.ind[0] == coo.key.shape[0] - 1:
-        coo_sum_duplicates(coo, kind="quicksort")
+        coo_sum_duplicates(coo)
         if (coo.key.shape[0] - np.abs(coo.min[0])) <= COO_QUICKSORT_LIMIT:
             merge_all_sum_duplicates(coo)
             if coo.ind[0] >= 0.95 * coo.key.shape[0]:
@@ -247,25 +247,6 @@ def update_coo_entries(seq, tup):
         seq[place - 1][3] += tup[3]
         return seq
     return seq.insert(place, tup)
-
-
-def generate_chunk_boundaries(data, n_threads):
-    token_list_sizes = np.array([len(x) for x in data])
-    cumulative_sizes = np.cumsum(token_list_sizes)
-    chunk_size = np.ceil(cumulative_sizes[-1] / n_threads)
-    chunks = []
-    last_chunk_end = 0
-    last_chunk_cumulative_size = 0
-    for chunk_index, size in enumerate(cumulative_sizes):
-        if size - last_chunk_cumulative_size >= chunk_size:
-            chunks.append((last_chunk_end, chunk_index))
-            last_chunk_end = chunk_index
-            last_chunk_cumulative_size = size
-
-    chunks.append((last_chunk_end, len(data)))
-
-    return chunks
-
 
 @numba.njit(nogil=True)
 def em_update_matrix(

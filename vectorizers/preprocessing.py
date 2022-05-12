@@ -827,7 +827,6 @@ def preprocess_timed_token_sequences(
 
     if masking is None:
         result_sequences = List()
-        result_times = List()
         for i, sequence in enumerate(token_sequences):
             result_sequences.append(
                 np.array(

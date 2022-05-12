@@ -178,7 +178,6 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         if self.validate_data:
             validate_homogeneous_token_types(X)
 
-        flat_sequence = flatten(X)
         (
             token_sequences,
             self._token_dictionary_,

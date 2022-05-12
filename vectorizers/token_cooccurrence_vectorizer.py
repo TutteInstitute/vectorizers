@@ -119,7 +119,7 @@ def numba_build_skip_grams(
                         coo_data[i] = coo_append(coo_data[i], (row, col, val, key))
 
     for coo in coo_data:
-        coo_sum_duplicates(coo, kind="quicksort")
+        coo_sum_duplicates(coo)
         merge_all_sum_duplicates(coo)
 
     return coo_data
