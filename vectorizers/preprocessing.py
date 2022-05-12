@@ -153,7 +153,7 @@ def prune_token_dictionary(
         dictionary. This could be, for example, top words in an NLP context.
 
     max_unique_tokens: int or None (optional, default=None)
-        The maximal number of elements contained in the vocabulary.  If not None, this is
+        The maximal number of elements contained in the vocabulary.  If not None, this
         will prune the vocabulary to the top 'max_vocabulary_size' most frequent remaining tokens
         after other possible preproccessing.
 
@@ -271,8 +271,9 @@ def prune_token_dictionary(
         )
 
     vocab_tokens = [token for token in token_dictionary if token not in tokens_to_prune]
+    vocab_set = set(vocab_tokens)
     new_token_frequency = np.array(
-        [token_frequencies[token_dictionary[token]] for token in vocab_tokens]
+        [token_frequencies[token_dictionary[token]] for token in vocab_set]
     )
 
     if max_unique_tokens is not None:

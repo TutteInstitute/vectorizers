@@ -79,7 +79,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         should be learned from the training data.
 
     max_unique_tokens: int or None (optional, default=None)
-        The maximal number of elements contained in the vocabulary.  If not None, this is
+        The maximal number of elements contained in the vocabulary.  If not None, this 
         will prune the vocabulary to the top 'max_vocabulary_size' most frequent remaining tokens
         after other possible preprocessing.
 
