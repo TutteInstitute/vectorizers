@@ -287,7 +287,7 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             raise ValueError(
                 f"All kernel functions must be the same."
             )
-        self._kernel_functions = tuple(self._kernel_functions)
+        self._kernel_functions = numba.typed.List(self._kernel_functions)
 
         # Set window functions
         if callable(self.window_functions) or isinstance(self.window_functions, str):
