@@ -16,6 +16,7 @@ from ._window_kernels import (
     _MULTI_KERNEL_FUNCTIONS,
 )
 
+
 @numba.njit(nogil=True)
 def numba_build_multi_skip_grams(
     token_sequences,
@@ -140,6 +141,7 @@ def numba_build_multi_skip_grams(
 
     return coo_data
 
+
 @numba.njit(nogil=True)
 def numba_multi_em_cooccurrence_iteration(
     token_sequences,
@@ -208,14 +210,14 @@ def numba_multi_em_cooccurrence_iteration(
             for i in range(n_windows):
                 if not window_reversals[i]:
                     multi_window = token_sequences[
-                                   d_i: min(
-                                       [len(token_sequences), d_i + window_size_array[i, 0] + 1]
-                                   )
-                                   ]
+                        d_i : min(
+                            [len(token_sequences), d_i + window_size_array[i, 0] + 1]
+                        )
+                    ]
                 else:
                     multi_window = token_sequences[
-                                             max([0, d_i - window_size_array[i, 0]]): d_i + 1
-                                             ]
+                        max([0, d_i - window_size_array[i, 0]]) : d_i + 1
+                    ]
                     multi_window.reverse()
 
                 this_kernel = kernel_functions[i](multi_window, w_i, *kernel_args[i])
@@ -234,15 +236,15 @@ def numba_multi_em_cooccurrence_iteration(
                 kernels.append(mix_weights[i] * this_kernel)
 
             posterior_data = em_update_matrix(
-                    posterior_data,
-                    prior_indices,
-                    prior_indptr,
-                    prior_data,
-                    n_unique_tokens,
-                    target_word,
-                    windows,
-                    kernels,
-                )
+                posterior_data,
+                prior_indices,
+                prior_indptr,
+                prior_data,
+                n_unique_tokens,
+                target_word,
+                windows,
+                kernels,
+            )
 
     return posterior_data
 
@@ -375,34 +377,34 @@ class MultiSetCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
     """
 
     def __init__(
-            self,
-            token_dictionary=None,
-            max_unique_tokens=None,
-            min_occurrences=None,
-            max_occurrences=None,
-            min_frequency=None,
-            max_frequency=None,
-            min_document_occurrences=None,
-            max_document_occurrences=None,
-            min_document_frequency=None,
-            max_document_frequency=None,
-            excluded_tokens=None,
-            excluded_token_regex=None,
-            window_functions="fixed",
-            kernel_functions="flat",
-            window_args=None,
-            kernel_args=None,
-            window_radii=5,
-            mix_weights=None,
-            window_orientations="directional",
-            n_threads=1,
-            validate_data=True,
-            mask_string=None,
-            nullify_mask=False,
-            normalize_windows=True,
-            n_iter=0,
-            epsilon=0,
-            coo_initial_memory="0.5 GiB",
+        self,
+        token_dictionary=None,
+        max_unique_tokens=None,
+        min_occurrences=None,
+        max_occurrences=None,
+        min_frequency=None,
+        max_frequency=None,
+        min_document_occurrences=None,
+        max_document_occurrences=None,
+        min_document_frequency=None,
+        max_document_frequency=None,
+        excluded_tokens=None,
+        excluded_token_regex=None,
+        window_functions="fixed",
+        kernel_functions="flat",
+        window_args=None,
+        kernel_args=None,
+        window_radii=5,
+        mix_weights=None,
+        window_orientations="directional",
+        n_threads=1,
+        validate_data=True,
+        mask_string=None,
+        nullify_mask=False,
+        normalize_windows=True,
+        n_iter=0,
+        epsilon=0,
+        coo_initial_memory="0.5 GiB",
     ):
         super().__init__(
             token_dictionary=token_dictionary,
@@ -439,18 +441,20 @@ class MultiSetCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
         # call the numba function to return the new matrix.data
         result = [np.zeros_like(cooccurrence_matrix.data)]
         for seq in token_sequences:
-            result.append(numba_multi_em_cooccurrence_iteration(
-                token_sequences=seq,
-                n_unique_tokens=len(self.token_label_dictionary_),
-                window_size_array=self._window_len_array,
-                window_reversals=self._window_reversals,
-                kernel_functions=self._kernel_functions,
-                kernel_args=self._full_kernel_args,
-                mix_weights=self._mix_weights,
-                prior_data=cooccurrence_matrix.data,
-                prior_indices=cooccurrence_matrix.indices,
-                prior_indptr=cooccurrence_matrix.indptr,
-            ))
+            result.append(
+                numba_multi_em_cooccurrence_iteration(
+                    token_sequences=seq,
+                    n_unique_tokens=len(self.token_label_dictionary_),
+                    window_size_array=self._window_len_array,
+                    window_reversals=self._window_reversals,
+                    kernel_functions=self._kernel_functions,
+                    kernel_args=self._full_kernel_args,
+                    mix_weights=self._mix_weights,
+                    prior_data=cooccurrence_matrix.data,
+                    prior_indices=cooccurrence_matrix.indices,
+                    prior_indptr=cooccurrence_matrix.indptr,
+                )
+            )
         return sum(result)
 
     def _build_skip_grams(self, token_sequences):
@@ -471,20 +475,22 @@ class MultiSetCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
         result = []
         for seq in token_sequences:
             coo_data = self._build_skip_grams(seq)
-            result.append(scipy.sparse.coo_matrix(
-                (
-                    np.hstack([coo.val[: coo.ind[0]] for coo in coo_data]),
+            result.append(
+                scipy.sparse.coo_matrix(
                     (
-                        np.hstack([coo.row[: coo.ind[0]] for coo in coo_data]),
-                        np.hstack([coo.col[: coo.ind[0]] for coo in coo_data]),
+                        np.hstack([coo.val[: coo.ind[0]] for coo in coo_data]),
+                        (
+                            np.hstack([coo.row[: coo.ind[0]] for coo in coo_data]),
+                            np.hstack([coo.col[: coo.ind[0]] for coo in coo_data]),
+                        ),
                     ),
-                ),
-                shape=(
-                    self._n_rows,
-                    len(self.token_label_dictionary_) * self._n_wide,
-                ),
-                dtype=np.float32,
-            ))
+                    shape=(
+                        self._n_rows,
+                        len(self.token_label_dictionary_) * self._n_wide,
+                    ),
+                    dtype=np.float32,
+                )
+            )
         return sum(result)
 
     def _get_default_kernel_functions(self):

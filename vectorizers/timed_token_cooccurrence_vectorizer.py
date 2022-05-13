@@ -103,8 +103,12 @@ def numba_build_skip_grams(
                 )
 
                 this_window = np.array([w[0] for w in win], dtype=np.int32)
-                time_deltas = np.array([np.abs(w[1] - target_time) for w in win], dtype=np.float32)
-                this_kernel = mix_weights[i] * kernel_functions[i](this_window, time_deltas, *kernel_args[i])
+                time_deltas = np.array(
+                    [np.abs(w[1] - target_time) for w in win], dtype=np.float32
+                )
+                this_kernel = mix_weights[i] * kernel_functions[i](
+                    this_window, time_deltas, *kernel_args[i]
+                )
                 windows.append(this_window)
                 kernels.append(this_kernel)
 
@@ -212,7 +216,9 @@ def numba_em_cooccurrence_iteration(
 
                 this_window = np.array([w[0] for w in win], dtype=np.int32)
                 time_deltas = np.array([np.abs(w[1] - target_time) for w in win])
-                this_kernel = mix_weights[i] * kernel_functions[i](this_window, time_deltas, *kernel_args[i])
+                this_kernel = mix_weights[i] * kernel_functions[i](
+                    this_window, time_deltas, *kernel_args[i]
+                )
                 windows.append(this_window)
                 kernels.append(this_kernel)
 

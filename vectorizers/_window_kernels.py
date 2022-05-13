@@ -79,7 +79,7 @@ def geometric_kernel(
     offset=0,
     power=0.9,
 ):
-    result = power ** np.arange(1, len(window)+1)
+    result = power ** np.arange(1, len(window) + 1)
 
     if mask_index is not None:
         result[window == mask_index] = 0.0
@@ -108,7 +108,7 @@ def multi_flat_kernel(
 
     ind = 0
     for i, mset in enumerate(window[offset:]):
-        kernel_result[ind: ind + len(mset)] = np.repeat(ker[i], len(mset))
+        kernel_result[ind : ind + len(mset)] = np.repeat(ker[i], len(mset))
         if mask_index is not None:
             for w_i, token in enumerate(mset):
                 if token == mask_index:
@@ -142,7 +142,7 @@ def multi_geometric_kernel(
     kernel_result = np.zeros(result_len).astype(np.float64)
     ind = 0
     for i, mset in enumerate(window[offset:]):
-        kernel_result[ind: ind + len(mset)] = np.repeat(ker[i], len(mset))
+        kernel_result[ind : ind + len(mset)] = np.repeat(ker[i], len(mset))
         if mask_index is not None:
             for w_i, token in enumerate(mset):
                 if token == mask_index:
@@ -185,7 +185,7 @@ def timed_geometric_kernel(
     offset,
     power=0.9,
 ):
-    result = power ** (time_deltas/delta)
+    result = power ** (time_deltas / delta)
     if mask_index is not None:
         result[window == mask_index] = 0
     result[0 : min(offset, len(result))] = 0
@@ -194,6 +194,7 @@ def timed_geometric_kernel(
         if temp > 0:
             result /= temp
     return result
+
 
 @numba.njit(nogil=True)
 def timed_flat_kernel(
@@ -207,12 +208,13 @@ def timed_flat_kernel(
     result = np.ones(len(time_deltas), dtype=np.float64)
     if mask_index is not None:
         result[window == mask_index] = 0
-    result[0: min(offset, len(result))] = 0
+    result[0 : min(offset, len(result))] = 0
     if normalize:
         temp = result.sum()
         if temp > 0:
             result /= temp
     return result
+
 
 # Parameter lists
 
@@ -317,6 +319,7 @@ def binom(n, k):
 
     return numerator // denominator
 
+
 # A couple of changepoint based kernels that can be useful. The goal
 # is to detect changepoints in seuquences of count of time interval
 # data (where the intervals are between events).
@@ -330,6 +333,7 @@ def binom(n, k):
 # posterior (a negative binomial) of observing the final element of
 # the window.
 
+
 def count_changepoint_kernel(alpha=1.0, beta=1):
     @numba.njit()
     def _kernel(window):
@@ -340,11 +344,16 @@ def count_changepoint_kernel(alpha=1.0, beta=1):
         nb_r = alpha_prime
         nb_p = 1.0 / (1.0 + beta_prime)
 
-        prob = binom(observation + nb_r - 1, observation) * (1 - nb_p) ** nb_r * nb_p ** observation
+        prob = (
+            binom(observation + nb_r - 1, observation)
+            * (1 - nb_p) ** nb_r
+            * nb_p ** observation
+        )
 
         return np.array([-np.log(prob)])
 
     return _kernel
+
 
 def inter_arrival_changepoint_kernel(alpha=1.0, beta=1):
     @numba.njit()
@@ -356,13 +365,18 @@ def inter_arrival_changepoint_kernel(alpha=1.0, beta=1):
         nb_r = alpha_prime
         nb_p = 1.0 / (1.0 + beta_prime)
 
-        prob = binom(observation + nb_r - 1, observation) * (1 - nb_p) ** nb_r * nb_p ** observation
+        prob = (
+            binom(observation + nb_r - 1, observation)
+            * (1 - nb_p) ** nb_r
+            * nb_p ** observation
+        )
 
         return np.array([-np.log(prob)])
 
     return _kernel
 
+
 _SLIDING_WINDOW_FUNCTION_KERNELS = {
-    "count_changepoint" : count_changepoint_kernel,
+    "count_changepoint": count_changepoint_kernel,
     "timespan_changepoint": inter_arrival_changepoint_kernel,
 }

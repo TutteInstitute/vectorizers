@@ -4,7 +4,6 @@ import numba
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
-from collections import defaultdict
 import scipy.linalg
 import scipy.stats
 import scipy.sparse
@@ -20,6 +19,7 @@ from .preprocessing import (
     construct_document_frequency,
     preprocess_token_sequences,
 )
+
 
 @numba.njit(nogil=True)
 def ngrams_of(sequence, ngram_size, ngram_behaviour="exact"):
@@ -83,7 +83,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         should be learned from the training data.
 
     max_unique_tokens: int or None (optional, default=None)
-        The maximal number of elements contained in the vocabulary.  If not None, this 
+        The maximal number of elements contained in the vocabulary.  If not None, this
         will prune the vocabulary to the top 'max_vocabulary_size' most frequent remaining tokens
         after other possible preprocessing.
 
@@ -127,15 +127,20 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         counted. If None then there is no constraint, or the constraint is
         determined by max_document_occurrences.
 
-    ignored_tokens: set or None (optional, default=None)
+    excluded_tokens: set or None (optional, default=None)
         A set of tokens that should be ignored entirely. If None then no tokens will
         be ignored in this fashion.
 
     excluded_token_regex: str or None (optional, default=None)
         The regular expression by which tokens are ignored if re.fullmatch returns True.
 
-    token_dictionary: dictionary or None (optional, default=None)
-        A dictionary mapping tokens to indices
+    mask_string: str (optional, default=None)
+        Prunes the filtered tokens when None, otherwise replaces them with the
+        provided mask_string.
+
+    nullify_mask: bool (optional, default=False)
+        Sets all cooccurrences with the mask_string equal to zero by skipping over them
+        during processing.
 
     validate_data: bool (optional, default=True)
         Check whether the data is valid (e.g. of homogeneous token type).
@@ -180,18 +185,23 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         self.mask_string = mask_string
         self.nullify_mask = nullify_mask
         self.validate_data = validate_data
+        self.column_label_dictionary_ = {}
+        self.column_index_dictionary_ = {}
+        self._mask_index = None
+        self._mask_ngram_index = None
 
     def fit(self, X, y=None, **fit_params):
 
         if self.validate_data:
             validate_homogeneous_token_types(X)
 
+        # noinspection PyTupleAssignmentBalance
         (
             token_sequences,
             self._token_dictionary_,
             self._inverse_token_dictionary_,
             self._token_frequencies_,
-    ) = preprocess_token_sequences(
+        ) = preprocess_token_sequences(
             X,
             token_dictionary=self.token_dictionary,
             max_unique_tokens=self.max_unique_tokens,
@@ -261,8 +271,6 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
             index: token for token, index in self.column_label_dictionary_.items()
         }
 
-        self._mask_index = None
-        self._mask_ngram_index = None
         if self.nullify_mask:
             self._mask_index = np.int32(len(self._token_frequencies_))
             mask_ngram = tuple(self._mask_index * np.ones(self.ngram_size))
@@ -284,7 +292,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
                             for index in index_gram
                         )
                     col_index = self.column_label_dictionary_[token_gram]
-                    if not(self.nullify_mask and col_index is self._mask_ngram_index):
+                    if not (self.nullify_mask and col_index is self._mask_ngram_index):
                         if col_index in counter:
                             counter[col_index] += 1
                         else:
@@ -328,6 +336,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
                 "column_label_dictionary_",
             ],
         )
+        # noinspection PyTupleAssignmentBalance
         (token_sequences, _, _, _) = preprocess_token_sequences(
             X,
             self._token_dictionary_,
@@ -352,7 +361,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
                             for index in index_gram
                         )
                     col_index = self.column_label_dictionary_[token_gram]
-                    if not(self.nullify_mask and col_index is self._mask_ngram_index):
+                    if not (self.nullify_mask and col_index is self._mask_ngram_index):
                         if col_index in counter:
                             counter[col_index] += 1
                         else:

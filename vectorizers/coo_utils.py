@@ -248,6 +248,7 @@ def update_coo_entries(seq, tup):
         return seq
     return seq.insert(place, tup)
 
+
 @numba.njit(nogil=True)
 def em_update_matrix(
     posterior_data,

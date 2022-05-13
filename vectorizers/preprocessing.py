@@ -36,6 +36,7 @@ def construct_document_frequency(token_by_doc_sequence, token_dictionary):
 
     return doc_freq / len(token_by_doc_sequence)
 
+
 def construct_timed_document_frequency(token_by_doc_sequence, token_dictionary):
     """Returns the frequency of documents that each token appears in.
 
@@ -612,7 +613,9 @@ def preprocess_token_sequences(
         token_dictionary_,
         token_frequencies,
         total_tokens,
-    ) = construct_token_dictionary_and_frequency(flatten(token_sequences), token_dictionary)
+    ) = construct_token_dictionary_and_frequency(
+        flatten(token_sequences), token_dictionary
+    )
 
     if token_dictionary is None:
         if {
@@ -973,7 +976,9 @@ def preprocess_multi_token_sequences(
         token_dictionary_,
         token_frequencies,
         total_tokens,
-    ) = construct_token_dictionary_and_frequency(full_flatten(token_sequences), token_dictionary)
+    ) = construct_token_dictionary_and_frequency(
+        full_flatten(token_sequences), token_dictionary
+    )
 
     if token_dictionary is None:
         if {

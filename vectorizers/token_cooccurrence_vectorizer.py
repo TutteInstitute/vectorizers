@@ -14,6 +14,7 @@ from ._window_kernels import (
 )
 from .preprocessing import preprocess_token_sequences
 
+
 @numba.njit(nogil=True)
 def numba_build_skip_grams(
     token_sequences,
@@ -408,9 +409,8 @@ class TokenCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
             coo_initial_memory=coo_initial_memory,
         )
 
-        #Other Params
+        # Other Params
         self._preprocessing = preprocess_token_sequences
-
 
     def _em_cooccurrence_iteration(self, token_sequences, cooccurrence_matrix):
         # call the numba function to return the new matrix.data

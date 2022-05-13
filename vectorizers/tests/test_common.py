@@ -147,15 +147,14 @@ distributions_data = scipy.sparse.rand(
 )
 vectors_data = np.random.normal(size=(1000, 150))
 
-distributions_data_list = [
-    np.array(x) for x in distributions_data.tolil().data
-]
+distributions_data_list = [np.array(x) for x in distributions_data.tolil().data]
 vectors_data_list = [
-    np.ascontiguousarray(vectors_data[indices]) for indices in distributions_data.tolil().rows
+    np.ascontiguousarray(vectors_data[indices])
+    for indices in distributions_data.tolil().rows
 ]
 generator_reference_dist = np.full(16, 1.0 / 16.0)
 generator_reference_vectors = (
-        np.mean(distributions_data.toarray(), axis=0) @ vectors_data
+    np.mean(distributions_data.toarray(), axis=0) @ vectors_data
 ) + np.random.normal(scale=0.25 * np.mean(np.abs(vectors_data)), size=(16, 150))
 
 
@@ -169,8 +168,16 @@ raw_string_data = [
 ]
 
 random_timed_token_data = (
-    (['a',0.1], ['c',0.2], ['a',0.4], ['d',0.5], ['b',0.6]),
-    (['d',1.1], ['a',1.3], ['a',1.5], ['c',1.7], ['b',2.0], ['d',2.5], ['b',3.0]),
+    (["a", 0.1], ["c", 0.2], ["a", 0.4], ["d", 0.5], ["b", 0.6]),
+    (
+        ["d", 1.1],
+        ["a", 1.3],
+        ["a", 1.5],
+        ["c", 1.7],
+        ["b", 2.0],
+        ["d", 2.5],
+        ["b", 3.0],
+    ),
 )
 
 tiny_token_data = (
@@ -184,9 +191,10 @@ tiny_multi_token_data = (
 )
 
 timed_tiny_token_data = [
-    [['a',1], ['c',2], ['a',3], ['d',4], ['b',5]],
-    [['d',6], ['a',7], ['a',8], ['c',9], ['b',10], ['d',11], ['b',12]],
+    [["a", 1], ["c", 2], ["a", 3], ["d", 4], ["b", 5]],
+    [["d", 6], ["a", 7], ["a", 8], ["c", 9], ["b", 10], ["d", 11], ["b", 12]],
 ]
+
 
 def test_LabeledTreeCooccurrenceVectorizer():
     model = LabelledTreeCooccurrenceVectorizer(
@@ -229,6 +237,7 @@ def test_LabeledTreeCooccurrenceVectorizer_reduced_vocab():
     )
     result = model.fit_transform(tree_sequence)
     assert result.shape == (3, 3)
+
 
 def test_node_removal():
     graph = scipy.sparse.random(10, 10, 0.1, format="csr")
@@ -324,7 +333,7 @@ def test_equality_of_Tree_and_Token_CooccurrenceVectorizers(
         max_document_frequency=max_document_frequency,
         mask_string=mask_string,
         normalize_windows=False,
-        nullify_mask=nullify_mask and not mask_string is None
+        nullify_mask=nullify_mask and not mask_string is None,
     )
     assert np.allclose(
         tree_model.fit_transform(seq_tree_sequence).toarray(),
@@ -339,13 +348,14 @@ def test_equality_of_Tree_and_Token_CooccurrenceVectorizers(
         seq_model.transform(text_token_data_permutation).toarray(),
     )
 
+
 @pytest.mark.parametrize("n_iter", [0, 2])
 @pytest.mark.parametrize("normalize_windows", [False, True])
 def test_equality_of_CooccurrenceVectorizers(
     n_iter,
     normalize_windows,
 ):
-    window_radius = [1,2]
+    window_radius = [1, 2]
     window_function = ["fixed", "variable"]
     kernel_function = ["flat", "flat"]
 
@@ -392,6 +402,7 @@ def test_equality_of_CooccurrenceVectorizers(
         model3.transform(tiny_multi_token_data).toarray(),
     )
 
+
 def test_reverse_cooccurrence_vectorizer():
     seq_model1 = TokenCooccurrenceVectorizer(
         window_radii=2,
@@ -429,6 +440,7 @@ def test_ngrams_of():
                 for i in range(len(tokens) - (ngram_size - 1))
             ]
         )
+
 
 @pytest.mark.parametrize("skip_grams_size", [2, 3])
 @pytest.mark.parametrize("n_iter", [0, 2])
@@ -518,6 +530,7 @@ def test_token_cooccurrence_vectorizer_offset(kernel_function):
     mat2 = vectorizer_b.fit_transform(token_data).toarray()
     assert np.allclose(mat1, mat2)
 
+
 def test_token_cooccurrence_vectorizer_orientation():
     vectorizer = TokenCooccurrenceVectorizer(
         window_radii=1, window_orientations="directional", normalize_windows=False
@@ -554,6 +567,7 @@ def test_token_cooccurence_vectorizer_transform_new_vocab():
     result = vectorizer.fit_transform(text_token_data_subset)
     transform = vectorizer.transform(text_token_data_new_token)
     assert (result != transform).nnz == 0
+
 
 def test_token_cooccurrence_vectorizer_fixed_tokens():
     vectorizer = TokenCooccurrenceVectorizer(token_dictionary={1: 0, 2: 1, 3: 2})
@@ -723,6 +737,7 @@ def test_distribution_vectorizer_bad_params():
             ]
         )
 
+
 def test_find_bin_boundaries_min():
     data = np.random.poisson(5, size=1000)
     data = np.append(data, [0, 0, 0])
@@ -736,6 +751,7 @@ def test_find_boundaries_all_dupes():
     with pytest.warns(UserWarning):
         bins = find_bin_boundaries(data, 10)
         assert len(bins) == 1
+
 
 def test_histogram_vectorizer_basic():
     vectorizer = HistogramVectorizer(n_components=20)
@@ -761,17 +777,24 @@ def test_kde_vectorizer_basic():
     transform_result = vectorizer.transform(value_sequence_data)
     assert np.all(result == transform_result)
 
+
 def test_wasserstein_vectorizer_basic():
     vectorizer = WassersteinVectorizer(random_state=42)
     result = vectorizer.fit_transform(distributions_data, vectors=vectors_data)
     transform_result = vectorizer.transform(distributions_data, vectors=vectors_data)
     assert np.allclose(result, transform_result, rtol=1e-3, atol=1e-6)
 
+
 def test_wasserstein_vectorizer_lists():
     vectorizer = WassersteinVectorizer(random_state=42)
-    result = vectorizer.fit_transform(distributions_data_list, vectors=vectors_data_list)
-    transform_result = vectorizer.transform(distributions_data_list, vectors=vectors_data_list)
+    result = vectorizer.fit_transform(
+        distributions_data_list, vectors=vectors_data_list
+    )
+    transform_result = vectorizer.transform(
+        distributions_data_list, vectors=vectors_data_list
+    )
     assert np.allclose(result, transform_result, rtol=1e-3, atol=1e-6)
+
 
 def test_wasserstein_vectorizer_generators():
     distributions_data_generator = (x for x in distributions_data_list)
@@ -795,6 +818,7 @@ def test_wasserstein_vectorizer_generators():
     )
     assert np.allclose(result, transform_result, rtol=1e-3, atol=1e-6)
 
+
 def test_wasserstein_vectorizer_generators_blockwise():
     distributions_data_generator = (x for x in distributions_data_list)
     vectors_data_generator = (x for x in vectors_data_list)
@@ -816,6 +840,7 @@ def test_wasserstein_vectorizer_generators_blockwise():
         vector_dim=vectors_data.shape[1],
     )
     assert np.allclose(result, transform_result, rtol=1e-3, atol=1e-6)
+
 
 def test_wasserstein_vectorizer_blockwise():
     vectorizer = WassersteinVectorizer(random_state=42, memory_size="50k")
@@ -890,7 +915,7 @@ def test_wasserstein_vectorizer_generator_compared_to_sparse():
         reference_distribution=vectorizer_sparse.reference_distribution_,
         reference_vectors=vectorizer_sparse.reference_vectors_,
         n_distributions=distributions_data.shape[0],
-        vector_dim=vectors_data.shape[1]
+        vector_dim=vectors_data.shape[1],
     )
     assert np.allclose(result_sparse, result_list, rtol=1e-3, atol=1e-6)
 
@@ -944,6 +969,7 @@ def test_wasserstein_based_vectorizer_bad_params(wasserstein_class):
             vectors=vectors_data_generator,
             reference_vectors=np.random.random((10, vectors_data.shape[1])),
         )
+
 
 @pytest.mark.parametrize(
     "wasserstein_class",
@@ -1062,14 +1088,16 @@ def test_lzcompression_vectorizer_basic():
     result2 = lzc.transform(raw_string_data)
     assert np.allclose(result1.toarray(), result2.toarray())
 
+
 def test_lzcompression_vectorizer_badparams():
     with pytest.raises(ValueError):
-        lzc =  LZCompressionVectorizer(max_dict_size=-1)
+        lzc = LZCompressionVectorizer(max_dict_size=-1)
         lzc.fit(raw_string_data)
 
     with pytest.raises(ValueError):
-        lzc =  LZCompressionVectorizer(max_columns=-1)
+        lzc = LZCompressionVectorizer(max_columns=-1)
         lzc.fit(raw_string_data)
+
 
 def test_bpe_vectorizer_basic():
     bpe = BytePairEncodingVectorizer()
@@ -1077,14 +1105,14 @@ def test_bpe_vectorizer_basic():
     result2 = bpe.transform(raw_string_data)
     assert np.allclose(result1.toarray(), result2.toarray())
 
+
 def test_bpe_tokens_ngram_matches():
     bpe1 = BytePairEncodingVectorizer(return_type="matrix")
     bpe2 = BytePairEncodingVectorizer(return_type="tokens")
 
-
     result1 = bpe1.fit_transform(raw_string_data)
     token_dictionary = {
-        to_unicode(code, bpe1.tokens_, bpe1.max_char_code_):n
+        to_unicode(code, bpe1.tokens_, bpe1.max_char_code_): n
         for code, n in bpe1.column_label_dictionary_.items()
     }
 
@@ -1092,6 +1120,7 @@ def test_bpe_tokens_ngram_matches():
     result2 = NgramVectorizer(token_dictionary=token_dictionary).fit_transform(tokens)
 
     assert np.allclose(result1.toarray(), result2.toarray())
+
 
 def test_bpe_bad_params():
     with pytest.raises(ValueError):
@@ -1109,4 +1138,3 @@ def test_bpe_bad_params():
     with pytest.raises(ValueError):
         bpe = BytePairEncodingVectorizer(return_type="nonsense")
         bpe.fit(raw_string_data)
-
