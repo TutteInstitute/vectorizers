@@ -123,7 +123,7 @@ class CountFeatureCompressionTransformer(BaseEstimator, TransformerMixin):
         X: ndarray or sparse matrix of shape (n_samples, n_features)
             The input data to be transformed.
         """
-        self.fit_transform(self, X, y, **fit_params)
+        self.fit_transform(X, y, **fit_params)
         return self
 
     def transform(self, X, y=None):

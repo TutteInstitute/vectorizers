@@ -65,3 +65,6 @@ doc/generated/
 
 # PyBuilder
 target/
+
+# Jupyter artifacts
+.ipynb_checkpoints
