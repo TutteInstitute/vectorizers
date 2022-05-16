@@ -108,9 +108,8 @@ def numba_build_skip_grams(
     for d_i, seq in enumerate(token_sequences):
         for w_i in range(ngram_size - 1, len(seq)):
             ngram = array_to_tuple(seq[w_i - ngram_size + 1 : w_i + 1])
-            target_gram_ind = np.int32(ngram_dictionary.get(ngram, default=-1))
-            if target_gram_ind >= 0:
-                target_gram_ind = np.int64(target_gram_ind)
+            if ngram in ngram_dictionary:
+                target_gram_ind = ngram_dictionary[ngram]
                 windows = [
                     window_at_index(
                         seq,
@@ -229,8 +228,8 @@ def numba_em_cooccurrence_iteration(
     for d_i, seq in enumerate(token_sequences):
         for w_i in range(ngram_size - 1, len(seq)):
             ngram = array_to_tuple(seq[w_i - ngram_size + 1 : w_i + 1])
-            target_gram_ind = np.int32(ngram_dictionary.get(ngram, default=-1))
-            if target_gram_ind >= 0:
+            if ngram in ngram_dictionary:
+                target_gram_ind = ngram_dictionary[ngram]
                 windows = [
                     window_at_index(
                         seq,
