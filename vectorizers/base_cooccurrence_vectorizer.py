@@ -20,6 +20,7 @@ from .coo_utils import CooArray, COO_QUICKSORT_LIMIT
 
 import numpy as np
 import numba
+from numba.typed import List
 import dask
 import scipy.sparse
 from ._window_kernels import (
@@ -281,8 +282,8 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             if self.window_orientations[i] == "directional":
                 self._kernel_functions.append(self._kernel_functions[-1])
         if len(set(self._kernel_functions)) > 1:
-            raise ValueError(f"All kernel functions must be the same.")
-        self._kernel_functions = numba.typed.List(self._kernel_functions)
+            raise NotImplementedError(f"All kernel functions must be the same.")
+        self._kernel_functions = tuple(self._kernel_functions)
 
         # Set window functions
         if callable(self.window_functions) or isinstance(self.window_functions, str):
@@ -470,9 +471,6 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             self._coo_sizes = np.array(coo_sizes * average_window, dtype=np.int64)
 
         self._coo_sizes = np.divmod(self._coo_sizes, self.n_threads)[0]
-        self._coo_sizes[self._coo_sizes <= COO_QUICKSORT_LIMIT] = (
-            COO_QUICKSORT_LIMIT + 1
-        )
 
     def _generate_chunk_boundaries(self, data, n_threads):
         token_list_sizes = np.array([len(x) for x in data])

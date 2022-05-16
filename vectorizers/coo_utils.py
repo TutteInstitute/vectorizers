@@ -17,7 +17,6 @@ def set_array_size(token_sequences, window_array):
         tot_len += np.dot(
             window_array, counts
         ).T  # NOTE: numba only does dot products with floats
-    tot_len[tot_len <= COO_QUICKSORT_LIMIT] = COO_QUICKSORT_LIMIT + 1
     return tot_len.astype(np.int64)
 
 
@@ -156,27 +155,27 @@ def coo_sum_duplicates(coo):
 def coo_increase_mem(coo):
 
     temp = coo.row
-    new_size = np.int32(np.round(COO_MEM_MULTIPLIER * temp.shape[0]))
+    new_size = np.int32(max(np.round(COO_MEM_MULTIPLIER * temp.shape[0]), COO_QUICKSORT_LIMIT+1))
     new_row = np.zeros(new_size, dtype=np.int32)
     new_row[: temp.shape[0]] = temp
 
     temp = coo.col
-    new_size = np.int32(np.round(COO_MEM_MULTIPLIER * temp.shape[0]))
+    new_size = np.int32(max(np.round(COO_MEM_MULTIPLIER * temp.shape[0]), COO_QUICKSORT_LIMIT+1))
     new_col = np.zeros(new_size, dtype=np.int32)
     new_col[: temp.shape[0]] = temp
 
     temp = coo.val
-    new_size = np.int32(np.round(COO_MEM_MULTIPLIER * temp.shape[0]))
+    new_size = np.int32(max(np.round(COO_MEM_MULTIPLIER * temp.shape[0]), COO_QUICKSORT_LIMIT+1))
     new_val = np.zeros(new_size, dtype=np.float32)
     new_val[: temp.shape[0]] = temp
 
     temp = coo.key
-    new_size = np.int32(np.round(COO_MEM_MULTIPLIER * temp.shape[0]))
+    new_size = np.int32(max(np.round(COO_MEM_MULTIPLIER * temp.shape[0]), COO_QUICKSORT_LIMIT+1))
     new_key = np.zeros(new_size, dtype=np.int64)
     new_key[: temp.shape[0]] = temp
 
     temp = coo.min
-    new_size = np.int32(np.round(COO_MEM_MULTIPLIER * temp.shape[0]))
+    new_size = np.int32(np.round(COO_MEM_MULTIPLIER * (temp.shape[0]+2)))
     new_min = np.zeros(new_size, dtype=np.int64)
     new_min[: temp.shape[0]] = temp
 
@@ -235,19 +234,6 @@ def sum_coo_entries(seq):
     reduced_data.append((this_coord[0], this_coord[1], this_sum))
 
     return reduced_data
-
-
-@numba.njit(nogil=True)
-def update_coo_entries(seq, tup):
-    place = np.searchsorted(seq, tup)
-    if seq[place][1:2] == tup[1:2]:
-        seq[place][3] += tup[3]
-        return seq
-    elif seq[place - 1][1:2] == tup[1:2]:
-        seq[place - 1][3] += tup[3]
-        return seq
-    return seq.insert(place, tup)
-
 
 @numba.njit(nogil=True)
 def em_update_matrix(

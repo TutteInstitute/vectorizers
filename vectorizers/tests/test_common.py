@@ -350,14 +350,17 @@ def test_equality_of_Tree_and_Token_CooccurrenceVectorizers(
 
 
 @pytest.mark.parametrize("n_iter", [0, 2])
+@pytest.mark.parametrize("n_threads", [1, 2])
 @pytest.mark.parametrize("normalize_windows", [False, True])
+@pytest.mark.parametrize("kernel_function", [["flat", "flat"], ['geometric', 'geometric']])
 def test_equality_of_CooccurrenceVectorizers(
     n_iter,
     normalize_windows,
+    kernel_function,
+    n_threads,
 ):
-    window_radius = [1, 2]
+    window_radius = [1, 3]
     window_function = ["fixed", "variable"]
-    kernel_function = ["flat", "flat"]
 
     model1 = TokenCooccurrenceVectorizer(
         window_radii=window_radius,
@@ -365,6 +368,7 @@ def test_equality_of_CooccurrenceVectorizers(
         kernel_functions=kernel_function,
         window_functions=window_function,
         normalize_windows=normalize_windows,
+        n_threads=n_threads,
     )
     model2 = TimedTokenCooccurrenceVectorizer(
         window_radii=window_radius,
@@ -372,6 +376,7 @@ def test_equality_of_CooccurrenceVectorizers(
         window_functions=window_function,
         n_iter=n_iter,
         normalize_windows=normalize_windows,
+        n_threads=n_threads,
     )
     model3 = MultiSetCooccurrenceVectorizer(
         window_radii=window_radius,
@@ -379,6 +384,7 @@ def test_equality_of_CooccurrenceVectorizers(
         window_functions=window_function,
         n_iter=n_iter,
         normalize_windows=normalize_windows,
+        n_threads=n_threads,
     )
     base_result = model1.fit_transform(tiny_token_data).toarray()
     assert np.allclose(
@@ -621,7 +627,7 @@ def test_ngram_vectorizer_basic():
 
 
 def test_ngram_vectorizer_text():
-    vectorizer = NgramVectorizer()
+    vectorizer = NgramVectorizer(ngram_size=2, ngram_behaviour='subgrams')
     result = vectorizer.fit_transform(text_token_data)
     assert scipy.sparse.issparse(result)
     # Ensure that the empty document has an all zero row
