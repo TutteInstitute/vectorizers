@@ -237,11 +237,11 @@ def numba_em_cooccurrence_iteration(
 
 
 class TimedTokenCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
-    """Given a sequence, or list of sequences of tokens, produce a collection of directed
-    co-occurrence count matrix of tokens. If passed a single sequence of tokens it
-    will use windows to determine co-occurrence. If passed a list of sequences of
-    tokens it will use windows within each sequence in the list -- with windows not
-    extending beyond the boundaries imposed by the individual sequences in the list.
+    """Given a sequence, or list of sequences of (tokens, timestamp) pairs produce a collection of directed
+    co-occurrence count matrix of tokens, where timestamps are an int or float type. If passed a single
+    sequence of tokens it will use windows to determine co-occurrence.  If passed a list of sequences of
+    tokens it will use windows within each sequence in the list -- with windows not  extending beyond the
+    boundaries imposed by the individual sequences in the list.
 
     Upon the construction of the count matrices, it will hstack them together and run
     n_iter iterations of EM to update the counts.

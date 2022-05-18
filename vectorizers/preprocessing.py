@@ -710,7 +710,7 @@ def preprocess_timed_token_sequences(
     excluded_token_regex=None,
     masking=None,
 ):
-    """Perform a standard set of preprocessing for token sequences. This includes
+    """Perform a standard set of preprocessing for (token, timestamp) sequences. This includes
     constructing a token dictionary and token frequencies, pruning the dictionary
     according to frequency and ignored token constraints, and editing the token
     sequences to only include tokens in the pruned dictionary. Note that either
@@ -720,8 +720,9 @@ def preprocess_timed_token_sequences(
     Parameters
     ----------
     token_sequences: Iterable of (tuple | list | numpy.array)
-        A list of token sequences. Each sequence should be tuple, list or
-        numpy array of tokens.
+        A list of (token, timestamp) sequences. Each sequence should be tuple, list or
+        numpy array of (token, timestamp), where tokens are of a fixed type and timestamps are
+        of a numerical type, i.e. floats or integers.
 
     token_dictionary: dictionary or None (optional, default=None)
         A fixed dictionary mapping tokens to indices, constraining the tokens
@@ -889,17 +890,17 @@ def preprocess_multi_token_sequences(
     excluded_token_regex=None,
     masking=None,
 ):
-    """Perform a standard set of preprocessing for token sequences. This includes
-    constructing a token dictionary and token frequencies, pruning the dictionary
-    according to frequency and ignored token constraints, and editing the token
-    sequences to only include tokens in the pruned dictionary. Note that either
-    min_occurrences or min_frequency can be provided (respectively
-    max_occurences or max_frequency). If both are provided they must agree.
+    """Perform a standard set of preprocessing for sequences of multisets of tokens -- here a 'document'
+    is considered a list of multisets of tokens. This includes  constructing a token dictionary and
+    token frequencies, pruning the dictionary according to frequency and ignored token constraints,
+    and editing the token multiset sequences to only include tokens in the pruned dictionary. Note that either
+    min_occurrences or min_frequency can be provided (respectively max_occurences or max_frequency).
+    If both are provided they must agree.
 
     Parameters
     ----------
-    token_sequences: Iterable of (tuple | list | numpy.array)
-        A list of token sequences. Each sequence should be tuple, list or
+    token_sequences: Iterable of Iterable of (tuple | list | numpy.array)
+        A list of list of sequences of tokens. Each sequence should be tuple, list or
         numpy array of tokens.
 
     token_dictionary: dictionary or None (optional, default=None)

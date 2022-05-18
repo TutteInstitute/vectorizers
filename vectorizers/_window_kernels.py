@@ -321,7 +321,7 @@ def binom(n, k):
 
 
 # A couple of changepoint based kernels that can be useful. The goal
-# is to detect changepoints in seuquences of count of time interval
+# is to detect changepoints in sequences of count of time interval
 # data (where the intervals are between events).
 #
 # We can model count data with Poisson's and interval data as inter-arrival
