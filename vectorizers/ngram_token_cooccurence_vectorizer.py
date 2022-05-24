@@ -1,18 +1,27 @@
-from collections.abc import Iterable
-from .coo_utils import (
-    coo_append,
-    CooArray,
-    em_update_matrix,
-    coo_sum_duplicates,
-    merge_all_sum_duplicates,
+from .ngram_vectorizer import ngrams_of
+from .preprocessing import (
+    prune_token_dictionary,
+    construct_token_dictionary_and_frequency,
+    construct_document_frequency,
+    preprocess_token_sequences,
 )
 from .base_cooccurrence_vectorizer import BaseCooccurrenceVectorizer
+from collections.abc import Iterable
+from .utils import (
+    flatten,
+    make_tuple_converter,
+    validate_homogeneous_token_types,
+)
+from .coo_utils import (
+    coo_append,
+    coo_sum_duplicates,
+    CooArray,
+    merge_all_sum_duplicates,
+    em_update_matrix,
+)
 import numpy as np
 import numba
-from ._window_kernels import (
-    window_at_index,
-)
-from .preprocessing import preprocess_token_sequences
+from ._window_kernels import window_at_index
 
 
 @numba.njit(nogil=True)
@@ -26,6 +35,9 @@ def numba_build_skip_grams(
     normalize_windows,
     n_unique_tokens,
     array_lengths,
+    ngram_dictionary,
+    ngram_size,
+    array_to_tuple,
 ):
     """Generate a matrix of (weighted) counts of co-occurrences of tokens within
     windows in a set of sequences of tokens. Each sequence in the collection of
@@ -62,6 +74,15 @@ def numba_build_skip_grams(
     array_lengths: numpy.array(int, size = (n_windows,))
         The lengths of the arrays per window used to the store the coo matrix triples.
 
+    ngram_dictionary: numba.typed.Dict (optional)
+        The dictionary from tuples of token indices to an n_gram index
+
+    ngram_size: int (optional, default = 1)
+        The size of ngrams to encode token cooccurences of.
+
+    array_to_tuple: numba.jitted callable (optional)
+        Function that casts arrays of fixed length to tuples
+
     Returns
     -------
     cooccurrence_matrix: CooArray
@@ -70,7 +91,8 @@ def numba_build_skip_grams(
 
     n_windows = window_size_array.shape[0]
     array_mul = n_windows * n_unique_tokens + 1
-
+    window_reversal_const = np.zeros(len(window_reversals)).astype(np.int32)
+    window_reversal_const[window_reversals] = 1
     coo_data = [
         CooArray(
             np.zeros(array_lengths[i], dtype=np.int32),
@@ -83,41 +105,42 @@ def numba_build_skip_grams(
         )
         for i in range(n_windows)
     ]
-
     for d_i, seq in enumerate(token_sequences):
-        for w_i, target_word in enumerate(seq):
-            windows = [
-                window_at_index(
-                    seq,
-                    window_size_array[i, target_word],
-                    w_i,
-                    reverse=window_reversals[i],
-                )
-                for i in range(n_windows)
-            ]
+        for w_i in range(ngram_size - 1, len(seq)):
+            ngram = array_to_tuple(seq[w_i - ngram_size + 1 : w_i + 1])
+            if ngram in ngram_dictionary:
+                target_gram_ind = ngram_dictionary[ngram]
+                windows = [
+                    window_at_index(
+                        seq,
+                        window_size_array[i][target_gram_ind],
+                        w_i - window_reversal_const[i] * (ngram_size - 1),
+                        reverse=window_reversals[i],
+                    )
+                    for i in range(n_windows)
+                ]
 
-            kernels = []
-            for i in range(n_windows):
-                ker = kernel_functions[i]
-                kernels.append(mix_weights[i] * ker(windows[i], *kernel_args[i]))
+                kernels = [
+                    mix_weights[i] * kernel_functions[i](windows[i], *kernel_args[i])
+                    for i in range(n_windows)
+                ]
 
-            total = 0
-            if normalize_windows:
-                sums = np.array([np.sum(ker) for ker in kernels])
-                total = np.sum(sums)
+                total = 0
+                if normalize_windows:
+                    sums = np.array([np.sum(ker) for ker in kernels])
+                    total = np.sum(sums)
+                if total <= 0:
+                    total = 1
 
-            if total <= 0:
-                total = 1
-
-            for i, window in enumerate(windows):
-                this_ker = kernels[i]
-                for j, context in enumerate(window):
-                    val = np.float32(this_ker[j] / total)
-                    if val > 0:
-                        row = target_word
-                        col = context + i * n_unique_tokens
-                        key = col + array_mul * row
-                        coo_data[i] = coo_append(coo_data[i], (row, col, val, key))
+                for i, window in enumerate(windows):
+                    this_ker = kernels[i]
+                    for j, context in enumerate(window):
+                        val = np.float32(this_ker[j] / total)
+                        if val > 0:
+                            row = target_gram_ind
+                            col = context + i * n_unique_tokens
+                            key = col + array_mul * row
+                            coo_data[i] = coo_append(coo_data[i], (row, col, val, key))
 
     for coo in coo_data:
         coo_sum_duplicates(coo)
@@ -138,6 +161,9 @@ def numba_em_cooccurrence_iteration(
     prior_indices,
     prior_indptr,
     prior_data,
+    ngram_dictionary,
+    ngram_size,
+    array_to_tuple,
 ):
     """
     Performs one round of EM on the given (hstack of) n cooccurrence matrices provided in csr format.
@@ -178,6 +204,15 @@ def numba_em_cooccurrence_iteration(
     prior_data: numpy.array
         The csr data of the hstacked cooccurrence matrix
 
+    ngram_dictionary: numba.typed.Dict (optional)
+        The dictionary from tuples of token indices to an n_gram index
+
+    ngram_size: int (optional, default = 1)
+        The size of ngrams to encode token cooccurences of.
+
+    array_to_tuple: numba.jitted callable (optional)
+        Function that casts arrays of fixed length to tuples
+
     Returns
     -------
     posterior_data: numpy.array
@@ -191,40 +226,43 @@ def numba_em_cooccurrence_iteration(
     window_reversal_const[window_reversals] = 1
 
     for d_i, seq in enumerate(token_sequences):
-        for w_i, target_word in enumerate(seq):
-            windows = [
-                window_at_index(
-                    seq,
-                    window_size_array[i, target_word],
-                    w_i,
-                    reverse=window_reversals[i],
+        for w_i in range(ngram_size - 1, len(seq)):
+            ngram = array_to_tuple(seq[w_i - ngram_size + 1 : w_i + 1])
+            if ngram in ngram_dictionary:
+                target_gram_ind = ngram_dictionary[ngram]
+                windows = [
+                    window_at_index(
+                        seq,
+                        window_size_array[i][target_gram_ind],
+                        w_i - window_reversal_const[i] * (ngram_size - 1),
+                        reverse=window_reversals[i],
+                    )
+                    for i in range(n_windows)
+                ]
+
+                kernels = [
+                    mix_weights[i] * kernel_functions[i](windows[i], *kernel_args[i])
+                    for i in range(n_windows)
+                ]
+
+                posterior_data = em_update_matrix(
+                    posterior_data,
+                    prior_indices,
+                    prior_indptr,
+                    prior_data,
+                    n_unique_tokens,
+                    target_gram_ind,
+                    windows,
+                    kernels,
                 )
-                for i in range(n_windows)
-            ]
-
-            kernels = [
-                mix_weights[i] * kernel_functions[i](windows[i], *kernel_args[i])
-                for i in range(n_windows)
-            ]
-
-            posterior_data = em_update_matrix(
-                posterior_data,
-                prior_indices,
-                prior_indptr,
-                prior_data,
-                n_unique_tokens,
-                target_word,
-                windows,
-                kernels,
-            )
 
     return posterior_data
 
 
-class TokenCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
+class NgramCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
     """Given a sequence, or list of sequences of tokens, produce a collection of directed
-    co-occurrence count matrix of tokens. If passed a single sequence of tokens it
-    will use windows to determine co-occurrence. If passed a list of sequences of
+    cooccurrence count matrix of ngrams with respect to tokens. If passed a single sequence
+    of tokens it will use windows to determine co-occurrence. If passed a list of sequences of
     tokens it will use windows within each sequence in the list -- with windows not
     extending beyond the boundaries imposed by the individual sequences in the list.
 
@@ -237,8 +275,11 @@ class TokenCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
         A fixed dictionary mapping tokens to indices, or None if the dictionary
         should be learned from the training data.
 
+    ngram_size: int (optional, default = 2)
+        The size of ngrams to encode token cooccurences of.
+
     max_unique_tokens: int or None (optional, default=None)
-        The maximal number of elements contained in the vocabulary.  If not None, this
+        The maximal number of elements contained in the vocabulary.  If not None, this is
         will prune the vocabulary to the top 'max_vocabulary_size' most frequent remaining tokens
         after other possible preprocessing.
 
@@ -378,6 +419,7 @@ class TokenCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
         n_iter=0,
         epsilon=0,
         coo_initial_memory="0.5 GiB",
+        ngram_size=2,
     ):
         super().__init__(
             token_dictionary=token_dictionary,
@@ -408,9 +450,7 @@ class TokenCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
             epsilon=epsilon,
             coo_initial_memory=coo_initial_memory,
         )
-
-        # Other Params
-        self._preprocessing = preprocess_token_sequences
+        self.ngram_size = ngram_size
 
     def _em_cooccurrence_iteration(self, token_sequences, cooccurrence_matrix):
         # call the numba function to return the new matrix.data
@@ -425,6 +465,9 @@ class TokenCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
             prior_data=cooccurrence_matrix.data,
             prior_indices=cooccurrence_matrix.indices,
             prior_indptr=cooccurrence_matrix.indptr,
+            ngram_dictionary=self._raw_ngram_dictionary_,
+            ngram_size=self.ngram_size,
+            array_to_tuple=self._array_to_tuple,
         )
 
     def _build_skip_grams(self, token_sequences):
@@ -439,4 +482,97 @@ class TokenCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
             normalize_windows=self.normalize_windows,
             n_unique_tokens=len(self.token_label_dictionary_),
             array_lengths=self._coo_sizes,
+            ngram_dictionary=self._raw_ngram_dictionary_,
+            ngram_size=self.ngram_size,
+            array_to_tuple=self._array_to_tuple,
         )
+
+    def _process_n_grams(self, token_sequences):
+        ngrams = [
+            list(map(tuple, ngrams_of(sequence, self.ngram_size, "exact")))
+            for sequence in token_sequences
+        ]
+        (
+            raw_ngram_dictionary,
+            ngram_frequencies,
+            total_ngrams,
+        ) = construct_token_dictionary_and_frequency(
+            flatten(ngrams), token_dictionary=None
+        )
+
+        if {
+            self.min_document_frequency,
+            self.min_document_occurrences,
+            self.max_document_frequency,
+            self.max_document_occurrences,
+        } != {None}:
+            ngram_doc_frequencies = construct_document_frequency(
+                ngrams, raw_ngram_dictionary
+            )
+        else:
+            ngram_doc_frequencies = np.array([])
+
+        raw_ngram_dictionary, ngram_frequencies = prune_token_dictionary(
+            raw_ngram_dictionary,
+            ngram_frequencies,
+            token_doc_frequencies=ngram_doc_frequencies,
+            max_unique_tokens=self.max_unique_tokens,
+            min_frequency=self.min_frequency,
+            max_frequency=self.max_frequency,
+            min_occurrences=self.min_occurrences,
+            max_occurrences=self.max_occurrences,
+            min_document_frequency=self.min_document_frequency,
+            max_document_frequency=self.max_document_frequency,
+            min_document_occurrences=self.min_document_occurrences,
+            max_document_occurrences=self.max_document_occurrences,
+            total_tokens=total_ngrams,
+            total_documents=len(token_sequences),
+        )
+        self._raw_ngram_dictionary_ = numba.typed.Dict()
+        self._raw_ngram_dictionary_.update(raw_ngram_dictionary)
+        self._ngram_frequencies = ngram_frequencies
+
+        def joined_tokens(ngram, token_index_dictionary):
+            return "_".join([str(token_index_dictionary[index]) for index in ngram])
+
+        self.ngram_label_dictionary_ = {
+            joined_tokens(key, self.token_index_dictionary_): value
+            for key, value in raw_ngram_dictionary.items()
+        }
+
+        if len(self.ngram_label_dictionary_) == 0:
+            raise ValueError(
+                "ngram dictionary is empty; try using less extreme constraints"
+            )
+
+    def _set_row_information(self, token_sequences):
+        self._process_n_grams(token_sequences)
+        self._n_rows = len(self.ngram_label_dictionary_)
+
+    def _set_mask_indices(self):
+        if self.nullify_mask:
+            self._mask_index = np.int32(len(self._token_frequencies_))
+            mask_ngram = tuple(self._mask_index * np.ones(self.ngram_size))
+            if mask_ngram in self._raw_ngram_dictionary_:
+                self._mask_ngram_index = self._raw_ngram_dictionary_[mask_ngram]
+            else:
+                self._mask_ngram_index = None
+        else:
+            self._mask_index = None
+            self._mask_ngram_index = None
+
+    def _set_window_len_array(self):
+        window_array = []
+        for i, win_fn in enumerate(self._window_functions):
+            window_array.append(
+                win_fn(
+                    self._window_radii[i],
+                    self._ngram_frequencies,
+                    self._mask_ngram_index,
+                    *self._window_args[i],
+                )
+            )
+        self._window_len_array = np.array(window_array)
+
+    def _set_additional_params(self, token_sequences):
+        self._array_to_tuple = make_tuple_converter(self.ngram_size)

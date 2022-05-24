@@ -1,18 +1,22 @@
+from .preprocessing import (
+    preprocess_timed_token_sequences,
+)
 from collections.abc import Iterable
+from .base_cooccurrence_vectorizer import BaseCooccurrenceVectorizer
+from .preprocessing import preprocess_timed_token_sequences
 from .coo_utils import (
     coo_append,
-    CooArray,
-    em_update_matrix,
     coo_sum_duplicates,
+    CooArray,
     merge_all_sum_duplicates,
+    em_update_matrix,
 )
-from .base_cooccurrence_vectorizer import BaseCooccurrenceVectorizer
 import numpy as np
 import numba
 from ._window_kernels import (
+    _TIMED_KERNEL_FUNCTIONS,
     window_at_index,
 )
-from .preprocessing import preprocess_token_sequences
 
 
 @numba.njit(nogil=True)
@@ -36,7 +40,7 @@ def numba_build_skip_grams(
     Parameters
     ----------
     token_sequences: Iterable of Iterables
-        The collection of token sequences to generate skip-gram data for.
+        The collection of (token, time_stamp) sequences to generate skip-gram data for.
 
     n_unique_tokens: int
         The number of unique tokens in the token_dictionary.
@@ -85,27 +89,33 @@ def numba_build_skip_grams(
     ]
 
     for d_i, seq in enumerate(token_sequences):
-        for w_i, target_word in enumerate(seq):
-            windows = [
-                window_at_index(
+        for w_i, target_pair in enumerate(seq):
+            windows = []
+            kernels = []
+            target_word = np.int32(target_pair[0])
+            target_time = target_pair[1]
+            for i in range(n_windows):
+                win = window_at_index(
                     seq,
                     window_size_array[i, target_word],
                     w_i,
                     reverse=window_reversals[i],
                 )
-                for i in range(n_windows)
-            ]
 
-            kernels = []
-            for i in range(n_windows):
-                ker = kernel_functions[i]
-                kernels.append(mix_weights[i] * ker(windows[i], *kernel_args[i]))
+                this_window = np.array([w[0] for w in win], dtype=np.int32)
+                time_deltas = np.array(
+                    [np.abs(w[1] - target_time) for w in win], dtype=np.float32
+                )
+                this_kernel = mix_weights[i] * kernel_functions[i](
+                    this_window, time_deltas, *kernel_args[i]
+                )
+                windows.append(this_window)
+                kernels.append(this_kernel)
 
             total = 0
             if normalize_windows:
                 sums = np.array([np.sum(ker) for ker in kernels])
                 total = np.sum(sums)
-
             if total <= 0:
                 total = 1
 
@@ -149,7 +159,7 @@ def numba_em_cooccurrence_iteration(
     ----------
 
     token_sequences: Iterable of Iterables
-        The collection of token sequences to generate skip-gram data for.
+        The collection of  (token, time_stamp)  sequences to generate skip-gram data for.
 
     window_size_array : numpy.ndarray of shape(n, n_vocab)
         The collection of window sizes per token per directed cooccurrence
@@ -191,21 +201,26 @@ def numba_em_cooccurrence_iteration(
     window_reversal_const[window_reversals] = 1
 
     for d_i, seq in enumerate(token_sequences):
-        for w_i, target_word in enumerate(seq):
-            windows = [
-                window_at_index(
+        for w_i, target_pair in enumerate(seq):
+            windows = []
+            kernels = []
+            target_word = np.int32(target_pair[0])
+            target_time = target_pair[1]
+            for i in range(n_windows):
+                win = window_at_index(
                     seq,
                     window_size_array[i, target_word],
                     w_i,
                     reverse=window_reversals[i],
                 )
-                for i in range(n_windows)
-            ]
 
-            kernels = [
-                mix_weights[i] * kernel_functions[i](windows[i], *kernel_args[i])
-                for i in range(n_windows)
-            ]
+                this_window = np.array([w[0] for w in win], dtype=np.int32)
+                time_deltas = np.array([np.abs(w[1] - target_time) for w in win])
+                this_kernel = mix_weights[i] * kernel_functions[i](
+                    this_window, time_deltas, *kernel_args[i]
+                )
+                windows.append(this_window)
+                kernels.append(this_kernel)
 
             posterior_data = em_update_matrix(
                 posterior_data,
@@ -221,12 +236,12 @@ def numba_em_cooccurrence_iteration(
     return posterior_data
 
 
-class TokenCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
-    """Given a sequence, or list of sequences of tokens, produce a collection of directed
-    co-occurrence count matrix of tokens. If passed a single sequence of tokens it
-    will use windows to determine co-occurrence. If passed a list of sequences of
-    tokens it will use windows within each sequence in the list -- with windows not
-    extending beyond the boundaries imposed by the individual sequences in the list.
+class TimedTokenCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
+    """Given a sequence, or list of sequences of (tokens, timestamp) pairs produce a collection of directed
+    co-occurrence count matrix of tokens, where timestamps are an int or float type. If passed a single
+    sequence of tokens it will use windows to determine co-occurrence.  If passed a list of sequences of
+    tokens it will use windows within each sequence in the list -- with windows not  extending beyond the
+    boundaries imposed by the individual sequences in the list.
 
     Upon the construction of the count matrices, it will hstack them together and run
     n_iter iterations of EM to update the counts.
@@ -238,7 +253,7 @@ class TokenCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
         should be learned from the training data.
 
     max_unique_tokens: int or None (optional, default=None)
-        The maximal number of elements contained in the vocabulary.  If not None, this
+        The maximal number of elements contained in the vocabulary.  If not None, this is
         will prune the vocabulary to the top 'max_vocabulary_size' most frequent remaining tokens
         after other possible preprocessing.
 
@@ -408,9 +423,11 @@ class TokenCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
             epsilon=epsilon,
             coo_initial_memory=coo_initial_memory,
         )
+        self.delta_mean_ = None
+        self._preprocessing = preprocess_timed_token_sequences
 
-        # Other Params
-        self._preprocessing = preprocess_token_sequences
+    def _get_default_kernel_functions(self):
+        return _TIMED_KERNEL_FUNCTIONS
 
     def _em_cooccurrence_iteration(self, token_sequences, cooccurrence_matrix):
         # call the numba function to return the new matrix.data
@@ -440,3 +457,25 @@ class TokenCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
             n_unique_tokens=len(self.token_label_dictionary_),
             array_lengths=self._coo_sizes,
         )
+
+    def _set_additional_params(self, token_sequences):
+        self.delta_mean_ = 0.0
+        total_t = 0.0
+        for doc in token_sequences:
+            seq = np.array([pair[1] for pair in doc])
+            self.delta_mean_ += np.sum(seq[1:] - seq[:-1])
+            total_t += len(seq) - 1
+        self.delta_mean_ /= total_t
+
+    def _set_full_kernel_args(self):
+        # Set the full kernel args
+        self._full_kernel_args = numba.typed.List([])
+        for i, args in enumerate(self._kernel_args):
+            default_kernel_array_args = {
+                "delta": self.delta_mean_,
+                "mask_index": self._mask_index,
+                "normalize": False,
+                "offset": 0,
+            }
+            default_kernel_array_args.update(args)
+            self._full_kernel_args.append(tuple(default_kernel_array_args.values()))

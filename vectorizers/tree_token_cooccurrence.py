@@ -48,7 +48,7 @@ def build_tree_skip_grams(
     labels: array of length (unique_labels)
         This is the array of the labels of the rows and columns of our matrix.
     """
-    weights = kernel_function(np.arange(window_size), window_size, *kernel_args)
+    weights = kernel_function(-np.ones(window_size), *kernel_args)
     count_matrix = adjacency_matrix * weights[0]
     walk = adjacency_matrix
     for i in range(1, window_size):
@@ -126,6 +126,14 @@ def sequence_tree_skip_grams(
         )
         global_counts += reordered_matrix
     global_counts = global_counts.tocsr()
+
+    # if nulify mask
+    mask_index = kernel_args[0]
+    if kernel_args[0] is not None:
+        M = scipy.sparse.eye(global_counts.shape[0])
+        M.data[0, mask_index] = 0
+        global_counts = (M.dot(global_counts)).dot(M)
+        global_counts.eliminate_zeros()
 
     if window_orientation == "before":
         global_counts = global_counts.T
@@ -226,6 +234,10 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
     mask_string: str (optional, default=None)
         Prunes the filtered tokens when None, otherwise replaces them with the provided mask_string.
+
+    nullify_mask: bool (optional, default=False)
+        Sets all cooccurrences with the mask_string equal to zero by skipping over them
+        during processing.
     """
 
     def __init__(
@@ -247,6 +259,7 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         window_orientation="directional",
         validate_data=True,
         mask_string=None,
+        nullify_mask=False,
     ):
         self.token_dictionary = token_dictionary
         self.min_occurrences = min_occurrences
@@ -267,6 +280,7 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self.window_orientation = window_orientation
         self.validate_data = validate_data
         self.mask_string = mask_string
+        self.nullify_mask = nullify_mask
 
     def fit(self, X, y=None, **fit_params):
         """
@@ -317,8 +331,12 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             raise ValueError(
                 f"Unrecognized kernel_function; should be callable or one of {_KERNEL_FUNCTIONS.keys()}"
             )
+        if self.nullify_mask:
+            self._mask_index = np.int32(len(self._token_frequencies_))
+        else:
+            self._mask_index = None
 
-        self._kernel_args = {"mask_index": None, "normalize": False, "offset": 0}
+        self._kernel_args = {"mask_index": self._mask_index, "normalize": False, "offset": 0}
         self._kernel_args.update(self.kernel_args)
         self._kernel_args = tuple(self._kernel_args.values())
 
@@ -328,7 +346,7 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self.cooccurrences_ = sequence_tree_skip_grams(
             clean_tree_sequence,
             kernel_function=self._kernel_function,
-            kernel_args=self.kernel_args,
+            kernel_args=self._kernel_args,
             window_size=self._window_size,
             label_dictionary=self.token_label_dictionary_,
             window_orientation=self.window_orientation,
@@ -418,7 +436,7 @@ class LabelledTreeCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         cooccurrences = sequence_tree_skip_grams(
             clean_tree_sequence,
             kernel_function=self._kernel_function,
-            kernel_args=self.kernel_args,
+            kernel_args=self._kernel_args,
             window_size=self._window_size,
             label_dictionary=self.token_label_dictionary_,
             window_orientation=self.window_orientation,

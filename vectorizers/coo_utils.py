@@ -5,7 +5,7 @@ from collections import namedtuple
 CooArray = namedtuple("CooArray", ["row", "col", "val", "key", "ind", "min", "depth"])
 
 COO_QUICKSORT_LIMIT = 1 << 16
-COO_MEM_MULTIPLIER = 2.0
+COO_MEM_MULTIPLIER = 1.5
 
 
 @numba.njit(nogil=True)
@@ -17,7 +17,6 @@ def set_array_size(token_sequences, window_array):
         tot_len += np.dot(
             window_array, counts
         ).T  # NOTE: numba only does dot products with floats
-    tot_len[tot_len <= COO_QUICKSORT_LIMIT] = COO_QUICKSORT_LIMIT + 1
     return tot_len.astype(np.int64)
 
 
@@ -110,11 +109,11 @@ def merge_all_sum_duplicates(coo):
 
 
 @numba.njit(nogil=True)
-def coo_sum_duplicates(coo, kind):
+def coo_sum_duplicates(coo):
     upper_lim = coo.ind[0]
     lower_lim = np.abs(coo.min[0])
 
-    perm = np.argsort(coo.key[lower_lim:upper_lim], kind=kind)
+    perm = np.argsort(coo.key[lower_lim:upper_lim])
 
     coo.row[lower_lim:upper_lim] = coo.row[lower_lim:upper_lim][perm]
     coo.col[lower_lim:upper_lim] = coo.col[lower_lim:upper_lim][perm]
@@ -156,27 +155,27 @@ def coo_sum_duplicates(coo, kind):
 def coo_increase_mem(coo):
 
     temp = coo.row
-    new_size = np.int32(np.round(COO_MEM_MULTIPLIER * temp.shape[0]))
+    new_size = np.int32(max(np.round(COO_MEM_MULTIPLIER * temp.shape[0]), COO_QUICKSORT_LIMIT+1))
     new_row = np.zeros(new_size, dtype=np.int32)
     new_row[: temp.shape[0]] = temp
 
     temp = coo.col
-    new_size = np.int32(np.round(COO_MEM_MULTIPLIER * temp.shape[0]))
+    new_size = np.int32(max(np.round(COO_MEM_MULTIPLIER * temp.shape[0]), COO_QUICKSORT_LIMIT+1))
     new_col = np.zeros(new_size, dtype=np.int32)
     new_col[: temp.shape[0]] = temp
 
     temp = coo.val
-    new_size = np.int32(np.round(COO_MEM_MULTIPLIER * temp.shape[0]))
+    new_size = np.int32(max(np.round(COO_MEM_MULTIPLIER * temp.shape[0]), COO_QUICKSORT_LIMIT+1))
     new_val = np.zeros(new_size, dtype=np.float32)
     new_val[: temp.shape[0]] = temp
 
     temp = coo.key
-    new_size = np.int32(np.round(COO_MEM_MULTIPLIER * temp.shape[0]))
+    new_size = np.int32(max(np.round(COO_MEM_MULTIPLIER * temp.shape[0]), COO_QUICKSORT_LIMIT+1))
     new_key = np.zeros(new_size, dtype=np.int64)
     new_key[: temp.shape[0]] = temp
 
     temp = coo.min
-    new_size = np.int32(np.round(COO_MEM_MULTIPLIER * temp.shape[0]))
+    new_size = np.int32(np.round(COO_MEM_MULTIPLIER * (temp.shape[0]+2)))
     new_min = np.zeros(new_size, dtype=np.int64)
     new_min[: temp.shape[0]] = temp
 
@@ -202,14 +201,14 @@ def coo_append(coo, tup):
     coo.ind[0] += 1
 
     if (coo.ind[0] - np.abs(coo.min[0])) >= COO_QUICKSORT_LIMIT:
-        coo_sum_duplicates(coo, kind="quicksort")
+        coo_sum_duplicates(coo)
         if (coo.key.shape[0] - np.abs(coo.min[0])) <= COO_QUICKSORT_LIMIT:
             merge_all_sum_duplicates(coo)
             if coo.ind[0] >= 0.95 * coo.key.shape[0]:
                 coo = coo_increase_mem(coo)
 
     if coo.ind[0] == coo.key.shape[0] - 1:
-        coo_sum_duplicates(coo, kind="quicksort")
+        coo_sum_duplicates(coo)
         if (coo.key.shape[0] - np.abs(coo.min[0])) <= COO_QUICKSORT_LIMIT:
             merge_all_sum_duplicates(coo)
             if coo.ind[0] >= 0.95 * coo.key.shape[0]:
@@ -236,14 +235,96 @@ def sum_coo_entries(seq):
 
     return reduced_data
 
-
 @numba.njit(nogil=True)
-def update_coo_entries(seq, tup):
-    place = np.searchsorted(seq, tup)
-    if seq[place][1:2] == tup[1:2]:
-        seq[place][3] += tup[3]
-        return seq
-    elif seq[place - 1][1:2] == tup[1:2]:
-        seq[place - 1][3] += tup[3]
-        return seq
-    return seq.insert(place, tup)
+def em_update_matrix(
+    posterior_data,
+    prior_indices,
+    prior_indptr,
+    prior_data,
+    n_unique_tokens,
+    target_gram_ind,
+    windows,
+    kernels,
+):
+    """
+    Updated the csr matrix from one round of EM on the given (hstack of) n
+    cooccurrence matrices provided in csr format.
+
+    Parameters
+    ----------
+    posterior_data: numpy.array
+        The csr data of the hstacked cooccurrence matrix to be updated
+
+    prior_indices:  numpy.array
+        The csr indices of the hstacked cooccurrence matrix
+
+    prior_indptr: numpy.array
+        The csr indptr of the hstacked cooccurrence matrix
+
+    prior_data: numpy.array
+        The csr data of the hstacked cooccurrence matrix
+
+    n_unique_tokens: int
+        The number of unique tokens
+
+    target_gram_ind: int
+        The index of the target ngram to update
+
+    windows: List of List of int
+        The indices of the tokens in the windows
+
+    kernels: List of List of floats
+        The kernel values of the entries in the windows.
+
+    Returns
+    -------
+    posterior_data: numpy.array
+        The data of the updated csr matrix after an update of EM.
+    """
+    total_win_length = np.sum(np.array([len(w) for w in windows]))
+    window_posterior = np.zeros(total_win_length)
+    context_ind = np.zeros(total_win_length, dtype=np.int64)
+    win_offset = np.append(
+        np.zeros(1, dtype=np.int64),
+        np.cumsum(np.array([len(w) for w in windows])),
+    )[:-1]
+
+    col_ind = prior_indices[
+        prior_indptr[target_gram_ind] : prior_indptr[target_gram_ind + 1]
+    ]
+
+    for w, window in enumerate(windows):
+        for i, context in enumerate(window):
+            if kernels[w][i] > 0:
+                context_ind[i + win_offset[w]] = np.searchsorted(
+                    col_ind, context + w * n_unique_tokens
+                )
+                # assert(col_ind[context_ind[i + win_offset[w]]] == context+w * n_unique_tokens)
+                if (
+                    col_ind[context_ind[i + win_offset[w]]]
+                    == context + w * n_unique_tokens
+                ):
+                    window_posterior[i + win_offset[w]] = (
+                        kernels[w][i]
+                        * prior_data[
+                            prior_indptr[target_gram_ind]
+                            + context_ind[i + win_offset[w]]
+                        ]
+                    )
+                else:
+                    window_posterior[i + win_offset[w]] = 0
+
+    temp = window_posterior.sum()
+    if temp > 0:
+        window_posterior /= temp
+
+    # Partial M_step - Update the posteriors
+    for w, window in enumerate(windows):
+        for i, context in enumerate(window):
+            val = window_posterior[i + win_offset[w]]
+            if val > 0:
+                posterior_data[
+                    prior_indptr[target_gram_ind] + context_ind[i + win_offset[w]]
+                ] += val
+
+    return posterior_data
