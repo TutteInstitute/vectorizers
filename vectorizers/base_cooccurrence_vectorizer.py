@@ -185,7 +185,7 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         normalize_windows=True,
         n_iter=0,
         epsilon=0,
-        coo_initial_memory="0.5 GiB",
+        coo_initial_memory="1 GiB",
     ):
         self.token_dictionary = token_dictionary
         self.max_unique_tokens = max_unique_tokens
@@ -701,6 +701,11 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
 
         # Set the coo_array size
         self._set_coo_sizes(token_sequences)
+
+        # Build the matrix
+        self.cooccurrences_ = self._build_token_cooccurrence_matrix(
+            token_sequences,
+        )
 
         return self
 
