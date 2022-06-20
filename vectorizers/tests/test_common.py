@@ -353,11 +353,15 @@ def test_equality_of_Tree_and_Token_CooccurrenceVectorizers(
 @pytest.mark.parametrize("n_threads", [1, 2])
 @pytest.mark.parametrize("normalize_windows", [False, True])
 @pytest.mark.parametrize("kernel_function", [["flat", "flat"], ['geometric', 'geometric']])
+@pytest.mark.parametrize("max_unique_tokens", [None, 2])
+@pytest.mark.parametrize("max_occurrences", [None, 3])
 def test_equality_of_CooccurrenceVectorizers(
     n_iter,
     normalize_windows,
     kernel_function,
     n_threads,
+    max_unique_tokens,
+    max_occurrences,
 ):
     window_radius = [1, 3]
     window_function = ["fixed", "variable"]
@@ -369,6 +373,9 @@ def test_equality_of_CooccurrenceVectorizers(
         window_functions=window_function,
         normalize_windows=normalize_windows,
         n_threads=n_threads,
+        max_unique_tokens=max_unique_tokens,
+        mask_string='m',
+        max_occurrences=max_occurrences,
     )
     model2 = TimedTokenCooccurrenceVectorizer(
         window_radii=window_radius,
@@ -377,6 +384,9 @@ def test_equality_of_CooccurrenceVectorizers(
         n_iter=n_iter,
         normalize_windows=normalize_windows,
         n_threads=n_threads,
+        max_unique_tokens=max_unique_tokens,
+        mask_string='m',
+        max_occurrences=max_occurrences,
     )
     model3 = MultiSetCooccurrenceVectorizer(
         window_radii=window_radius,
@@ -385,6 +395,9 @@ def test_equality_of_CooccurrenceVectorizers(
         n_iter=n_iter,
         normalize_windows=normalize_windows,
         n_threads=n_threads,
+        max_unique_tokens=max_unique_tokens,
+        mask_string='m',
+        max_occurrences=max_occurrences,
     )
     base_result = model1.fit_transform(tiny_token_data).toarray()
     assert np.allclose(

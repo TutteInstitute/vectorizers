@@ -271,7 +271,7 @@ def prune_token_dictionary(
             select_tokens_by_regex(token_dictionary.keys(), excluded_token_regex)
         )
 
-    vocab_tokens = np.array([token for token in token_dictionary if token not in tokens_to_prune])
+    vocab_tokens = [token for token in token_dictionary if token not in tokens_to_prune]
     new_token_frequency = np.array(
         [token_frequencies[token_dictionary[token]] for token in vocab_tokens]
     )
@@ -281,7 +281,7 @@ def prune_token_dictionary(
             freq = np.sort(new_token_frequency)[-max_unique_tokens-1]
             new_inds = new_token_frequency > freq
             new_token_frequency = new_token_frequency[new_inds]
-            vocab_tokens = vocab_tokens[new_inds]
+            vocab_tokens = [token for i, token in enumerate(vocab_tokens) if new_inds[i]]
 
     new_vocabulary = dict(zip(vocab_tokens, range(len(vocab_tokens))))
 
