@@ -278,10 +278,12 @@ def prune_token_dictionary(
 
     if max_unique_tokens is not None:
         if len(new_token_frequency) > max_unique_tokens:
-            freq = np.sort(new_token_frequency)[-max_unique_tokens-1]
+            freq = np.sort(new_token_frequency)[-max_unique_tokens - 1]
             new_inds = new_token_frequency > freq
             new_token_frequency = new_token_frequency[new_inds]
-            vocab_tokens = [token for i, token in enumerate(vocab_tokens) if new_inds[i]]
+            vocab_tokens = [
+                token for i, token in enumerate(vocab_tokens) if new_inds[i]
+            ]
 
     new_vocabulary = dict(zip(vocab_tokens, range(len(vocab_tokens))))
 
