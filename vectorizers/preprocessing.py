@@ -59,7 +59,7 @@ def construct_timed_document_frequency(token_by_doc_sequence, token_dictionary):
     for doc in token_by_doc_sequence:
         doc_set = set([token[0] for token in doc])
         doc_freq += np.bincount(
-            [token_dictionary[token[0]] for token in doc_set], minlength=n_tokens
+            [token_dictionary[token] for token in doc_set], minlength=n_tokens
         )
     return doc_freq / len(token_by_doc_sequence)
 
