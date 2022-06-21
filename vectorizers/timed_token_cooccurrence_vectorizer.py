@@ -465,6 +465,8 @@ class TimedTokenCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
             seq = np.array([pair[1] for pair in doc])
             self.delta_mean_ += np.sum(seq[1:] - seq[:-1])
             total_t += len(seq) - 1
+        if total_t == 0:
+            total_t = 1
         self.delta_mean_ /= total_t
 
     def _set_full_kernel_args(self):

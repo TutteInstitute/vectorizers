@@ -57,10 +57,10 @@ def construct_timed_document_frequency(token_by_doc_sequence, token_dictionary):
     n_tokens = len(token_dictionary)
     doc_freq = np.zeros(n_tokens)
     for doc in token_by_doc_sequence:
+        doc_set = set([token[0] for token in doc])
         doc_freq += np.bincount(
-            [token_dictionary[token[0]] for token in set(doc)], minlength=n_tokens
+            [token_dictionary[token] for token in doc_set], minlength=n_tokens
         )
-
     return doc_freq / len(token_by_doc_sequence)
 
 
@@ -272,16 +272,18 @@ def prune_token_dictionary(
         )
 
     vocab_tokens = [token for token in token_dictionary if token not in tokens_to_prune]
-    vocab_set = set(vocab_tokens)
     new_token_frequency = np.array(
-        [token_frequencies[token_dictionary[token]] for token in vocab_set]
+        [token_frequencies[token_dictionary[token]] for token in vocab_tokens]
     )
 
     if max_unique_tokens is not None:
         if len(new_token_frequency) > max_unique_tokens:
-            inds = np.sort(np.argsort(new_token_frequency)[-max_unique_tokens:])
-            new_token_frequency = new_token_frequency[inds]
-            vocab_tokens = [vocab_tokens[i] for i in inds]
+            freq = np.sort(new_token_frequency)[-max_unique_tokens - 1]
+            new_inds = new_token_frequency > freq
+            new_token_frequency = new_token_frequency[new_inds]
+            vocab_tokens = [
+                token for i, token in enumerate(vocab_tokens) if new_inds[i]
+            ]
 
     new_vocabulary = dict(zip(vocab_tokens, range(len(vocab_tokens))))
 
@@ -854,7 +856,7 @@ def preprocess_timed_token_sequences(
                     [
                         (len(token_dictionary), token[1])
                         if not (token[0] in token_dictionary)
-                        else (token_dictionary[token], token[1])
+                        else (token_dictionary[token[0]], token[1])
                         for token in sequence
                     ],
                     dtype=np.float32,
