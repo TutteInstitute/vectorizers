@@ -36,7 +36,7 @@ To manually install this package:
 Basic Usage
 -----------
 
-The vetcorizers package provides a number of tools for vectorizing different kinds of
+The vectorizers package provides a number of tools for vectorizing different kinds of
 input data. All of them are available as classes that follow sciki-learn's basic API
 for transformers, converting input data into vectors in one form or another. For example
 to convert sequences of categorical data into ngram vector representations one might use
