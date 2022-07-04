@@ -2,8 +2,6 @@
 Vectorizers API
 ###############
 
-.. currentmodule:: vectorizers
-
 Ngram and Skipgram Vectorizer
 ===============
 
