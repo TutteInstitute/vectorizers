@@ -37,12 +37,6 @@ machine learning.
 
 .. toctree::
    :maxdepth: 2
-   :caption: In Depth Tutorials
-
-   auto_examples/index
-
-.. toctree::
-   :maxdepth: 2
    :caption: Example Use Cases
 
    token_cooccurrence_vectorizer_multi_labelled_cyber_example

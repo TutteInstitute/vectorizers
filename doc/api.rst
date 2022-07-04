@@ -4,16 +4,7 @@ Vectorizers API
 
 .. currentmodule:: vectorizers
 
-TokenCooccurrenceVectorizer
-===========================
-
-.. autosummary::
-   :toctree: generated/
-   :template: class.rst
-
-   TokenCooccurrenceVectorizer
-
-NgramVectorizer
+Ngram and Skipgram Vectorizer
 ===============
 
 .. autosummary::
@@ -21,121 +12,57 @@ NgramVectorizer
    :template: class.rst
 
    NgramVectorizer
+   SkipgramVectorizer
+   LZCompressionVectorizer
+   BytePairEncodingVectorizer
 
-SkipgramVectorizer
-==================
+TokenCooccurrenceVectorizers
+===========================
 
 .. autosummary::
    :toctree: generated/
    :template: class.rst
 
-   SkipgramVectorizer
+   TokenCooccurrenceVectorizer
+   MultiSetCooccurrenceVectorizer
+   TimedTokenCooccurrenceVectorizer
+   LabelledTreeCooccurrenceVectorizer
 
-WassersteinVectorizer
-=====================
+Wasserstein style Vectorizers
+=============================
 
 .. autosummary::
    :toctree: generated/
    :template: class.rst
 
    WassersteinVectorizer
-
-SinkhornVectorizer
-==================
-
-.. autosummary::
-   :toctree: generated/
-   :template: class.rst
-
    SinkhornVectorizer
-
-ApproximateWassersteinVectorizer
-================================
-
-.. autosummary::
-   :toctree: generated/
-   :template: class.rst
-
    ApproximateWassersteinVectorizer
 
-DistributionVectorizer
-======================
+Utility Vectorizers and Transformers
+====================================
 
 .. autosummary::
    :toctree: generated/
    :template: class.rst
 
-   DistributionVectorizer
+   EdgeListVectorizer
+   CategoricalColumnTransformer
+   InformationWeightTransformer
+   RowDenoisingTransformer
+   CountFeatureCompressionTransformer
 
-HistogramVectorizer
-===================
+Time Series Vectorizers and Transformers
+========================================
 
 .. autosummary::
    :toctree: generated/
    :template: class.rst
 
    HistogramVectorizer
-
-KDEVectorizer
-=============
-
-.. autosummary::
-   :toctree: generated/
-   :template: class.rst
-
    KDEVectorizer
-
-.. currentmodule:: vectorizers.transformers
-
-The ``transformers`` submodule provides a number of utility
-transformers that, rather than directly providing vectorization,
-transform data to make vectorization easier with the standard
-vectorization tools provided, or transform vectorized data based
-on assumptions about the kinds of output vectorizers often produce.
-
-CategoricalColumnTransformer
-============================
-
-.. autosummary::
-   :toctree: generated/
-   :template: class.rst
-
-   CategoricalColumnTransformer
-
-InformationWeightTransformer
-============================
-
-.. autosummary::
-   :toctree: generated/
-   :template: class.rst
-
-   InformationWeightTransformer
-
-RowDenoisingTransformer
-========================
-
-.. autosummary::
-   :toctree: generated/
-   :template: class.rst
-
-   RowDenoisingTransformer
-
-CountFeatureCompressionTransformer
-==================================
-
-.. autosummary::
-   :toctree: generated/
-   :template: class.rst
-
-   CountFeatureCompressionTransformer
-
-SlidingWindowTransformer
-========================
-
-.. autosummary::
-   :toctree: generated/
-   :template: class.rst
-
    SlidingWindowTransformer
+
+
 
 

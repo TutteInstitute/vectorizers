@@ -1,131 +1,60 @@
-#####################################
-Quick Start with the project-template
-#####################################
+############################
+Quick Start with Vectorizers
+############################
 
-This package serves as a skeleton package aiding at developing compatible
-scikit-learn contribution.
+Vectorizers provides a number of tools for working with various kinds of
+unstructured data with a focus on sequence data. The library is built to be
+compatible with scikit-learn_ and can be used in scikit-learn pipelines.
 
-Creating your own scikit-learn contribution package
-===================================================
+----------
+Installing
+----------
 
-1. Download and setup your repository
--------------------------------------
+Vectorizers can be installed via pip (coming soon) and via conda-forge (coming later).
 
-To create your package, you need to clone the ``project-template`` repository::
+(Coming soon)
+.. code:: bash
 
-    $ git clone https://github.com/scikit-learn-contrib/project-template.git
+    pip install vectorizers
 
-Before to reinitialize your git repository, you need to make the following
-changes. Replace all occurrences of ``vectorizers`` and ``vectorizers``
-with the name of you own contribution. You can find all the occurrences using
-the following command::
+(Currently available)
+.. code:: bash
 
-    $ git grep vectorizers
-    $ git grep vectorizers
+    pip install git+https://github.com/TutteInstitute/vectorizers.git
 
-To remove the history of the template package, you need to remove the `.git`
-directory::
+To manually install this package:
 
-    $ cd project-template
-    $ rm -rf .git
+.. code:: bash
 
-Then, you need to initialize your new git repository::
+    wget https://github.com/TutteInstitute/vectorizers/archive/master.zip
+    unzip master.zip
+    rm master.zip
+    cd vectorizers-master
+    python setup.py install
 
-    $ git init
-    $ git add .
-    $ git commit -m 'Initial commit'
+-----------
+Basic Usage
+-----------
 
-Finally, you create an online repository on GitHub and push your code online::
+The vectorizers package provides a number of tools for vectorizing different kinds of
+input data. All of them are available as classes that follow sciki-learn's basic API
+for transformers, converting input data into vectors in one form or another. For example
+to convert sequences of categorical data into ngram vector representations one might use
 
-    $ git remote add origin https://github.com/your_remote/your_contribution.git
-    $ git push origin master
+.. code:: python3
 
-2. Develop your own scikit-learn estimators
--------------------------------------------
+    import vectorizers
 
-.. _check_estimator: http://scikit-learn.org/stable/modules/generated/sklearn.utils.estimator_checks.check_estimator.html#sklearn.utils.estimator_checks.check_estimator
-.. _`Contributor's Guide`: http://scikit-learn.org/stable/developers/
-.. _PEP8: https://www.python.org/dev/peps/pep-0008/
-.. _PEP257: https://www.python.org/dev/peps/pep-0257/
-.. _NumPyDoc: https://github.com/numpy/numpydoc
-.. _doctests: https://docs.python.org/3/library/doctest.html
+    ngrammer = vectorizers.NgramVectorizer(ngram_size=2)
+    ngram_vetcors = ngrammer.fit_transform(input_sequences)
 
-You can modify the source files as you want. However, your custom estimators
-need to pass the check_estimator_ test to be scikit-learn compatible. You can
-refer to the :ref:`User Guide <user_guide>` to help you create a compatible
-scikit-learn estimator.
+These classes can easily be fit into sklearn pipelines, passing vector
+representations on to other scikit-learn (or scikit-learn compatible) classes. See
+the `Vectorizers API`_ documentation for more details on the available classes.
 
-In any case, developers should endeavor to adhere to scikit-learn's
-`Contributor's Guide`_ which promotes the use of:
+Vetcorizers also provides a number of utility transformers in the ``vectorizers.transformers``
+namespace. These provide convenience transformations of data -- either transforms on vectorized
+data, including feature weighting tools, or transformations of structured and unstructured data
+into sequences more amenable to other vectorizers classes.
 
-* algorithm-specific unit tests, in addition to ``check_estimator``'s common
-  tests;
-* PEP8_-compliant code;
-* a clearly documented API using NumpyDoc_ and PEP257_-compliant docstrings;
-* references to relevant scientific literature in standard citation formats;
-* doctests_ to provide succinct usage examples;
-* standalone examples to illustrate the usage, model visualisation, and
-  benefits/benchmarks of particular algorithms;
-* efficient code when the need for optimization is supported by benchmarks.
-
-3. Edit the documentation
--------------------------
-
-.. _Sphinx: http://www.sphinx-doc.org/en/stable/
-
-The documentation is created using Sphinx_. In addition, the examples are
-created using ``sphinx-gallery``. Therefore, to generate locally the
-documentation, you are required to install the following packages::
-
-    $ pip install sphinx sphinx-gallery sphinx_rtd_theme matplotlib numpydoc pillow
-
-The documentation is made of:
-
-* a home page, ``doc/index.rst``;
-* an API documentation, ``doc/api.rst`` in which you should add all public
-  objects for which the docstring should be exposed publicly.
-* a User Guide documentation, ``doc/user_guide.rst``, containing the narrative
-  documentation of your package, to give as much intuition as possible to your
-  users.
-* examples which are created in the `examples/` folder. Each example
-  illustrates some usage of the package. the example file name should start by
-  `plot_*.py`.
-
-The documentation is built with the following commands::
-
-    $ cd doc
-    $ make html
-
-4. Setup the continuous integration
------------------------------------
-
-The project template already contains configuration files of the continuous
-integration system. Basically, the following systems are set:
-
-* Travis CI is used to test the package in Linux. You need to activate Travis
-  CI for your own repository. Refer to the Travis CI documentation.
-* AppVeyor is used to test the package in Windows. You need to activate
-  AppVeyor for your own repository. Refer to the AppVeyor documentation.
-* Circle CI is used to check if the documentation is generated properly. You
-  need to activate Circle CI for your own repository. Refer to the Circle CI
-  documentation.
-* ReadTheDocs is used to build and host the documentation. You need to activate
-  ReadTheDocs for your own repository. Refer to the ReadTheDocs documentation.
-* CodeCov for tracking the code coverage of the package. You need to activate
-  CodeCov for you own repository.
-* PEP8Speaks for automatically checking the PEP8 compliance of your project for
-  each Pull Request.
-
-Publish your package
-====================
-
-.. _PyPi: https://packaging.python.org/tutorials/packaging-projects/
-.. _conda-foge: https://conda-forge.org/
-
-You can make your package available through PyPi_ and conda-forge_. Refer to
-the associated documentation to be able to upload your packages such that
-it will be installable with ``pip`` and ``conda``. Once published, it will
-be possible to install your package with the following commands::
-
-    $ pip install your-scikit-learn-contribution
-    $ conda install -c conda-forge your-scikit-learn-contribution
+.. _scikit-learn: https://scikit-learn.org/stable/
