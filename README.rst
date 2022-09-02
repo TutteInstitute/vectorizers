@@ -122,6 +122,6 @@ you and get your code merged into the main branch.
 License
 -------
 
-The vectorizers package is 2-clause BSD licensed.
+The vectorizers package is 3-clause BSD licensed.
 
 
