@@ -24,6 +24,12 @@ machine learning.
 
 .. toctree::
    :maxdepth: 2
+   :caption: Taxonomy of sequences
+
+   sequence_taxonomy
+
+.. toctree::
+   :maxdepth: 2
    :caption: Quick Start
 
    quick_start
