@@ -26,7 +26,7 @@ machine learning.
    :maxdepth: 2
    :caption: Taxonomy of sequences
 
-   sequence_taxonomy
+   sequence_taxonomy_html
 
 .. toctree::
    :maxdepth: 2
