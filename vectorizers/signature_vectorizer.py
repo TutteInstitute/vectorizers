@@ -61,8 +61,12 @@ class SignatureVectorizer(BaseEstimator, TransformerMixin):
             self.in_dim_ = X.shape[2]
         else:
             assert type(X) is list, "Error: Expecting numpy array or list of paths."
-            assert type(X[0]) is np.ndarray, "Error: Expecting list entries to be numpy arrays." 
-            assert type(X[0]) is np.ndarray and len(X[0].shape) == 2, LIST_SHAPE_ERROR_MSG
+            assert (
+                type(X[0]) is np.ndarray
+            ), "Error: Expecting list entries to be numpy arrays."
+            assert (
+                type(X[0]) is np.ndarray and len(X[0].shape) == 2
+            ), LIST_SHAPE_ERROR_MSG
             # Accepts a list of paths with differing lengths
             self.in_dim_ = X[0].shape[1]
 
@@ -107,7 +111,9 @@ class SignatureVectorizer(BaseEstimator, TransformerMixin):
         else:
             # Accepts a list of paths with differing lengths
             assert type(X) is list, "Error: Expecting numpy array or list of paths."
-            assert type(X[0]) is np.ndarray, "Error: Expecting list entries to be numpy arrays." 
+            assert (
+                type(X[0]) is np.ndarray
+            ), "Error: Expecting list entries to be numpy arrays."
             assert len(X[0].shape) == 2, LIST_SHAPE_ERROR_MSG
             assert (
                 X[0].shape[1] == self.in_dim_
@@ -130,7 +136,9 @@ class SignatureVectorizer(BaseEstimator, TransformerMixin):
             v = np.empty(shape=(N, self.out_dim_))
 
             for i, path in enumerate(X):
-                assert path.shape[-1] == self.in_dim_, 'Error: Not all paths share the same dimension.'
+                assert (
+                    path.shape[-1] == self.in_dim_
+                ), "Error: Not all paths share the same dimension."
                 v[i] = sig_vectorizer(path)
 
         return v
