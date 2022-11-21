@@ -54,6 +54,16 @@ class SignatureVectorizer(BaseEstimator, TransformerMixin):
         self.basepoint = basepoint
 
     def fit(self, X, y=None, **fit_params):
+        """
+        Parameters
+        ----------
+        X: np.array of shape (n_samples, path_len, path_dim) or list of np.arrays of shape (?, path_dim)
+            The path data on which we fit the vectorizer.
+            If paths are all the same length, then we can pass them to fit as a numpy array (n_samples, path_len, path_dim).
+            If paths are varting length, then we can pass a list of length n_samples, where each entry is a numpy array
+            with shape (path_len_i, path_dim). The path_dim should be consistent across the list, but the path length
+            can vary/
+        """
         if type(X) is np.ndarray:
             assert len(X.shape) == 3, NUMPY_SHAPE_ERROR_MSG
             # We have an array N x p x d of paths
@@ -80,7 +90,23 @@ class SignatureVectorizer(BaseEstimator, TransformerMixin):
             self.out_dim_ = iisignature.siglength(self.in_dim_, self.truncation_level)
 
     def transform(self, X):
+        """
+        Parameters
+        ----------
+        X: np.array of shape (n_samples, path_len, path_dim) or list of np.arrays of shape (?, path_dim)
+            The path data on which we fit the vectorizer.
+            If paths are all the same length, then we can pass them to fit as a numpy array (n_samples, path_len, path_dim).
+            If paths are varting length, then we can pass a list of length n_samples, where each entry is a numpy array
+            with shape (path_len_i, path_dim). The path_dim should be consistent across the list, but the path length
+            can vary.
 
+        Returns
+        -------
+        sigs: np.array of shape (n_samples, self.out_dim_)
+            The array of signatures corresponding to the paths given in X, truncated at the truncation level specified
+            at initialisation.
+
+        """
         check_is_fitted(
             self,
             [
