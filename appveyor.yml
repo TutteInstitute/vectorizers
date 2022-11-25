@@ -35,6 +35,7 @@ install:
   - "conda install --yes pip numpy==%NUMPY_VERSION% scipy==%SCIPY_VERSION% scikit-learn==%SKLEARN_VERSION% nose pytest pytest-cov"
   - conda install --yes numba pandas dask pomegranate
   - pip install pynndescent
+  - pip install iisignature
   - pip install codecov
   - pip install .
 

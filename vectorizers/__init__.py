@@ -16,6 +16,8 @@ from .linear_optimal_transport import (
 )
 from .mixed_gram_vectorizer import LZCompressionVectorizer, BytePairEncodingVectorizer
 
+from .signature_vectorizer import SignatureVectorizer
+
 from .utils import cast_tokens_to_strings
 
 from ._version import __version__
@@ -35,5 +37,6 @@ __all__ = [
     "SinkhornVectorizer",
     "ApproximateWassersteinVectorizer",
     "EdgeListVectorizer",
+    "SignatureVectorizer",
     "__version__",
 ]
