@@ -1,4 +1,5 @@
 import pytest
+from sklearn.exceptions import NotFittedError
 from sklearn.preprocessing import normalize
 
 import scipy.sparse
@@ -682,6 +683,20 @@ def test_ngram_vectorizer_max_doc_freq():
     assert count_matrix.shape == (3, 2)
     assert np.all(count_matrix.toarray() == np.array([[0, 0], [1, 0], [0, 1]]))
 
+def test_ngram_vectorizer_add_not_fitted():
+    left = NgramVectorizer().fit(text_token_data)
+    right = NgramVectorizer().fit(text_token_data_new_token)
+    with pytest.raises(NotFittedError):
+        left + NgramVectorizer()
+    with pytest.raises(NotFittedError):
+        NgramVectorizer() + right
+
+def test_ngram_vectorizer_add():
+    left = NgramVectorizer().fit(text_token_data)
+    right = NgramVectorizer().fit(text_token_data_new_token)
+    merged = left + right
+    truth = NgramVectorizer().fit(text_token_data + text_token_data_new_token)
+    assert np.all(np.sum(merged._train_matrix, axis=0) == np.sum(truth._train_matrix, axis=0))
 
 def test_skipgram_vectorizer_basic():
     vectorizer = SkipgramVectorizer()
