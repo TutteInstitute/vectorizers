@@ -696,11 +696,21 @@ def test_ngram_vectorizer_add_not_fitted():
 def test_ngram_vectorizer_add():
     left = NgramVectorizer().fit(text_token_data)
     right = NgramVectorizer().fit(text_token_data_new_token)
+    third = NgramVectorizer().fit(text_token_data_subset)
     merged = left + right
     truth = NgramVectorizer().fit(text_token_data + text_token_data_new_token)
     assert np.all(
         np.sum(merged._train_matrix, axis=0) == np.sum(truth._train_matrix, axis=0)
     )
+    assert merged._train_matrix.nnz == truth._train_matrix.nnz
+    merged = merged + third
+    truth = NgramVectorizer().fit(
+        text_token_data + text_token_data_new_token + text_token_data_subset
+    )
+    assert np.all(
+        np.sum(merged._train_matrix, axis=0) == np.sum(truth._train_matrix, axis=0)
+    )
+    assert merged._train_matrix.nnz == truth._train_matrix.nnz
 
 
 def test_skipgram_vectorizer_basic():

@@ -464,7 +464,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         )
         joint_vectorizer.column_index_dictionary_ = joint_column_index_dictionary
         joint_vectorizer.column_label_dictionary_ = joint_column_label_dictionary
-        joint_vectorizer._train_matrix = joint_train_matrix
+        joint_vectorizer._train_matrix = joint_train_matrix.tocsr()
         joint_vectorizer._token_dictionary_ = joint_vectorizer.column_label_dictionary_
         # Since we don't store the number of tokens we merge the token_frequencies as their unweighted average
         # It would be better if we stored the token counts to do the right thing of using a weighted average
@@ -475,4 +475,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         for x in range(len(other.column_index_dictionary_)):
             bottom_freq[right_to_joint_index_map[x]] = other._token_frequencies_[x]
         joint_vectorizer._token_frequencies_ = np.mean([top_freq, bottom_freq], axis=0)
+        joint_vectorizer._inverse_token_dictionary_ = (
+            joint_vectorizer.column_label_dictionary_
+        )
         return joint_vectorizer
