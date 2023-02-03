@@ -2,6 +2,7 @@ import numpy as np
 import numba
 
 from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.exceptions import NotFittedError
 from sklearn.utils.validation import check_is_fitted
 
 import scipy.linalg
@@ -413,15 +414,29 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         return result
 
     def __add__(self, other):
-        for x in (self, other):
+        try:
             check_is_fitted(
-                x,
+                self,
                 [
                     "_token_dictionary_",
                     "_inverse_token_dictionary_",
                     "column_label_dictionary_",
                 ],
             )
+        except NotFittedError:
+            return other
+
+        try:
+            check_is_fitted(
+                other,
+                [
+                    "_token_dictionary_",
+                    "_inverse_token_dictionary_",
+                    "column_label_dictionary_",
+                ],
+            )
+        except NotFittedError:
+            return self
 
         if any(
             getattr(self, a) != getattr(other, a)
