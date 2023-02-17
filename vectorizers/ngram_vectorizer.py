@@ -239,7 +239,6 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
             excluded_token_regex=self.excluded_token_regex,
             masking=self.mask_string,
         )
-
         ngrams = [
             list(map(tuple, ngrams_of(sequence, self.ngram_size, self.ngram_behaviour)))
             for sequence in token_sequences
@@ -257,7 +256,6 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
             ) = construct_token_dictionary_and_frequency(
                 flatten(ngrams), token_dictionary=None
             )
-
             if {
                 self.min_document_frequency,
                 self.min_document_occurrences,
@@ -287,7 +285,13 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
                 total_documents=len(token_sequences),
             )
 
-            self.column_label_dictionary_ = raw_ngram_dictionary
+            self.column_label_dictionary_ = {
+                tuple(
+                    self._inverse_token_dictionary_[token_index]
+                    for token_index in ngram
+                ): token_index
+                for ngram, token_index in raw_ngram_dictionary.items()
+            }
 
         self.column_index_dictionary_ = {
             index: token for token, index in self.column_label_dictionary_.items()
@@ -360,8 +364,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         )
         # noinspection PyTupleAssignmentBalance
         (token_sequences, _, _, _) = preprocess_token_sequences(
-            X,
-            self._token_dictionary_,
+            X, self._token_dictionary_,
         )
 
         indptr = [0]
@@ -444,6 +447,10 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         ):
             raise NotImplementedError(
                 "Unimplemented merging between these two vectorizer instances, given their respective parameter sets."
+            )
+        if self.ngram_size > 1:
+            raise NotImplementedError(
+                "Unimplemented merging for ngram sizes greater than one"
             )
 
         disjoint_vocab = set(other.column_index_dictionary_.values()).difference(
