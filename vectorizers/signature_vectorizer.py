@@ -3,7 +3,7 @@ import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
-import iisignature
+#import iisignature
 
 NUMPY_SHAPE_ERROR_MSG = """
 Error: SignatureVectorizer expects numpy arrays to be of shape (num_samples x path_len x path_dim).
@@ -42,6 +42,26 @@ class SignatureVectorizer(BaseEstimator, TransformerMixin):
     def __init__(
         self, truncation_level: int = 2, log: bool = False, basepoint: bool = False
     ):
+        try:
+            import iisignature
+        except ImportError as err:
+            from textwrap import dedent
+            err.msg += dedent(
+                """
+
+                A small bug with the install script of the iisignature makes it
+                impossible to install into an environment where its Numpy dependency
+                has not yet been installed. Thus, the Vectorizers library does not
+                make it an explicit dependency. However, you may install this package
+                yourself into this environment now, by running the command
+
+                pip install iisignature
+
+                The problem has been reported to the maintainers of iisignature, and
+                this inconvenience will disappear in future releases.
+                """
+            )
+            raise
 
         assert (
             type(truncation_level) is int
