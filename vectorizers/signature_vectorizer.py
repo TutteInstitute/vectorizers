@@ -43,7 +43,9 @@ class SignatureVectorizer(BaseEstimator, TransformerMixin):
         self, truncation_level: int = 2, log: bool = False, basepoint: bool = False
     ):
         try:
-            import iisignature
+            global iisignature
+            import iisignature as ii
+            iisignature = ii
         except ImportError as err:
             from textwrap import dedent
             err.msg += dedent(
