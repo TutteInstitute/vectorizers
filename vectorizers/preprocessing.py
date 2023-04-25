@@ -38,13 +38,13 @@ def construct_document_frequency(token_by_doc_sequence, token_dictionary):
 
 
 def construct_timed_document_frequency(token_by_doc_sequence, token_dictionary):
-    """Returns the frequency of documents that each token appears in.
+    """Returns the frequency of documents that each token appears in for (token, timestamp) sequences.
 
     Parameters
     ----------
-    token_by_doc_sequence: Iterable
-        A sequence of sequences of tokens
-
+    token_by_doc_sequence: Iterable of (tuple | list | numpy.array)
+        A sequence of sequences of (token, timestamp)
+        
     token_dictionary: dictionary
         A fixed dictionary providing the mapping of tokens to indices
 
