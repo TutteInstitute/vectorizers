@@ -80,7 +80,7 @@ To install the package from PyPI:
 
     pip install vectorizers
 
-To install the package manually:
+To install the package from source:
 
 .. code:: bash
 
