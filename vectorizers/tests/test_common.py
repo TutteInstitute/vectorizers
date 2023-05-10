@@ -194,6 +194,37 @@ timed_tiny_token_data = [
     [["d", 6], ["a", 7], ["a", 8], ["c", 9], ["b", 10], ["d", 11], ["b", 12]],
 ]
 
+hyperedges = [[555, 878, 1833, 5590, 8518],
+ [619, 1226, 3908, 6558],
+ [172, 1126, 1237, 6877],
+ [560, 1244, 4174, 5089, 9558],
+ [95, 138, 962, 1011, 3440],
+ [695, 2118, 3161],
+ [79, 2821, 5916, 6905],
+ [133, 5350, 8367],
+ [21, 539, 1031, 3412],
+ [289, 776, 2730, 4253, 4333, 5452, 6109],
+ [2205, 2399, 4198, 8700, 8894],
+ [152, 279, 4530, 9108],
+ [753, 780, 970, 1439, 3532],
+ [399, 481, 1062, 1213, 1251, 1866, 3046, 4674, 6768, 7742, 8673],
+ [27, 1519, 8966],
+ [228, 697, 2358],
+ [1100, 1282, 4249, 5072, 6018, 8089, 8481],
+ [88, 167, 951, 974, 2051, 2622, 6244, 9674],
+ [194, 2269, 2343],
+ [3539, 4141, 4370, 9597]]
+
+@pytest.mark.parametrize("n_iter", [0, 1, 2])
+def test_TokenCooccurrence_window_0(n_iter):
+    vertex_vectorizer = MultiSetCooccurrenceVectorizer(
+        window_radii=0,
+        window_orientations='before',
+        normalize_windows=False,
+        n_iter=n_iter,
+    ).fit([hyperedges])
+    assert(vertex_vectorizer.cooccurrences_.shape==(97,97))
+    assert(vertex_vectorizer.cooccurrences_.nnz==452)
 
 @pytest.mark.parametrize("ngram_behaviour", ["subgrams", "exact"])
 def test_ngram_size(ngram_behaviour):
