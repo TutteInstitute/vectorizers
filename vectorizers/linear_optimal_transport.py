@@ -1646,7 +1646,7 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
             for i in range(len(vectors) // 512 + 1):
                 start = i * 512
                 end = min(start + 512, len(X))
-                sample_vectors.extend(tuple(np.ascontiguousarray(vectors[start:end])))
+                sample_vectors.extend(tuple([np.ascontiguousarray(x) for x in vectors[start:end]]))
 
             if len(vectors[0].shape) <= 1:
                 raise ValueError(
