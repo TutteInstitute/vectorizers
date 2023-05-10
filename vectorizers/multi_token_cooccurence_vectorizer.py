@@ -437,6 +437,29 @@ class MultiSetCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
         )
         self._preprocessing = preprocess_multi_token_sequences
 
+    def _set_coo_sizes(self, token_sequences):
+        # Set the coo_array size
+        approx_coo_size = 0
+        max_multi = 0
+        for d in token_sequences:
+            for m in d:
+                approx_coo_size += len(m)
+                max_multi = max(max_multi, len(m))
+        approx_coo_size *= (max(self.window_radii) + 1) * max_multi * (20 * self._n_wide)
+        if approx_coo_size < self.coo_initial_bytes:
+            self._coo_sizes = np.repeat(
+                approx_coo_size // self._n_wide, self._n_wide
+            ).astype(np.int64)
+        else:
+            offsets = np.array(
+                [self._full_kernel_args[i][2] for i in range(self._n_wide)]
+            )
+            average_window = self._window_radii - offsets
+            coo_sizes = (self.coo_initial_bytes // 20) // np.sum(average_window)
+            self._coo_sizes = np.array(coo_sizes * average_window, dtype=np.int64)
+
+        self._coo_sizes = np.divmod(self._coo_sizes, self.n_threads)[0]
+
     def _em_cooccurrence_iteration(self, token_sequences, cooccurrence_matrix):
         # call the numba function to return the new matrix.data
         result = [np.zeros_like(cooccurrence_matrix.data)]

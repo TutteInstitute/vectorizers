@@ -4,33 +4,77 @@
 # https://docs.microsoft.com/azure/devops/pipelines/languages/python
 
 trigger:
-- master
+  branches:
+    include:
+    - main
+  tags:
+    include:
+    - release-*
 
-pool:
-  vmImage: ubuntu-latest
-strategy:
-  matrix:
-    Python37:
-      python.version: '3.7'
-    Python38:
-      python.version: '3.8'
-    Python39:
-      python.version: '3.9'
+pr:
+  branches:
+    include:
+    - master
+    exclude:
+    - doc/*
+    - README.rst
 
-steps:
-- task: UsePythonVersion@0
-  inputs:
-    versionSpec: '$(python.version)'
-  displayName: 'Use Python $(python.version)'
+stages:
+  - stage: RunAllTests
+    displayName: Run test suite
+    jobs:
+      - job: run_platform_tests
+        strategy:
+          matrix:
+            mac_py38:
+              imageName: 'macOS-latest'
+              python.version: '3.8'
+            linux_py38:
+              imageName: 'ubuntu-latest'
+              python.version: '3.8'
+            windows_py38:
+              imageName: 'windows-latest'
+              python.version: '3.8'
+            mac_py39:
+              imageName: 'macOS-latest'
+              python.version: '3.9'
+            linux_py39:
+              imageName: 'ubuntu-latest'
+              python.version: '3.9'
+            windows_py39:
+              imageName: 'windows-latest'
+              python.version: '3.9'
+            mac_py310:
+              imageName: 'macOS-latest'
+              python.version: '3.10'
+            linux_py310:
+              imageName: 'ubuntu-latest'
+              python.version: '3.10'
+            windows_py310:
+              imageName: 'windows-latest'
+              python.version: '3.10'
 
-- script: |
-    python -m pip install --upgrade pip
-    pip install numpy
-    pip install -r requirements.txt
-    pip install iisignature
-  displayName: 'Install dependencies'
+        pool:
+          vmImage: $(imageName)
 
-- script: |
-    pip install pytest pytest-azurepipelines
-    pytest vectorizers/tests
-  displayName: 'pytest'
+        steps:
+        - task: UsePythonVersion@0
+          inputs:
+            versionSpec: '$(python.version)'
+          displayName: 'Use Python $(python.version)'
+
+        - script: |
+            python -m pip install --upgrade pip
+            pip install -r requirements.txt
+          displayName: 'Install dependencies'
+
+        - script: |
+            pip install -e .
+            pip install pytest  pytest-azurepipelines
+            pip install pytest-cov
+          displayName: 'Install package'
+
+        - script: |
+            pytest vectorizers/tests --show-capture=no -v --disable-warnings --junitxml=junit/test-results.xml --cov=vectorizers/ --cov-report=xml --cov-report=html
+          displayName: 'Run tests'
+
