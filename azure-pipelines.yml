@@ -65,9 +65,7 @@ stages:
 
         - script: |
             python -m pip install --upgrade pip
-            pip install numpy
             pip install -r requirements.txt
-            pip install iisignature
           displayName: 'Install dependencies'
 
         - script: |

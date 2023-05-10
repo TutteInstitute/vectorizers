@@ -3,7 +3,7 @@ import pytest
 from vectorizers import SignatureVectorizer
 
 import numpy as np
-import iisignature
+iisignature = pytest.importorskip("iisignature")
 import re
 
 NUMPY_SHAPE_ERROR_MSG = """
