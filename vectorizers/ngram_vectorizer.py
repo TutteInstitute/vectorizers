@@ -2,6 +2,7 @@ import numpy as np
 import numba
 
 from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.exceptions import NotFittedError
 from sklearn.utils.validation import check_is_fitted
 
 import scipy.linalg
@@ -146,6 +147,27 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         Check whether the data is valid (e.g. of homogeneous token type).
     """
 
+    ATTRIBUTES_EXPECTED_IDENTICAL = [
+        "ngram_size",
+        "ngram_behaviour",
+        "ngram_dictionary",
+        "token_dictionary",
+        "max_unique_tokens",
+        "min_occurrences",
+        "max_occurrences",
+        "min_frequency",
+        "max_frequency",
+        "min_document_occurrences",
+        "max_document_occurrences",
+        "min_document_frequency",
+        "max_document_frequency",
+        "excluded_tokens",
+        "excluded_token_regex",
+        "mask_string",
+        "nullify_mask",
+        "validate_data",
+    ]
+
     def __init__(
         self,
         ngram_size=1,
@@ -217,7 +239,6 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
             excluded_token_regex=self.excluded_token_regex,
             masking=self.mask_string,
         )
-
         ngrams = [
             list(map(tuple, ngrams_of(sequence, self.ngram_size, self.ngram_behaviour)))
             for sequence in token_sequences
@@ -235,7 +256,6 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
             ) = construct_token_dictionary_and_frequency(
                 flatten(ngrams), token_dictionary=None
             )
-
             if {
                 self.min_document_frequency,
                 self.min_document_occurrences,
@@ -265,7 +285,13 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
                 total_documents=len(token_sequences),
             )
 
-            self.column_label_dictionary_ = raw_ngram_dictionary
+            self.column_label_dictionary_ = {
+                tuple(
+                    self._inverse_token_dictionary_[token_index]
+                    for token_index in ngram
+                ): token_index
+                for ngram, token_index in raw_ngram_dictionary.items()
+            }
 
         self.column_index_dictionary_ = {
             index: token for token, index in self.column_label_dictionary_.items()
@@ -338,8 +364,7 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         )
         # noinspection PyTupleAssignmentBalance
         (token_sequences, _, _, _) = preprocess_token_sequences(
-            X,
-            self._token_dictionary_,
+            X, self._token_dictionary_,
         )
 
         indptr = [0]
@@ -390,3 +415,89 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         result.sort_indices()
 
         return result
+
+    def __add__(self, other):
+        try:
+            check_is_fitted(
+                self,
+                [
+                    "_token_dictionary_",
+                    "_inverse_token_dictionary_",
+                    "column_label_dictionary_",
+                ],
+            )
+        except NotFittedError:
+            return other
+
+        try:
+            check_is_fitted(
+                other,
+                [
+                    "_token_dictionary_",
+                    "_inverse_token_dictionary_",
+                    "column_label_dictionary_",
+                ],
+            )
+        except NotFittedError:
+            return self
+
+        if any(
+            getattr(self, a) != getattr(other, a)
+            for a in self.ATTRIBUTES_EXPECTED_IDENTICAL
+        ):
+            raise NotImplementedError(
+                "Unimplemented merging between these two vectorizer instances, given their respective parameter sets."
+            )
+        if self.ngram_size > 1:
+            raise NotImplementedError(
+                "Unimplemented merging for ngram sizes greater than one"
+            )
+
+        disjoint_vocab = set(other.column_index_dictionary_.values()).difference(
+            self.column_index_dictionary_.values()
+        )
+        joint_column_index_dictionary = self.column_index_dictionary_.copy()
+        left_vocab_size = len(self.column_index_dictionary_)
+        for i, x in enumerate(disjoint_vocab, start=left_vocab_size):
+            joint_column_index_dictionary[i] = x
+        joint_column_label_dictionary = {
+            y: x for x, y in joint_column_index_dictionary.items()
+        }
+        right_to_joint_index_map = {
+            other.column_label_dictionary_[word]: joint_column_label_dictionary[word]
+            for word in other.column_label_dictionary_.keys()
+        }
+
+        new_cols = len(joint_column_index_dictionary)
+        top_train_matrix = self._train_matrix.copy()
+        top_train_matrix.resize((self._train_matrix.shape[0], new_cols))
+
+        bottom_joint_matrix = other._train_matrix.tocoo().copy()
+        bottom_joint_matrix.resize((other._train_matrix.shape[0], new_cols))
+        bottom_joint_matrix.col = np.array(
+            [right_to_joint_index_map[x] for x in other._train_matrix.tocoo().col]
+        )
+
+        joint_train_matrix = scipy.sparse.vstack(
+            [top_train_matrix, bottom_joint_matrix]
+        )
+        joint_vectorizer = NgramVectorizer(
+            **{a: getattr(self, a) for a in self.ATTRIBUTES_EXPECTED_IDENTICAL}
+        )
+        joint_vectorizer.column_index_dictionary_ = joint_column_index_dictionary
+        joint_vectorizer.column_label_dictionary_ = joint_column_label_dictionary
+        joint_vectorizer._train_matrix = joint_train_matrix.tocsr()
+        joint_vectorizer._token_dictionary_ = joint_vectorizer.column_label_dictionary_
+        # Since we don't store the number of tokens we merge the token_frequencies as their unweighted average
+        # It would be better if we stored the token counts to do the right thing of using a weighted average
+        top_freq = np.concatenate(
+            (self._token_frequencies_, np.zeros((len(disjoint_vocab),)))
+        )
+        bottom_freq = np.zeros(top_freq.shape)
+        for x in range(len(other.column_index_dictionary_)):
+            bottom_freq[right_to_joint_index_map[x]] = other._token_frequencies_[x]
+        joint_vectorizer._token_frequencies_ = np.mean([top_freq, bottom_freq], axis=0)
+        joint_vectorizer._inverse_token_dictionary_ = (
+            joint_vectorizer.column_label_dictionary_
+        )
+        return joint_vectorizer

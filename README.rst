@@ -74,21 +74,17 @@ relatively light requirements:
 * scikit-learn >= 0.22
 * numba >= 0.51
 
-In the near future the package should be pip installable -- check back for updates:
+To install the package from PyPI:
 
 .. code:: bash
 
     pip install vectorizers
 
-To manually install this package:
+To install the package from source:
 
 .. code:: bash
 
-    wget https://github.com/TutteInstitute/vectorizers/archive/master.zip
-    unzip master.zip
-    rm master.zip
-    cd vectorizers-master
-    python setup.py install
+    pip install https://github.com/TutteInstitute/vectorizers/archive/master.zip
 
 ----------------
 Help and Support
@@ -122,6 +118,6 @@ you and get your code merged into the main branch.
 License
 -------
 
-The vectorizers package is 2-clause BSD licensed.
+The vectorizers package is 3-clause BSD licensed.
 
 

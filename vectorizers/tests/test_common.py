@@ -1,4 +1,5 @@
 import pytest
+from sklearn.exceptions import NotFittedError
 from sklearn.preprocessing import normalize
 
 import scipy.sparse
@@ -22,9 +23,7 @@ from vectorizers import LZCompressionVectorizer, BytePairEncodingVectorizer
 
 from vectorizers.ngram_vectorizer import ngrams_of
 from vectorizers._vectorizers import find_bin_boundaries
-from vectorizers.tree_token_cooccurrence import (
-    build_tree_skip_grams,
-)
+from vectorizers.tree_token_cooccurrence import build_tree_skip_grams
 from vectorizers.preprocessing import remove_node
 from vectorizers._window_kernels import (
     harmonic_kernel,
@@ -196,6 +195,17 @@ timed_tiny_token_data = [
 ]
 
 
+@pytest.mark.parametrize("ngram_behaviour", ["subgrams", "exact"])
+def test_ngram_size(ngram_behaviour):
+    model = NgramVectorizer(ngram_size=2, ngram_behaviour=ngram_behaviour)
+    matrix = model.fit_transform(text_token_data)
+    assert matrix.nnz == 43
+    if ngram_behaviour == "exact":
+        assert matrix.shape == (7, 15)
+    if ngram_behaviour == "subgrams":
+        assert matrix.shape == (7, 19)
+
+
 def test_LabeledTreeCooccurrenceVectorizer():
     model = LabelledTreeCooccurrenceVectorizer(
         window_radius=2, window_orientation="after"
@@ -231,9 +241,7 @@ def test_LabeledTreeCooccurrenceVectorizer():
 
 def test_LabeledTreeCooccurrenceVectorizer_reduced_vocab():
     model = LabelledTreeCooccurrenceVectorizer(
-        window_radius=2,
-        window_orientation="after",
-        token_dictionary=sub_dictionary,
+        window_radius=2, window_orientation="after", token_dictionary=sub_dictionary,
     )
     result = model.fit_transform(tree_sequence)
     assert result.shape == (3, 3)
@@ -403,25 +411,14 @@ def test_equality_of_CooccurrenceVectorizers(
     )
     base_result = model1.fit_transform(tiny_token_data).toarray()
     assert np.allclose(
-        base_result,
-        model2.fit_transform(timed_tiny_token_data).toarray(),
+        base_result, model2.fit_transform(timed_tiny_token_data).toarray(),
     )
     assert np.allclose(
-        base_result,
-        model3.fit_transform(tiny_multi_token_data).toarray(),
+        base_result, model3.fit_transform(tiny_multi_token_data).toarray(),
     )
-    assert np.allclose(
-        base_result,
-        model1.transform(tiny_token_data).toarray(),
-    )
-    assert np.allclose(
-        base_result,
-        model2.transform(timed_tiny_token_data).toarray(),
-    )
-    assert np.allclose(
-        base_result,
-        model3.transform(tiny_multi_token_data).toarray(),
-    )
+    assert np.allclose(base_result, model1.transform(tiny_token_data).toarray(),)
+    assert np.allclose(base_result, model2.transform(timed_tiny_token_data).toarray(),)
+    assert np.allclose(base_result, model3.transform(tiny_multi_token_data).toarray(),)
 
 
 def test_reverse_cooccurrence_vectorizer():
@@ -520,9 +517,7 @@ def test_cooccurrence_vectorizer_coo_mem_limit():
         normalize_windows=False,
     )
     vectorizer_b = TokenCooccurrenceVectorizer(
-        window_functions="fixed",
-        n_iter=0,
-        normalize_windows=False,
+        window_functions="fixed", n_iter=0, normalize_windows=False,
     )
     np.random.seed(42)
     data = [[np.random.randint(0, 10) for i in range(100)]]
@@ -683,6 +678,41 @@ def test_ngram_vectorizer_max_doc_freq():
     assert np.all(count_matrix.toarray() == np.array([[0, 0], [1, 0], [0, 1]]))
 
 
+def test_ngram_vectorizer_add_not_fitted():
+    left = NgramVectorizer().fit(text_token_data)
+    assert (left + NgramVectorizer()) is left
+    assert (NgramVectorizer() + left) is left
+
+
+def test_ngram_vectorizer_add():
+    left = NgramVectorizer().fit(text_token_data)
+    right = NgramVectorizer().fit(text_token_data_new_token)
+    third = NgramVectorizer().fit(text_token_data_subset)
+    merged = left + right
+    truth = NgramVectorizer().fit(text_token_data + text_token_data_new_token)
+    assert np.all(
+        np.sum(merged._train_matrix, axis=0) == np.sum(truth._train_matrix, axis=0)
+    )
+    assert merged._train_matrix.nnz == truth._train_matrix.nnz
+    merged = merged + third
+    truth = NgramVectorizer().fit(
+        text_token_data + text_token_data_new_token + text_token_data_subset
+    )
+    assert np.all(
+        np.sum(merged._train_matrix, axis=0) == np.sum(truth._train_matrix, axis=0)
+    )
+    assert merged._train_matrix.nnz == truth._train_matrix.nnz
+
+
+# Merging of models is currently unimplemented for ngrams>1.
+# Update this test when that feature is added.
+def test_ngram_vectorizer_add_ngram_gt_1():
+    left = NgramVectorizer(ngram_size=2).fit(text_token_data)
+    right = NgramVectorizer(ngram_size=2).fit(text_token_data_new_token)
+    with pytest.raises(NotImplementedError):
+        combined_model = left + right
+
+
 def test_skipgram_vectorizer_basic():
     vectorizer = SkipgramVectorizer()
     result = vectorizer.fit_transform(token_data)
@@ -746,16 +776,7 @@ def test_distribution_vectorizer_bad_params():
     vectorizer = DistributionVectorizer()
     with pytest.raises(ValueError):
         vectorizer.fit(
-            [
-                [[1, 2, 3], [1, 2], [1, 2, 3, 4]],
-                [
-                    [1, 2],
-                    [
-                        1,
-                    ],
-                    [1, 2, 3],
-                ],
-            ]
+            [[[1, 2, 3], [1, 2], [1, 2, 3, 4]], [[1, 2], [1,], [1, 2, 3],],]
         )
 
 
@@ -993,8 +1014,7 @@ def test_wasserstein_based_vectorizer_bad_params(wasserstein_class):
 
 
 @pytest.mark.parametrize(
-    "wasserstein_class",
-    [WassersteinVectorizer, SinkhornVectorizer],
+    "wasserstein_class", [WassersteinVectorizer, SinkhornVectorizer],
 )
 def test_wasserstein_based_vectorizer_bad_metrics(wasserstein_class):
     with pytest.raises(ValueError):
