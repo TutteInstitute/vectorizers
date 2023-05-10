@@ -14,7 +14,7 @@ trigger:
 pr:
   branches:
     include:
-    - main
+    - master
     exclude:
     - doc/*
     - README.rst
