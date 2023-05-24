@@ -75,6 +75,7 @@ stages:
             pip install -e .
             pip install pytest  pytest-azurepipelines
             pip install pytest-cov
+            pip install coveralls
           displayName: 'Install package'
 
         - script: |
