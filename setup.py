@@ -12,7 +12,7 @@ with open(ver_file) as f:
     exec(f.read())
 
 DISTNAME = 'vectorizers'
-DESCRIPTION = 'A suite of vectorizers for various data types.'
+DESCRIPTION = 'A suite of vectorizers for various data types.  '
 with codecs.open('README.rst', encoding='utf-8-sig') as f:
     LONG_DESCRIPTION = f.read()
 MAINTAINER = 'John Healy, Leland McInnes, Colin Weir'
