@@ -1366,7 +1366,6 @@ def sinkhorn_vectors_sparse(
 
     return result, components
 
-
 class WassersteinVectorizer(BaseEstimator, TransformerMixin):
     """Transform finite distributions over a metric space into vectors in a linear space
     such that euclidean or cosine distance approximates the Wasserstein distance
@@ -1435,9 +1434,14 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
         defaults for the operating system. This can be useful if storage in the
         default TMP storage area on the device is limited.
     """
-
+    #TODO: Input type parameter that defaults scipy sparse.
+    # Check on initialization that input type and method type match up.
+    # spmatrix, lil, generator (the lil format but as a generator and the vectors can also be generators so they can be build on the fly
+    # This allows our vectors to be distributions over a continuous space.
     def __init__(
         self,
+        method="LOT_exact",
+        input_method="spmatrix",
         n_components=128,
         reference_size=None,
         reference_scale=0.01,
@@ -1447,7 +1451,14 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
         n_svd_iter=10,
         random_state=None,
         cachedir=None,
+        heuristic_normalization_power=1.0,
+        sinkhorn_chunk_size=32,
+        vector_dim=None,
+        n_distributions=None,
+
     ):
+        self.method = method
+        self.input_method = input_method
         self.n_components = n_components
         self.reference_size = reference_size
         self.reference_scale = reference_scale
@@ -1457,6 +1468,38 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
         self.n_svd_iter = n_svd_iter
         self.random_state = random_state
         self.cachedir = cachedir
+        self.sinkhorn_chunk_size = sinkhorn_chunk_size
+        self.heuristic_normalization_power = heuristic_normalization_power
+        self.vector_dim = vector_dim
+        self.n_distributions = n_distributions
+
+        valid_methods = ["LOT_exact", "LOT_sinkhorn", "HeuristicLinearAlgebra"]
+        if method not in valid_methods:
+            raise ValueError(f"method={method} is not supported. Please select one of {valid_methods}")
+        valid_input_methods = ["spmatrix", "lil", "generator"]
+        if input_method not in valid_input_methods:
+            raise ValueError(f"input_method={input_method} is not supported. Please select one of {valid_input_methods}")
+
+        #LOT_sinkhorn must input_method check
+        if (method == "LOT_sinkhorn") and (input_method in valid_input_methods[1:]):
+            raise NotImplementedError(f"We apologize but input_method={input_method} "
+                                      f"has note been implemented for method={method}")
+        # HeuristicLinearAlgebra must input_method check
+        if (method == "HeuristicLinearAlgebra") and (input_method in valid_input_methods[1:]):
+            raise ValueError(f"method={method} only works with matrix data.  Please selecting input_method={input_method[0]}")
+
+        if input_method == "generator":
+            if self.vector_dim is None:
+                raise ValueError(
+                    "WassersteinVectorizer on a generator must specify the dimension of its vectors "
+                    "in order to allocate appropriate amounts of memory."
+                    "Please specify this via the vector_dim parameter."
+                )
+            if self.n_distributions is None:
+                raise ValueError(
+                    "WassersteinVectorizer on a generator must specify how many distributions are to be vectorized!"
+                    "Please specify this via the n_distributions parameter."
+                )
 
     def _get_metric(self):
         if type(self.metric) is str:
@@ -1482,8 +1525,6 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
         vectors=None,
         reference_distribution=None,
         reference_vectors=None,
-        n_distributions=None,
-        vector_dim=None,
         **fit_params,
     ):
         """Train the transformer on a set of distributions ``X`` with associated
@@ -1517,7 +1558,10 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
         memory_size = str_to_bytes(self.memory_size)
         metric = self._get_metric()
 
-        if scipy.sparse.isspmatrix(X) or type(X) is np.ndarray:
+        if self.input_method == "spmatrix":
+            if not (scipy.sparse.isspmatrix(X) or type(X) is np.ndarray):
+                raise ValueError("input_method is spmatrix.  This must be fit with a scipy.sparse matrix or an ndarray.\n"
+                                 f"You used a {type(X)}")
             vectors = check_array(vectors)
             if type(X) is np.ndarray:
                 X = scipy.sparse.csr_matrix(X)
@@ -1530,10 +1574,16 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
             X = normalize(X, norm="l1")
 
             if reference_vectors is None:
-                if self.reference_size is None:
+                if (self.reference_size is None) and (self.method == "LOT_exact"):
                     reference_size = int(
                         np.median(np.squeeze(np.array((X != 0).sum(axis=1))))
                     )
+                elif (self.reference_size is None) and (self.method == "LOT_sinkhorn"):
+                    reference_size = (
+                        int(np.median(np.squeeze(np.array((X != 0).sum(axis=1))))) // 2
+                    )
+                    if reference_size < 8:
+                        reference_size = 8
                 else:
                     reference_size = self.reference_size
 
@@ -1558,19 +1608,36 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                 self.reference_distribution_ = reference_distribution
                 self.reference_vectors_ = reference_vectors
 
-            self.embedding_, self.components_ = lot_vectors_sparse(
-                vectors,
-                X,
-                self.reference_vectors_,
-                self.reference_distribution_,
-                self.n_components,
-                metric,
-                random_state=random_state,
-                max_distribution_size=self.max_distribution_size,
-                block_size=block_size,
-                n_svd_iter=self.n_svd_iter,
-                cachedir=self.cachedir,
-            )
+            if self.method == "LOT_exact":
+                self.embedding_, self.components_ = lot_vectors_sparse(
+                    vectors,
+                    X,
+                    self.reference_vectors_,
+                    self.reference_distribution_,
+                    self.n_components,
+                    metric,
+                    random_state=random_state,
+                    max_distribution_size=self.max_distribution_size,
+                    block_size=block_size,
+                    n_svd_iter=self.n_svd_iter,
+                    cachedir=self.cachedir,
+                )
+            elif self.method == "LOT_sinkhorn":
+                self.embedding_, self.components_ = sinkhorn_vectors_sparse(
+                    vectors,
+                    X,
+                    self.reference_vectors_,
+                    self.reference_distribution_,
+                    self.n_components,
+                    metric,
+                    random_state=random_state,
+                    chunk_size=self.chunk_size,
+                    block_size=block_size,
+                    n_svd_iter=self.n_svd_iter,
+                    cachedir=self.cachedir,
+                )
+            else:
+                raise ValueError(f"This shouldn't be reachable.  sorry {self.method} isn't supported for sparse matrices")
 
         elif isinstance(X, GeneratorType) or isinstance(vectors, GeneratorType):
             if reference_vectors is None:
@@ -1585,16 +1652,9 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
             else:
                 reference_size = reference_vectors.shape[0]
 
-            if n_distributions is None:
-                raise ValueError(
-                    "WassersteinVectorizer on a generator must specify "
-                    "how many distributions are to be vectorized!"
-                )
-
-            if vector_dim is None:
-                vector_dim = 1024  # Guess a largeish dimension and hope for the best
-
-            lot_dimension = reference_size * vector_dim
+            # Checked to ensure the self.vector_dim was specified in the constructor
+            #TODO: Should we check that vector_dim is large enough for the actual vectors being generated?
+            lot_dimension = reference_size * self.vector_dim
             block_size = max(1, memory_size // (lot_dimension * 8))
 
             self.reference_vectors_ = reference_vectors
@@ -1605,10 +1665,11 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
             else:
                 self.reference_distribution_ = reference_distribution
 
+            # Checked to ensure self.n_distributions was not None in the constructor
             self.embedding_, self.components_ = lot_vectors_dense_generator(
                 vectors,
                 X,
-                n_distributions,
+                self.n_distributions,
                 self.reference_vectors_,
                 self.reference_distribution_,
                 self.n_components,
@@ -1721,8 +1782,6 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
         vectors=None,
         reference_distribution=None,
         reference_vectors=None,
-        n_distributions=None,
-        vector_dim=None,
         **fit_params,
     ):
         """Train the transformer on a set of distributions ``X`` with associated
@@ -1753,8 +1812,6 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
             vectors=vectors,
             reference_distribution=reference_distribution,
             reference_vectors=reference_vectors,
-            n_distributions=n_distributions,
-            vector_dim=vector_dim,
             **fit_params,
         )
         return self.embedding_
@@ -1764,7 +1821,6 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
         X,
         y=None,
         vectors=None,
-        n_distributions=None,
         **transform_params,
     ):
         """Transform distributions ``X`` over the metric space given by
@@ -1799,7 +1855,10 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
         memory_size = str_to_bytes(self.memory_size)
         metric = self._get_metric()
 
-        if scipy.sparse.isspmatrix(X) or type(X) is np.ndarray:
+        if self.input_method == 'spmatrix':
+            if not (scipy.sparse.isspmatrix(X) or type(X) is np.ndarray):
+                raise ValueError(f"input_method is spmatrix.  X must be a scipy.sparse matrix or an ndarray. \n"
+                                 f"X is currently a {type(X)}")
             if type(X) is np.ndarray:
                 X = scipy.sparse.csr_matrix(X)
 
@@ -1824,82 +1883,120 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
 
             result_blocks = []
 
-            for i in range(n_blocks):
-                block_start = i * block_size
-                block_end = min(n_rows, block_start + block_size)
-                block = lot_vectors_sparse_internal(
-                    X.indptr[block_start : block_end + 1],
-                    X.indices,
-                    X.data,
-                    vectors,
-                    self.reference_vectors_,
-                    self.reference_distribution_,
-                    metric=metric,
-                    max_distribution_size=self.max_distribution_size,
-                    chunk_size=chunk_size,
-                )
-
-                result_blocks.append(block @ self.components_.T)
-
-            return np.vstack(result_blocks)
-
-        elif isinstance(X, GeneratorType) or isinstance(vectors, GeneratorType):
-            lot_dimension = self.reference_vectors_.size
-            block_size = memory_size // (lot_dimension * 8)
-
-            if n_distributions is None:
-                raise ValueError(
-                    "If passing a generator for distributions or vectors "
-                    "you must also specify n_distributions"
-                )
-
-            n_rows = n_distributions
-            n_blocks = (n_rows // block_size) + 1
-            chunk_size = max(256, block_size // 64)
-
-            result_blocks = []
-
-            for i in range(n_blocks):
-                block_start = i * block_size
-                block_end = min(n_rows, block_start + block_size)
-                if block_start == block_end:
-                    continue
-
-                n_chunks = ((block_end - block_start) // chunk_size) + 1
-                lot_chunks = []
-                chunk_start = block_start
-                for j in range(n_chunks):
-                    next_chunk_size = min(chunk_size, block_end - chunk_start)
-                    vector_chunk, distribution_chunk = _chunks_from_generators(
-                        vectors, X, next_chunk_size
-                    )
-                    if len(vector_chunk) == 0:
-                        continue
-
-                    if metric == cosine:
-                        vector_chunk = tuple(
-                            [normalize(v, norm="l2") for v in vector_chunk]
-                        )
-
-                    chunk_of_lot_vectors = lot_vectors_dense_internal(
-                        vector_chunk,
-                        distribution_chunk,
+            if self.method == "LOT_exact":
+                for i in range(n_blocks):
+                    block_start = i * block_size
+                    block_end = min(n_rows, block_start + block_size)
+                    block = lot_vectors_sparse_internal(
+                        X.indptr[block_start : block_end + 1],
+                        X.indices,
+                        X.data,
+                        vectors,
                         self.reference_vectors_,
                         self.reference_distribution_,
                         metric=metric,
                         max_distribution_size=self.max_distribution_size,
                         chunk_size=chunk_size,
-                        spherical_vectors=(metric == cosine),
                     )
-                    lot_chunks.append(chunk_of_lot_vectors)
 
-                    chunk_start += next_chunk_size
+                    result_blocks.append(block @ self.components_.T)
+            elif self.method == "LOT_sinkhorn":
+                full_cost = chunked_pairwise_distance(
+                    vectors, self.reference_vectors_, dist=metric
+                ).T.astype(np.float64)
 
-                result_blocks.append(np.vstack(lot_chunks) @ self.components_.T)
+                for i in range(n_blocks):
+                    block_start = i * block_size
+                    block_end = min(n_rows, block_start + block_size)
+
+                    n_chunks = ((block_end - block_start) // self.chunk_size) + 1
+                    completed_chunks = []
+                    for j in range(n_chunks):
+                        chunk_start = j * self.chunk_size + block_start
+                        chunk_end = min(block_end, chunk_start + self.chunk_size)
+                        raw_chunk = X[chunk_start:chunk_end]
+                        col_sums = np.squeeze(np.array(raw_chunk.sum(axis=0)))
+                        sub_chunk = raw_chunk[:, col_sums > 0].astype(np.float64).toarray()
+                        sub_vectors = vectors[col_sums > 0]
+                        sub_cost = full_cost[:, col_sums > 0]
+                        completed_chunks.append(
+                            sinkhorn_vectors_sparse_internal(
+                                sub_chunk,
+                                sub_vectors,
+                                self.reference_distribution_,
+                                self.reference_vectors_,
+                                sub_cost,
+                            )
+                        )
+                    block = np.vstack(completed_chunks)
+
+                    result_blocks.append(block @ self.components_.T)
 
             return np.vstack(result_blocks)
 
-        elif type(X) in (list, tuple, numba.typed.List):
+        #GENERATOR CASE
+        elif self.input_method == 'generator':
+            if not (isinstance(X, GeneratorType) or isinstance(vectors, GeneratorType)):
+                raise ValueError(f"input_method is generator.  X must be a generator. \n"
+                                 f"X is currently a {type(X)}")
+            # This isn't necessary but will make the code easier to extend for future cases.
+            # The constructor ensures that only implemented options are selected
+            if self.method == 'LOT_exact':
+                lot_dimension = self.reference_vectors_.size
+                block_size = memory_size // (lot_dimension * 8)
+
+                #Checked to ensure this was not None in the constructor
+                n_rows = self.n_distributions
+                n_blocks = (n_rows // block_size) + 1
+                chunk_size = max(256, block_size // 64)
+
+                result_blocks = []
+
+                for i in range(n_blocks):
+                    block_start = i * block_size
+                    block_end = min(n_rows, block_start + block_size)
+                    if block_start == block_end:
+                        continue
+
+                    n_chunks = ((block_end - block_start) // chunk_size) + 1
+                    lot_chunks = []
+                    chunk_start = block_start
+                    for j in range(n_chunks):
+                        next_chunk_size = min(chunk_size, block_end - chunk_start)
+                        vector_chunk, distribution_chunk = _chunks_from_generators(
+                            vectors, X, next_chunk_size
+                        )
+                        if len(vector_chunk) == 0:
+                            continue
+
+                        if metric == cosine:
+                            vector_chunk = tuple(
+                                [normalize(v, norm="l2") for v in vector_chunk]
+                            )
+
+                        chunk_of_lot_vectors = lot_vectors_dense_internal(
+                            vector_chunk,
+                            distribution_chunk,
+                            self.reference_vectors_,
+                            self.reference_distribution_,
+                            metric=metric,
+                            max_distribution_size=self.max_distribution_size,
+                            chunk_size=chunk_size,
+                            spherical_vectors=(metric == cosine),
+                        )
+                        lot_chunks.append(chunk_of_lot_vectors)
+
+                        chunk_start += next_chunk_size
+
+                    result_blocks.append(np.vstack(lot_chunks) @ self.components_.T)
+
+                return np.vstack(result_blocks)
+
+        # LIL FORMAT
+        elif self.input_method == 'lil':
+            if type(X) not in (list, tuple, numba.typed.List):
+                raise ValueError(f"input_method is lil.  X must be a list, tuple or numba.typed.List. \n"
+                                 f"X is currently a {type(X)}")
             lot_dimension = self.reference_vectors_.size
             block_size = memory_size // (lot_dimension * 8)
 
@@ -1951,6 +2048,7 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
 
             return np.vstack(result_blocks)
 
+        #TODO: this can never be reached due to the constructor.  Remove it or leave it in for redundant checking?
         else:
             raise ValueError(
                 "Input data not in a recognized format for WassersteinVectorizer"
