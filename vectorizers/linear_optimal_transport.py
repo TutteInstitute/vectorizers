@@ -1376,8 +1376,8 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
 
     Note that ``max_distribution_size`` controls the maximum number of elements
     in any distribution (truncating distributions back). For larger distributions
-    it is suggested to instead use the ``SinkhornVectorizer`` which can more
-    efficiently handle large distributions.
+    it is suggested to instead use the ``method=LOT_sinkhorn`` which can more
+    efficiently handle large distributions. (though possibly with some loss of quality).
 
     The transformation process uses linear optimal transport as the means of
     linearising the distributions, and compresses the results with SVD to keep
@@ -1385,6 +1385,31 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
 
     Parameters
     ----------
+    method: string (optional, default='LOT_exact')
+        The method for finding a linear space which approximates Wasserstein distance.
+        The following options are supported.
+        ``LOT_exact``: uses Linear Optimal Transport to vectorize your data
+        ``LOT_sinkhorn``: uses Linear Optimal Transport over Sinkhorn distance to approximate
+            Wasserstein distance.  This can be more efficient for handling large distributions
+            but can result in a loss of quality.  Switch to this if LOT_exact is too slow for
+            your use case.
+        ``HeuristicLinearAlgebra``: This is a heuristic combination of linear algebra operations
+            that seem to be a reasonable approximate Wasserstein distance in a number of use cases.
+            There is no theoretical grounding for this methodology but it is very fast and scalable.
+            Switch to this if LOT_sinkhorn is too slow for your use case.
+
+    input_method: string (optional, default='spmatrix')
+        The type of object you plan to pass to the fit and transform functions.
+        The following options are supported.
+        ``spmatrix``: X will be a scipy.sparse.matrix or a numpy array.
+        This is best used when you are vectorizing distributions over a fixed set of vectors.
+        '`lil``: X will be a list, tuple or numba.typed.List.
+        This is best used when each of your distributions is over a different set of vectors.
+        For each distribution specify a list of mix weights and a list of their corresponding vectors.
+        ``generator``: X and vectors will both be generators.
+        This is best used when you are vectorizing distributions over a continuous space where the
+        vectors are being computed on the fly.
+
     n_components: int (optional, default=128)
         Dimensionality of the transformed vectors. Larger values will more
         accurately capture Wasserstein distance, but there are rapidly
@@ -1433,10 +1458,33 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
         Where to create a temporary directory for cache files. If None use the python
         defaults for the operating system. This can be useful if storage in the
         default TMP storage area on the device is limited.
+
+    heuristic_normalization_power: float (optional, default=1.0)
+        Only used for method='HeuristicLinearAlgebra'
+        When normalizing vectors relative to the total apparent weight of the unnormalized
+        distribution, raise the apparent weight to this power. A default of 1.0 means that
+        we are treating input rows as distributions. Values between 0.0 and 1.0 will give
+        greater weight to unnormalized distributions with larger values. A value of 0.5
+        or 0.66 may be useful, for example, in document embeddings where document length
+        should have some ipact on the resulting embedding.
+
+    sinkhorn_chunk_size: int (optional, default=32)
+        Only used for method='LOT_sinkhorn'.
+        Sinkhorn iterations support batching to amortize costs. The chunk size is the number
+        of iterations to process in each such batch. The default size should e good for
+        most use cases.
+    generator_vector_dim: int
+        Only used for input_method='generator'.
+        WassersteinVectorizer on a generator must specify the dimension of its vectors
+        in order to allocate appropriate amounts of memory.
+
+    generator_n_distributions: int
+        Only used for input_method='generator'.
+        WassersteinVectorizer on a generator must specify the number of distributions
+        in order to allocate appropriate amounts of memory.
     """
     #TODO: Input type parameter that defaults scipy sparse.
     # Check on initialization that input type and method type match up.
-    # spmatrix, lil, generator (the lil format but as a generator and the vectors can also be generators so they can be build on the fly
     # This allows our vectors to be distributions over a continuous space.
     def __init__(
         self,
@@ -1453,9 +1501,8 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
         cachedir=None,
         heuristic_normalization_power=1.0,
         sinkhorn_chunk_size=32,
-        vector_dim=None,
-        n_distributions=None,
-
+        generator_vector_dim=None,
+        generator_n_distributions=None,
     ):
         self.method = method
         self.input_method = input_method
@@ -1470,8 +1517,8 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
         self.cachedir = cachedir
         self.sinkhorn_chunk_size = sinkhorn_chunk_size
         self.heuristic_normalization_power = heuristic_normalization_power
-        self.vector_dim = vector_dim
-        self.n_distributions = n_distributions
+        self.generator_vector_dim = generator_vector_dim
+        self.generator_n_distributions = generator_n_distributions
 
         valid_methods = ["LOT_exact", "LOT_sinkhorn", "HeuristicLinearAlgebra"]
         if method not in valid_methods:
@@ -1480,25 +1527,25 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
         if input_method not in valid_input_methods:
             raise ValueError(f"input_method={input_method} is not supported. Please select one of {valid_input_methods}")
 
-        #LOT_sinkhorn must input_method check
-        if (method == "LOT_sinkhorn") and (input_method in valid_input_methods[1:]):
+        #LOT_sinkhorn only implemented for spmatrix
+        if (method == "LOT_sinkhorn") and (input_method != "spmatrix"):
             raise NotImplementedError(f"We apologize but input_method={input_method} "
                                       f"has note been implemented for method={method}")
-        # HeuristicLinearAlgebra must input_method check
-        if (method == "HeuristicLinearAlgebra") and (input_method in valid_input_methods[1:]):
-            raise ValueError(f"method={method} only works with matrix data.  Please selecting input_method={input_method[0]}")
+        # HeuristicLinearAlgebra only valid for spmatrix
+        if (method == "HeuristicLinearAlgebra") and (input_method != "spmatrix"):
+            raise ValueError(f"method={method} only works with matrix data.  Please selecting input_method=spmatrix")
 
         if input_method == "generator":
-            if self.vector_dim is None:
+            if self.generator_vector_dim is None:
                 raise ValueError(
                     "WassersteinVectorizer on a generator must specify the dimension of its vectors "
                     "in order to allocate appropriate amounts of memory."
-                    "Please specify this via the vector_dim parameter."
+                    "Please specify this via the generator_vector_dim parameter."
                 )
-            if self.n_distributions is None:
+            if self.generator_n_distributions is None:
                 raise ValueError(
                     "WassersteinVectorizer on a generator must specify how many distributions are to be vectorized!"
-                    "Please specify this via the n_distributions parameter."
+                    "Please specify this via the generator_n_distributions parameter."
                 )
 
     def _get_metric(self):
@@ -1558,6 +1605,7 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
         memory_size = str_to_bytes(self.memory_size)
         metric = self._get_metric()
 
+        #fit() for spmatrix
         if self.input_method == "spmatrix":
             if not (scipy.sparse.isspmatrix(X) or type(X) is np.ndarray):
                 raise ValueError("input_method is spmatrix.  This must be fit with a scipy.sparse matrix or an ndarray.\n"
@@ -1636,10 +1684,29 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                     n_svd_iter=self.n_svd_iter,
                     cachedir=self.cachedir,
                 )
+            elif self.method == "HeuristicLinearAlgebra":
+                #self.fit_transform(X, y, vectors=vectors, **fit_params)
+                self.vectors_ = vectors
+                basis_transformed_matrix = X @ vectors
+                basis_transformed_matrix /= np.power(
+                    np.array(X.sum(axis=1)), self.normalization_power
+                )
+                u, self.singular_values_, self.components_ = randomized_svd(
+                    basis_transformed_matrix,
+                    n_components,
+                    n_iter=self.n_svd_iter,
+                    random_state=self.random_state,
+                )
+                self.embedding_ = u * np.sqrt(self.singular_values_)
+            #TODO: remove unreachable condition?
             else:
                 raise ValueError(f"This shouldn't be reachable.  sorry {self.method} isn't supported for sparse matrices")
 
-        elif isinstance(X, GeneratorType) or isinstance(vectors, GeneratorType):
+        #fit() for GENERATOR
+        elif self.input_method == 'generator':
+            if not (isinstance(X, GeneratorType) or isinstance(vectors, GeneratorType)):
+                raise ValueError("input_method is generator.  This must be fit with a generator.\n"
+                                 f"You used a {type(X)}")
             if reference_vectors is None:
                 raise ValueError(
                     "WassersteinVectorizer on a generator must specify reference_vectors!"
@@ -1652,9 +1719,9 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
             else:
                 reference_size = reference_vectors.shape[0]
 
-            # Checked to ensure the self.vector_dim was specified in the constructor
-            #TODO: Should we check that vector_dim is large enough for the actual vectors being generated?
-            lot_dimension = reference_size * self.vector_dim
+            # Checked to ensure the self.generator_vector_dim was specified in the constructor
+            #TODO: Should we check that generator_vector_dim is large enough for the actual vectors being generated?
+            lot_dimension = reference_size * self.generator_vector_dim
             block_size = max(1, memory_size // (lot_dimension * 8))
 
             self.reference_vectors_ = reference_vectors
@@ -1665,11 +1732,11 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
             else:
                 self.reference_distribution_ = reference_distribution
 
-            # Checked to ensure self.n_distributions was not None in the constructor
+            # Checked to ensure self.generator_n_distributions was not None in the constructor
             self.embedding_, self.components_ = lot_vectors_dense_generator(
                 vectors,
                 X,
-                self.n_distributions,
+                self.generator_n_distributions,
                 self.reference_vectors_,
                 self.reference_distribution_,
                 self.n_components,
@@ -1681,7 +1748,11 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                 cachedir=self.cachedir,
             )
 
-        elif type(X) in (list, tuple, numba.typed.List):
+        # Fit for lil
+        elif self.input_method == 'lil':
+            if type(X) not in (list, tuple, numba.typed.List):
+                raise ValueError("input_method is lil.  This must be fit with a list, tuple or numba.typed.List.\n"
+                                 f"You used a {type(X)}")
             if self.reference_size is None:
                 reference_size = int(np.median([len(x) for x in X]))
             else:
@@ -1767,7 +1838,7 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                 n_svd_iter=self.n_svd_iter,
                 cachedir=self.cachedir,
             )
-
+        #TODO: Unreachable.  Should be deleted?
         else:
             raise ValueError(
                 f"Input data of type {type(X)} not in a recognized format for WassersteinVectorizer"
@@ -1900,6 +1971,7 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                     )
 
                     result_blocks.append(block @ self.components_.T)
+                return np.vstack(result_blocks)
             elif self.method == "LOT_sinkhorn":
                 full_cost = chunked_pairwise_distance(
                     vectors, self.reference_vectors_, dist=metric
@@ -1931,10 +2003,19 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                     block = np.vstack(completed_chunks)
 
                     result_blocks.append(block @ self.components_.T)
+                return np.vstack(result_blocks)
+            elif self.method == "HeuristicLinearAlgebra":
+                basis_transformed_matrix = X @ self.vectors_
+                basis_transformed_matrix /= np.power(
+                    np.array(X.sum(axis=1)), self.heuristic_normalization_power
+                )
 
-            return np.vstack(result_blocks)
+                return (basis_transformed_matrix @ self.components_.T) / np.sqrt(
+                    self.singular_values_
+                )
 
         #GENERATOR CASE
+        # currently only works with LOT_exact
         elif self.input_method == 'generator':
             if not (isinstance(X, GeneratorType) or isinstance(vectors, GeneratorType)):
                 raise ValueError(f"input_method is generator.  X must be a generator. \n"
@@ -1946,7 +2027,7 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                 block_size = memory_size // (lot_dimension * 8)
 
                 #Checked to ensure this was not None in the constructor
-                n_rows = self.n_distributions
+                n_rows = self.generator_n_distributions
                 n_blocks = (n_rows // block_size) + 1
                 chunk_size = max(256, block_size // 64)
 
@@ -1993,10 +2074,12 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                 return np.vstack(result_blocks)
 
         # LIL FORMAT
+        # currently only works with LOT_exact
         elif self.input_method == 'lil':
             if type(X) not in (list, tuple, numba.typed.List):
                 raise ValueError(f"input_method is lil.  X must be a list, tuple or numba.typed.List. \n"
                                  f"X is currently a {type(X)}")
+            #TODO: should probably check the vectors is also of the right type
             lot_dimension = self.reference_vectors_.size
             block_size = memory_size // (lot_dimension * 8)
 
