@@ -1621,86 +1621,88 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
 
             X = normalize(X, norm="l1")
 
-            if reference_vectors is None:
-                if (self.reference_size is None) and (self.method == "LOT_exact"):
-                    reference_size = int(
-                        np.median(np.squeeze(np.array((X != 0).sum(axis=1))))
-                    )
-                elif (self.reference_size is None) and (self.method == "LOT_sinkhorn"):
-                    reference_size = (
-                        int(np.median(np.squeeze(np.array((X != 0).sum(axis=1))))) // 2
-                    )
-                    if reference_size < 8:
-                        reference_size = 8
-                else:
-                    reference_size = self.reference_size
-
-                lot_dimension = reference_size * vectors.shape[1]
-                block_size = max(1, memory_size // (lot_dimension * 8))
-                u, s, v = scipy.sparse.linalg.svds(X, k=1)
-                reference_center = v @ vectors
-                if metric == cosine:
-                    reference_center /= np.sqrt(np.sum(reference_center ** 2))
-                self.reference_vectors_ = reference_center + random_state.normal(
-                    scale=self.reference_scale, size=(reference_size, vectors.shape[1])
-                )
-                if metric == cosine:
-                    self.reference_vectors_ = normalize(
-                        self.reference_vectors_, norm="l2"
-                    )
-
-                self.reference_distribution_ = np.full(
-                    reference_size, 1.0 / reference_size
-                )
-            else:
-                self.reference_distribution_ = reference_distribution
-                self.reference_vectors_ = reference_vectors
-
-            if self.method == "LOT_exact":
-                self.embedding_, self.components_ = lot_vectors_sparse(
-                    vectors,
-                    X,
-                    self.reference_vectors_,
-                    self.reference_distribution_,
-                    self.n_components,
-                    metric,
-                    random_state=random_state,
-                    max_distribution_size=self.max_distribution_size,
-                    block_size=block_size,
-                    n_svd_iter=self.n_svd_iter,
-                    cachedir=self.cachedir,
-                )
-            elif self.method == "LOT_sinkhorn":
-                self.embedding_, self.components_ = sinkhorn_vectors_sparse(
-                    vectors,
-                    X,
-                    self.reference_vectors_,
-                    self.reference_distribution_,
-                    self.n_components,
-                    metric,
-                    random_state=random_state,
-                    chunk_size=self.chunk_size,
-                    block_size=block_size,
-                    n_svd_iter=self.n_svd_iter,
-                    cachedir=self.cachedir,
-                )
-            elif self.method == "HeuristicLinearAlgebra":
+            if self.method == "HeuristicLinearAlgebra":
                 #self.fit_transform(X, y, vectors=vectors, **fit_params)
                 self.vectors_ = vectors
                 basis_transformed_matrix = X @ vectors
                 basis_transformed_matrix /= np.power(
-                    np.array(X.sum(axis=1)), self.normalization_power
+                    np.array(X.sum(axis=1)), self.heuristic_normalization_power
                 )
                 u, self.singular_values_, self.components_ = randomized_svd(
                     basis_transformed_matrix,
-                    n_components,
+                    self.n_components,
                     n_iter=self.n_svd_iter,
                     random_state=self.random_state,
                 )
                 self.embedding_ = u * np.sqrt(self.singular_values_)
-            #TODO: remove unreachable condition?
+            #LOT use cases depend on reference_vectors
             else:
-                raise ValueError(f"This shouldn't be reachable.  sorry {self.method} isn't supported for sparse matrices")
+                if reference_vectors is None:
+                    if (self.reference_size is None) and (self.method == "LOT_exact"):
+                        reference_size = int(
+                            np.median(np.squeeze(np.array((X != 0).sum(axis=1))))
+                        )
+                    elif (self.reference_size is None) and (self.method == "LOT_sinkhorn"):
+                        reference_size = (
+                            int(np.median(np.squeeze(np.array((X != 0).sum(axis=1))))) // 2
+                        )
+                        if reference_size < 8:
+                            reference_size = 8
+                    else:
+                        reference_size = self.reference_size
+
+                    lot_dimension = reference_size * vectors.shape[1]
+                    block_size = max(1, memory_size // (lot_dimension * 8))
+                    u, s, v = scipy.sparse.linalg.svds(X, k=1)
+                    reference_center = v @ vectors
+                    if metric == cosine:
+                        reference_center /= np.sqrt(np.sum(reference_center ** 2))
+                    self.reference_vectors_ = reference_center + random_state.normal(
+                        scale=self.reference_scale, size=(reference_size, vectors.shape[1])
+                    )
+                    if metric == cosine:
+                        self.reference_vectors_ = normalize(
+                            self.reference_vectors_, norm="l2"
+                        )
+
+                    self.reference_distribution_ = np.full(
+                        reference_size, 1.0 / reference_size
+                    )
+                else:
+                    self.reference_distribution_ = reference_distribution
+                    self.reference_vectors_ = reference_vectors
+
+                if self.method == "LOT_exact":
+                    self.embedding_, self.components_ = lot_vectors_sparse(
+                        vectors,
+                        X,
+                        self.reference_vectors_,
+                        self.reference_distribution_,
+                        self.n_components,
+                        metric,
+                        random_state=random_state,
+                        max_distribution_size=self.max_distribution_size,
+                        block_size=block_size,
+                        n_svd_iter=self.n_svd_iter,
+                        cachedir=self.cachedir,
+                    )
+                elif self.method == "LOT_sinkhorn":
+                    self.embedding_, self.components_ = sinkhorn_vectors_sparse(
+                        vectors,
+                        X,
+                        self.reference_vectors_,
+                        self.reference_distribution_,
+                        self.n_components,
+                        metric,
+                        random_state=random_state,
+                        chunk_size=self.sinkhorn_chunk_size,
+                        block_size=block_size,
+                        n_svd_iter=self.n_svd_iter,
+                        cachedir=self.cachedir,
+                    )
+                #TODO: remove unreachable condition?
+                else:
+                    raise ValueError(f"This shouldn't be reachable.  sorry {self.method} isn't supported for sparse matrices")
 
         #fit() for GENERATOR
         elif self.input_method == 'generator':
@@ -1915,17 +1917,37 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
         lot_vectors:
             The transformed data.
         """
-        check_is_fitted(
-            self, ["components_", "reference_vectors_", "reference_distribution_"]
-        )
-        if vectors is None:
-            raise ValueError(
-                "WassersteinVectorizer requires vector representations of points under the metric. "
-                "Please pass these in to transform using the vectors keyword argument."
-            )
-        memory_size = str_to_bytes(self.memory_size)
-        metric = self._get_metric()
+        # the HeuristicLinearAlgebra transform is simple and quite different than the other methods
+        if self.method == 'HeuristicLinearAlgebra' and self.input_method == 'spmatrix':
+            check_is_fitted(self, ["components_"])
+            if not (scipy.sparse.isspmatrix(X) or type(X) is np.ndarray):
+                raise ValueError(f"input_method is spmatrix.  X must be a scipy.sparse matrix or an ndarray. \n"
+                                 f"X is currently a {type(X)}")
+            if type(X) is np.ndarray:
+                X = scipy.sparse.csr_matrix(X)
 
+            basis_transformed_matrix = X @ self.vectors_
+            basis_transformed_matrix /= np.power(
+                np.array(X.sum(axis=1)), self.heuristic_normalization_power
+            )
+
+            return (basis_transformed_matrix @ self.components_.T) / np.sqrt(
+                self.singular_values_
+            )
+        else:
+            #Preprocessing necessary for LOT_exact and LOT_sinkhorm
+            check_is_fitted(
+                self, ["components_", "reference_vectors_", "reference_distribution_"]
+            )
+            if vectors is None:
+                raise ValueError(
+                    "WassersteinVectorizer requires vector representations of points under the metric. "
+                    "Please pass these in to transform using the vectors keyword argument."
+                )
+            memory_size = str_to_bytes(self.memory_size)
+            metric = self._get_metric()
+
+        #Only reached if we are LOT_exact or LOT_sinkhorn
         if self.input_method == 'spmatrix':
             if not (scipy.sparse.isspmatrix(X) or type(X) is np.ndarray):
                 raise ValueError(f"input_method is spmatrix.  X must be a scipy.sparse matrix or an ndarray. \n"
@@ -1937,7 +1959,6 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                 raise ValueError(
                     "distribution matrix must have as many columns as there are vectors"
                 )
-
             X = normalize(X.astype(np.float64), norm="l1")
 
             vectors = check_array(vectors)
@@ -1950,11 +1971,11 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
 
             n_rows = X.indptr.shape[0] - 1
             n_blocks = (n_rows // block_size) + 1
-            chunk_size = max(256, block_size // 64)
 
             result_blocks = []
-
             if self.method == "LOT_exact":
+                chunk_size = max(256, block_size // 64)
+
                 for i in range(n_blocks):
                     block_start = i * block_size
                     block_end = min(n_rows, block_start + block_size)
@@ -1971,7 +1992,6 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                     )
 
                     result_blocks.append(block @ self.components_.T)
-                return np.vstack(result_blocks)
             elif self.method == "LOT_sinkhorn":
                 full_cost = chunked_pairwise_distance(
                     vectors, self.reference_vectors_, dist=metric
@@ -1981,11 +2001,11 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                     block_start = i * block_size
                     block_end = min(n_rows, block_start + block_size)
 
-                    n_chunks = ((block_end - block_start) // self.chunk_size) + 1
+                    n_chunks = ((block_end - block_start) // self.sinkhorn_chunk_size) + 1
                     completed_chunks = []
                     for j in range(n_chunks):
-                        chunk_start = j * self.chunk_size + block_start
-                        chunk_end = min(block_end, chunk_start + self.chunk_size)
+                        chunk_start = j * self.sinkhorn_chunk_size + block_start
+                        chunk_end = min(block_end, chunk_start + self.sinkhorn_chunk_size)
                         raw_chunk = X[chunk_start:chunk_end]
                         col_sums = np.squeeze(np.array(raw_chunk.sum(axis=0)))
                         sub_chunk = raw_chunk[:, col_sums > 0].astype(np.float64).toarray()
@@ -2003,16 +2023,8 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                     block = np.vstack(completed_chunks)
 
                     result_blocks.append(block @ self.components_.T)
-                return np.vstack(result_blocks)
-            elif self.method == "HeuristicLinearAlgebra":
-                basis_transformed_matrix = X @ self.vectors_
-                basis_transformed_matrix /= np.power(
-                    np.array(X.sum(axis=1)), self.heuristic_normalization_power
-                )
+            return np.vstack(result_blocks)
 
-                return (basis_transformed_matrix @ self.components_.T) / np.sqrt(
-                    self.singular_values_
-                )
 
         #GENERATOR CASE
         # currently only works with LOT_exact
@@ -2131,11 +2143,6 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
 
             return np.vstack(result_blocks)
 
-        #TODO: this can never be reached due to the constructor.  Remove it or leave it in for redundant checking?
-        else:
-            raise ValueError(
-                "Input data not in a recognized format for WassersteinVectorizer"
-            )
 
 
 class SinkhornVectorizer(BaseEstimator, TransformerMixin):
