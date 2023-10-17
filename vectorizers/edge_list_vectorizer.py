@@ -119,13 +119,23 @@ class EdgeListVectorizer(BaseEstimator, TransformerMixin):
         max_row = np.max(list(self.row_index_dictionary_.keys())) + 1
         max_col = np.max(list(self.column_index_dictionary_.keys())) + 1
 
+
         # Get row and column indices for only the edges who have both labels in our dictionary index
-        valid_rows = np.isin(
-            self.edge_list_[:, 0], list(self.row_label_dictionary_.keys())
-        )
-        valid_cols = np.isin(
-            self.edge_list_[:, 1], list(self.column_label_dictionary_.keys())
-        )
+        # Don't bother checking if rows are valid if you just constructed the row_label_dictionary from the data
+        if self.row_label_dictionary is None:
+            valid_rows = np.repeat(True, self.edge_list_.shape[0])
+        else:
+            valid_rows = np.isin(
+                self.edge_list_[:, 0], list(self.row_label_dictionary_.keys())
+            )
+
+        # Don't bother checking if rows are valid if you just constructed the col_label_dictionary from the data
+        if self.column_label_dictionary is None:
+            valid_cols = np.repeat(True, self.edge_list_.shape[0])
+        else:
+            valid_cols = np.isin(
+                self.edge_list_[:, 1], list(self.column_label_dictionary_.keys())
+            )
         valid_edges = valid_rows & valid_cols
         row_indices = [
             self.row_label_dictionary_[x] for x in self.edge_list_[valid_edges, 0]
