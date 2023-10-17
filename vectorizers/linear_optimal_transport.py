@@ -1714,7 +1714,7 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                     "WassersteinVectorizer on a generator must specify reference_vectors!"
                 )
             if self.reference_size is not None:
-                if reference_vectors.shape[0] == self.reference_size:
+                if reference_vectors.shape[0] != self.reference_size:
                     raise ValueError(f"Specified reference size {self.reference_size} does not match the size "
                                      f"of the reference vectors give ({reference_vectors.shape[0]})")
                 reference_size = self.reference_size
@@ -1846,6 +1846,8 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                 f"Input data of type {type(X)} not in a recognized format for WassersteinVectorizer"
             )
 
+        if self.n_components>self.components_.shape[0]:
+            Warning()
         return self
 
     def fit_transform(
@@ -2660,3 +2662,592 @@ class ApproximateWassersteinVectorizer(BaseEstimator, TransformerMixin):
         return (basis_transformed_matrix @ self.components_.T) / np.sqrt(
             self.singular_values_
         )
+
+class WassersteinVectorizerOld(BaseEstimator, TransformerMixin):
+    """Transform finite distributions over a metric space into vectors in a linear space
+    such that euclidean or cosine distance approximates the Wasserstein distance
+    between the distributions. This is useful, for example, in transforming bags of
+    words with associated word vectors using word-mover-distance, into vectors that
+    can be used directly in classical machine learning algorithms, including
+    clustering.
+
+    Note that ``max_distribution_size`` controls the maximum number of elements
+    in any distribution (truncating distributions back). For larger distributions
+    it is suggested to instead use the ``SinkhornVectorizer`` which can more
+    efficiently handle large distributions.
+
+    The transformation process uses linear optimal transport as the means of
+    linearising the distributions, and compresses the results with SVD to keep
+    the dimensionality tractable.
+
+    Parameters
+    ----------
+    n_components: int (optional, default=128)
+        Dimensionality of the transformed vectors. Larger values will more
+        accurately capture Wasserstein distance, but there are rapidly
+        diminishing returns.
+
+    reference_size: int or None (optional, default=None)
+        The size of the reference distribution used for LOT computations.
+        This should be approximately the same size as the distributions to
+        be transformed. Larger values produce more accurate results, but at
+        significant computational and memory overhead costs. Setting the
+        value of this parameter to None will result in a "best guess" value
+        being generated based on the input data.
+
+    reference_scale: float (optional, default=0.01)
+        How dispersed to make the reference distribution within the metric space.
+        This value represents the standard deviation of a normal distribution around
+        a fixed center. Larger values may be requires for more highly dispersed
+        input data.
+
+    metric: string or function (ndarray, ndarray) -> float (optional, default="cosine")
+        A function that, given two vectors, can produce a distance between them. This
+        is used to define the metric space over which input distributions lie. If a string
+        is given it is checked against defined distances in pynndescent, and the relevant
+        distance function is used if found.
+
+    memory_size: string (optional, default="2G")
+        The memory size to attempt to stay under during LOT computation. Because LOT vectors
+        are high dimensional and dense they consume a lot of memory. The computation is
+        therefore handled in batches and the results compressed via SVD. This value, giving
+        a memory size in k, M, G or T describes how much memory to consume with raw LOT
+        vectors, and thus determines the batchign sizes etc.
+
+    max_distribution_size: int (optional, default=256)
+        The maximum size of a distribution to consider; larger
+        distributions over more vectors will be truncated back
+        to this value for faster performance.
+
+    n_svd_iter: int (optional, default=10)
+        How many iterations of randomized SVD to run to get compressed vectors. More
+        iterations will produce better results at greater computational cost.
+
+    random_state: numpy.random.random_state or int or None (optional, default=None)
+        A random state to use. A fixed integer seed can be used for reproducibility.
+
+    cachedir: str or None (optional, default=None)
+        Where to create a temporary directory for cache files. If None use the python
+        defaults for the operating system. This can be useful if storage in the
+        default TMP storage area on the device is limited.
+    """
+
+    def __init__(
+        self,
+        n_components=128,
+        reference_size=None,
+        reference_scale=0.01,
+        metric="cosine",
+        memory_size="2G",
+        max_distribution_size=256,
+        n_svd_iter=10,
+        random_state=None,
+        cachedir=None,
+    ):
+        self.n_components = n_components
+        self.reference_size = reference_size
+        self.reference_scale = reference_scale
+        self.metric = metric
+        self.memory_size = memory_size
+        self.max_distribution_size = max_distribution_size
+        self.n_svd_iter = n_svd_iter
+        self.random_state = random_state
+        self.cachedir = cachedir
+
+    def _get_metric(self):
+        if type(self.metric) is str:
+            if self.metric in named_distances:
+                return named_distances[self.metric]
+            else:
+                raise ValueError(
+                    f"Unsupported metric {self.metric} provided; "
+                    f"metric should be one of {list(named_distances.keys())}"
+                )
+        elif callable(self.metric):
+            return self.metric
+        else:
+            raise ValueError(
+                f"Unsupported metric {self.metric} provided; "
+                f"metric should be a callable or one of {list(named_distances.keys())}"
+            )
+
+    def fit(
+        self,
+        X,
+        y=None,
+        vectors=None,
+        reference_distribution=None,
+        reference_vectors=None,
+        n_distributions=None,
+        vector_dim=None,
+        **fit_params,
+    ):
+        """Train the transformer on a set of distributions ``X`` with associated
+        vectors ``vectors``.
+
+        Parameters
+        ----------
+        X: scipy sparse matrix or list of ndarrays
+            The distributions to train on.
+
+        y: None (optional, default=None)
+            Ignored.
+
+        vectors: ndarray or list of ndarrays
+            The vectors over which the distributions lie.
+
+        fit_params:
+            Other params to pass on for fitting.
+
+        Returns
+        -------
+        self:
+            The trained model.
+        """
+        if vectors is None:
+            raise ValueError(
+                "WassersteinVectorizer requires vector representations of points under the metric. "
+                "Please pass these in to fit using the vectors keyword argument."
+            )
+        random_state = check_random_state(self.random_state)
+        memory_size = str_to_bytes(self.memory_size)
+        metric = self._get_metric()
+
+        if scipy.sparse.isspmatrix(X) or type(X) is np.ndarray:
+            vectors = check_array(vectors)
+            if type(X) is np.ndarray:
+                X = scipy.sparse.csr_matrix(X)
+
+            if X.shape[1] != vectors.shape[0]:
+                raise ValueError(
+                    "distribution matrix must have as many columns as there are vectors"
+                )
+
+            X = normalize(X, norm="l1")
+
+            if reference_vectors is None:
+                if self.reference_size is None:
+                    reference_size = int(
+                        np.median(np.squeeze(np.array((X != 0).sum(axis=1))))
+                    )
+                else:
+                    reference_size = self.reference_size
+
+                lot_dimension = reference_size * vectors.shape[1]
+                block_size = max(1, memory_size // (lot_dimension * 8))
+                u, s, v = scipy.sparse.linalg.svds(X, k=1)
+                reference_center = v @ vectors
+                if metric == cosine:
+                    reference_center /= np.sqrt(np.sum(reference_center ** 2))
+                self.reference_vectors_ = reference_center + random_state.normal(
+                    scale=self.reference_scale, size=(reference_size, vectors.shape[1])
+                )
+                if metric == cosine:
+                    self.reference_vectors_ = normalize(
+                        self.reference_vectors_, norm="l2"
+                    )
+
+                self.reference_distribution_ = np.full(
+                    reference_size, 1.0 / reference_size
+                )
+            else:
+                self.reference_distribution_ = reference_distribution
+                self.reference_vectors_ = reference_vectors
+
+            self.embedding_, self.components_ = lot_vectors_sparse(
+                vectors,
+                X,
+                self.reference_vectors_,
+                self.reference_distribution_,
+                self.n_components,
+                metric,
+                random_state=random_state,
+                max_distribution_size=self.max_distribution_size,
+                block_size=block_size,
+                n_svd_iter=self.n_svd_iter,
+                cachedir=self.cachedir,
+            )
+
+        elif isinstance(X, GeneratorType) or isinstance(vectors, GeneratorType):
+            if reference_vectors is None:
+                raise ValueError(
+                    "WassersteinVectorizer on a generator must specify reference_vectors!"
+                )
+            if self.reference_size is not None:
+                if reference_vectors.shape[0] == self.reference_size:
+                    raise ValueError(f"Specified reference size {self.reference_size} does not match the size "
+                                     f"of the reference vectors give ({reference_vectors.shape[0]})")
+                reference_size = self.reference_size
+            else:
+                reference_size = reference_vectors.shape[0]
+
+            if n_distributions is None:
+                raise ValueError(
+                    "WassersteinVectorizer on a generator must specify "
+                    "how many distributions are to be vectorized!"
+                )
+
+            if vector_dim is None:
+                vector_dim = 1024  # Guess a largeish dimension and hope for the best
+
+            lot_dimension = reference_size * vector_dim
+            block_size = max(1, memory_size // (lot_dimension * 8))
+
+            self.reference_vectors_ = reference_vectors
+            if reference_distribution is None:
+                self.reference_distribution_ = np.full(
+                    reference_size, 1.0 / reference_size
+                )
+            else:
+                self.reference_distribution_ = reference_distribution
+
+            self.embedding_, self.components_ = lot_vectors_dense_generator(
+                vectors,
+                X,
+                n_distributions,
+                self.reference_vectors_,
+                self.reference_distribution_,
+                self.n_components,
+                metric,
+                random_state=random_state,
+                max_distribution_size=self.max_distribution_size,
+                block_size=block_size,
+                n_svd_iter=self.n_svd_iter,
+                cachedir=self.cachedir,
+            )
+
+        elif type(X) in (list, tuple, numba.typed.List):
+            if self.reference_size is None:
+                reference_size = int(np.median([len(x) for x in X]))
+            else:
+                reference_size = self.reference_size
+
+            distributions = numba.typed.List.empty_list(numba.float64[:])
+            sample_vectors = numba.typed.List.empty_list(numba.float64[:, :])
+            try:
+                # Add in blocks as numba's extend doesn't like large additions
+                # due to overly large instructions when compiling it
+                for i in range(len(X) // 512 + 1):
+                    start = i * 512
+                    end = min(start + 512, len(X))
+                    distributions.extend(tuple(X[start:end]))
+            except numba.TypingError:
+                raise ValueError(
+                    "WassersteinVectorizer requires list or tuple input to"
+                    " have homogeneous numeric type."
+                )
+
+            # Add in blocks as numba's extend doesn't like large additions
+            # due to overly large instructions when compiling it
+            for i in range(len(vectors) // 512 + 1):
+                start = i * 512
+                end = min(start + 512, len(X))
+                sample_vectors.extend(tuple([np.ascontiguousarray(x) for x in vectors[start:end]]))
+
+            if len(vectors[0].shape) <= 1:
+                raise ValueError(
+                    "WassersteinVectorizer requires list or tuple input to"
+                    "have vectors formatted as a list of 2d arrays."
+                )
+
+            lot_dimension = reference_size * vectors[0].shape[1]
+            block_size = max(1, memory_size // (lot_dimension * 8))
+
+            if reference_vectors is None:
+                if metric == cosine:
+                    reference_center = np.mean(
+                        np.vstack(
+                            [
+                                X[i].reshape(-1, 1) * normalize(vectors[i], norm="l2")
+                                for i in range(len(X))
+                            ]
+                        ),
+                        axis=0,
+                    )
+                    reference_center /= np.sqrt(np.sum(reference_center ** 2))
+                else:
+                    reference_center = np.mean(
+                        np.vstack(
+                            [X[i].reshape(-1, 1) * vectors[i] for i in range(len(X))]
+                        ),
+                        axis=0,
+                    )
+
+                self.reference_vectors_ = reference_center + random_state.normal(
+                    scale=self.reference_scale,
+                    size=(reference_size, vectors[0].shape[1]),
+                )
+                if metric == cosine:
+                    self.reference_vectors_ = normalize(
+                        self.reference_vectors_, norm="l2"
+                    )
+
+                self.reference_distribution_ = np.full(
+                    reference_size, 1.0 / reference_size
+                )
+            else:
+                self.reference_distribution_ = reference_distribution
+                self.reference_vectors_ = reference_vectors
+
+            self.embedding_, self.components_ = lot_vectors_dense(
+                sample_vectors,
+                distributions,
+                self.reference_vectors_,
+                self.reference_distribution_,
+                self.n_components,
+                metric,
+                random_state=random_state,
+                max_distribution_size=self.max_distribution_size,
+                block_size=block_size,
+                n_svd_iter=self.n_svd_iter,
+                cachedir=self.cachedir,
+            )
+
+        else:
+            raise ValueError(
+                f"Input data of type {type(X)} not in a recognized format for WassersteinVectorizer"
+            )
+
+        return self
+
+    def fit_transform(
+        self,
+        X,
+        y=None,
+        vectors=None,
+        reference_distribution=None,
+        reference_vectors=None,
+        n_distributions=None,
+        vector_dim=None,
+        **fit_params,
+    ):
+        """Train the transformer on a set of distributions ``X`` with associated
+        vectors ``vectors``, and return the resulting transformed training data.
+
+        Parameters
+        ----------
+        X: scipy sparse matrix or list of ndarrays
+            The distributions to train on.
+
+        y: None (optional, default=None)
+            Ignored.
+
+        vectors: ndarray or list of ndarrays
+            The vectors over which the distributions lie.
+
+        fit_params:
+            Other params to pass on for fitting.
+
+        Returns
+        -------
+        lot_vectors:
+            The transformed training data.
+        """
+        self.fit(
+            X,
+            y=y,
+            vectors=vectors,
+            reference_distribution=reference_distribution,
+            reference_vectors=reference_vectors,
+            n_distributions=n_distributions,
+            vector_dim=vector_dim,
+            **fit_params,
+        )
+        return self.embedding_
+
+    def transform(
+        self,
+        X,
+        y=None,
+        vectors=None,
+        n_distributions=None,
+        **transform_params,
+    ):
+        """Transform distributions ``X`` over the metric space given by
+        ``vectors`` from a Wasserstein metric space into the linearised
+        space learned by the model.
+
+        X: scipy sparse matrix or list of ndarrays
+            The distributions to be transformed.
+
+        y: None (optional, default=None)
+            Ignored.
+
+        vectors: ndarray or list of ndarrays
+            The vectors over which the distributions lie.
+
+        transform_params:
+            Other params to pass on for transformation.
+
+        Returns
+        -------
+        lot_vectors:
+            The transformed data.
+        """
+        check_is_fitted(
+            self, ["components_", "reference_vectors_", "reference_distribution_"]
+        )
+        if vectors is None:
+            raise ValueError(
+                "WassersteinVectorizer requires vector representations of points under the metric. "
+                "Please pass these in to transform using the vectors keyword argument."
+            )
+        memory_size = str_to_bytes(self.memory_size)
+        metric = self._get_metric()
+
+        if scipy.sparse.isspmatrix(X) or type(X) is np.ndarray:
+            if type(X) is np.ndarray:
+                X = scipy.sparse.csr_matrix(X)
+
+            if X.shape[1] != vectors.shape[0]:
+                raise ValueError(
+                    "distribution matrix must have as many columns as there are vectors"
+                )
+
+            X = normalize(X.astype(np.float64), norm="l1")
+
+            vectors = check_array(vectors)
+
+            if metric == cosine:
+                vectors = normalize(vectors, norm="l2")
+
+            lot_dimension = self.reference_vectors_.size
+            block_size = max(1, memory_size // (lot_dimension * 8))
+
+            n_rows = X.indptr.shape[0] - 1
+            n_blocks = (n_rows // block_size) + 1
+            chunk_size = max(256, block_size // 64)
+
+            result_blocks = []
+
+            for i in range(n_blocks):
+                block_start = i * block_size
+                block_end = min(n_rows, block_start + block_size)
+                block = lot_vectors_sparse_internal(
+                    X.indptr[block_start : block_end + 1],
+                    X.indices,
+                    X.data,
+                    vectors,
+                    self.reference_vectors_,
+                    self.reference_distribution_,
+                    metric=metric,
+                    max_distribution_size=self.max_distribution_size,
+                    chunk_size=chunk_size,
+                )
+
+                result_blocks.append(block @ self.components_.T)
+
+            return np.vstack(result_blocks)
+
+        elif isinstance(X, GeneratorType) or isinstance(vectors, GeneratorType):
+            lot_dimension = self.reference_vectors_.size
+            block_size = memory_size // (lot_dimension * 8)
+
+            if n_distributions is None:
+                raise ValueError(
+                    "If passing a generator for distributions or vectors "
+                    "you must also specify n_distributions"
+                )
+
+            n_rows = n_distributions
+            n_blocks = (n_rows // block_size) + 1
+            chunk_size = max(256, block_size // 64)
+
+            result_blocks = []
+
+            for i in range(n_blocks):
+                block_start = i * block_size
+                block_end = min(n_rows, block_start + block_size)
+                if block_start == block_end:
+                    continue
+
+                n_chunks = ((block_end - block_start) // chunk_size) + 1
+                lot_chunks = []
+                chunk_start = block_start
+                for j in range(n_chunks):
+                    next_chunk_size = min(chunk_size, block_end - chunk_start)
+                    vector_chunk, distribution_chunk = _chunks_from_generators(
+                        vectors, X, next_chunk_size
+                    )
+                    if len(vector_chunk) == 0:
+                        continue
+
+                    if metric == cosine:
+                        vector_chunk = tuple(
+                            [normalize(v, norm="l2") for v in vector_chunk]
+                        )
+
+                    chunk_of_lot_vectors = lot_vectors_dense_internal(
+                        vector_chunk,
+                        distribution_chunk,
+                        self.reference_vectors_,
+                        self.reference_distribution_,
+                        metric=metric,
+                        max_distribution_size=self.max_distribution_size,
+                        chunk_size=chunk_size,
+                        spherical_vectors=(metric == cosine),
+                    )
+                    lot_chunks.append(chunk_of_lot_vectors)
+
+                    chunk_start += next_chunk_size
+
+                result_blocks.append(np.vstack(lot_chunks) @ self.components_.T)
+
+            return np.vstack(result_blocks)
+
+        elif type(X) in (list, tuple, numba.typed.List):
+            lot_dimension = self.reference_vectors_.size
+            block_size = memory_size // (lot_dimension * 8)
+
+            n_rows = len(X)
+            n_blocks = (n_rows // block_size) + 1
+            chunk_size = max(256, block_size // 64)
+
+            distributions = numba.typed.List.empty_list(numba.float64[:])
+            sample_vectors = numba.typed.List.empty_list(numba.float64[:, :])
+            try:
+                for i in range(len(X) // 512 + 1):
+                    start = i * 512
+                    end = min(start + 512, len(X))
+                    distributions.extend(tuple(X[start:end]))
+            except numba.TypingError:
+                raise ValueError(
+                    "WassersteinVectorizer requires list or tuple input to"
+                    " have homogeneous numeric type."
+                )
+            if metric == cosine:
+                for i in range(len(vectors) // 512 + 1):
+                    start = i * 512
+                    end = min(start + 512, len(X))
+                    sample_vectors.extend(
+                        tuple([np.ascontiguousarray(normalize(v, norm="l2")) for v in vectors[start:end]])
+                    )
+            else:
+                for i in range(len(vectors) // 512 + 1):
+                    start = i * 512
+                    end = min(start + 512, len(X))
+                    sample_vectors.extend(tuple(np.ascontiguousarray(vectors[start:end])))
+
+            result_blocks = []
+
+            for i in range(n_blocks):
+                block_start = i * block_size
+                block_end = min(n_rows, block_start + block_size)
+                block = lot_vectors_dense_internal(
+                    sample_vectors[block_start:block_end],
+                    distributions[block_start:block_end],
+                    self.reference_vectors_,
+                    self.reference_distribution_,
+                    metric=metric,
+                    max_distribution_size=self.max_distribution_size,
+                    chunk_size=chunk_size,
+                )
+
+                result_blocks.append(block @ self.components_.T)
+
+            return np.vstack(result_blocks)
+
+        else:
+            raise ValueError(
+                "Input data not in a recognized format for WassersteinVectorizer"
+            )
