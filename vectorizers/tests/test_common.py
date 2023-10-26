@@ -1,3 +1,5 @@
+from collections import namedtuple
+from copy import copy
 import pytest
 from sklearn.exceptions import NotFittedError
 from sklearn.preprocessing import normalize
@@ -1149,38 +1151,54 @@ def test_summarize_embedding_list(dense, include_values):
     summary = summarize_embedding(
         weight_matrix, vect.column_index_dictionary_, include_values=include_values
     )
-    expected_result = (
-        [
-            ["foo", "wer", "pok"],
-            [],
-            ["bar", "foo", "wer"],
-            ["wer", "foo", "bar"],
-            ["bar", "foo", "wer"],
-            ["wer", "pok", "foo"],
-            ["wer", "foo", "pok"],
-        ],
-        [
-            [2.0, 1.0, 1.0],
-            [],
-            [4.0, 3.0, 2.0],
-            [2.0, 2.0, 2.0],
-            [4.0, 3.0, 2.0],
-            [3.0, 3.0, 3.0],
-            [4.0, 4.0, 2.0],
-        ],
-    )
+    expectn = namedtuple("Expectn", ["hard", "soft", "length"])
+    expected_result = [
+        expectn({"foo": 2.0}, {k: 1.0 for k in ["bar", "pok", "wer"]}, 3),
+        expectn({}, {}, 0),
+        expectn({"bar": 4.0, "foo": 3.0}, {"pok": 2.0, "wer": 2.0}, 3),
+        expectn({k: 2.0 for k in ["bar", "foo", "wer"]}, {}, 3),
+        expectn({"bar": 4.0, "foo": 3.0}, {"pok": 2.0, "wer": 2.0}, 3),
+        expectn({k: 3.0 for k in ["foo", "pok", "wer"]}, {}, 3),
+        expectn({"foo": 4.0, "wer": 4.0}, {"bar": 2.0, "pok": 2.0}, 3),
+    ]
 
     if include_values:
-        if dense:
-            assert summary[0][2:7] == expected_result[0][2:7]
-            assert summary[1][2:7] == expected_result[1][2:7]
-        else:
-            assert summary == expected_result
+        labels, values = summary
     else:
-        if dense:
-            assert summary[2:7] == expected_result[0][2:7]
-        else:
-            assert summary == expected_result[0]
+        labels = summary
+        values = [[None] * len(ll) for ll in labels]
+    for i in range(2 if dense else 0, 7):
+        expectation = expected_result[i]
+        assert len(labels[i]) == len(values[i]), (
+            f"Row {i}: got {len(labels[i])} labels, but {len(values[i])}"
+        )
+        assert len(labels[i]) == expectation.length, (
+            f"Row {i}: expected {expectation.length} summary elements, "
+            f"but got {len(values[i])}"
+        )
+        hard = copy(expectation.hard)
+        for label, value in zip(labels[i], values[i]):
+            if label in hard:
+                value_expected = hard[label]
+                del hard[label]
+            elif label in expectation.soft:
+                value_expected = expectation.soft[label]
+            else:
+                assert False, (
+                    f"Row {i}: got unexpected label {label}; was expecting "
+                    f"either of " + ', '.join(
+                        expectation.hard.keys() | expectation.soft.keys()
+                    )
+                )
+            if value:
+                assert value_expected == value, (
+                    f"Row {i}: expected value {hard[label]} for label "
+                    f"{label}, but got {value}"
+                )
+
+        assert not hard, (
+            f"Row {i}: did not get expected labels " + ', '.join(hard.keys())
+        )
 
 
 @pytest.mark.parametrize("dense", [True, False])

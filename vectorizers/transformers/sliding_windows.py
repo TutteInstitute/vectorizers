@@ -350,7 +350,7 @@ class SlidingWindowTransformer(BaseEstimator, TransformerMixin):
         """
         if self.window_sample is None:
             self.window_sample_ = np.arange(self.window_width)
-        elif self.window_sample == "random":
+        elif isinstance(self.window_sample, str) and self.window_sample == "random":
             self.window_sample_ = np.random.choice(
                 self.window_width, size=self.window_sample_size, replace=False
             )
