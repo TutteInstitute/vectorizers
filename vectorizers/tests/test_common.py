@@ -1,3 +1,5 @@
+from collections import namedtuple
+from copy import copy
 import pytest
 from sklearn.exceptions import NotFittedError
 from sklearn.preprocessing import normalize
@@ -20,6 +22,7 @@ from vectorizers import WassersteinVectorizer
 from vectorizers import ApproximateWassersteinVectorizer
 from vectorizers import SinkhornVectorizer
 from vectorizers import LZCompressionVectorizer, BytePairEncodingVectorizer
+from pynndescent.distances import cosine
 
 from vectorizers.ngram_vectorizer import ngrams_of
 from vectorizers._vectorizers import find_bin_boundaries
@@ -850,16 +853,32 @@ def test_kde_vectorizer_basic():
     transform_result = vectorizer.transform(value_sequence_data)
     assert np.all(result == transform_result)
 
-
-def test_wasserstein_vectorizer_basic():
-    vectorizer = WassersteinVectorizer(random_state=42)
+@pytest.mark.parametrize("method", ["LOT_exact", "LOT_sinkhorn", "HeuristicLinearAlgebra"])
+def test_wasserstein_vectorizer_basic(method):
+    vectorizer = WassersteinVectorizer(random_state=42, method=method)
     result = vectorizer.fit_transform(distributions_data, vectors=vectors_data)
     transform_result = vectorizer.transform(distributions_data, vectors=vectors_data)
     assert np.allclose(result, transform_result, rtol=1e-3, atol=1e-6)
 
+@pytest.mark.parametrize("reference_size", [None, 8])
+@pytest.mark.parametrize("method", ["LOT_exact", "LOT_sinkhorn", "HeuristicLinearAlgebra"])
+def test_wasserstein_vectorizer_reference_specified(method, reference_size):
+    vectorizer = WassersteinVectorizer(random_state=42, method=method)
+    result = vectorizer.fit_transform(distributions_data, vectors=vectors_data)
+    transform_result = vectorizer.transform(distributions_data, vectors=vectors_data)
+    assert np.allclose(result, transform_result, rtol=1e-3, atol=1e-6)
+
+@pytest.mark.parametrize("method", ["LOT_exact", "LOT_sinkhorn", "HeuristicLinearAlgebra"])
+def test_wasserstein_vectorizer_ndarray(method):
+    vectorizer = WassersteinVectorizer(random_state=42, method=method)
+    np_distribution_data = np.array(distributions_data.todense())
+    result = vectorizer.fit_transform(np_distribution_data, vectors=vectors_data)
+    transform_result = vectorizer.transform(np_distribution_data, vectors=vectors_data)
+    assert np.allclose(result, transform_result, rtol=1e-3, atol=1e-6)
 
 def test_wasserstein_vectorizer_lists():
-    vectorizer = WassersteinVectorizer(random_state=42)
+    vectorizer = WassersteinVectorizer(random_state=42, input_method='lil')
+
     result = vectorizer.fit_transform(
         distributions_data_list, vectors=vectors_data_list
     )
@@ -868,19 +887,62 @@ def test_wasserstein_vectorizer_lists():
     )
     assert np.allclose(result, transform_result, rtol=1e-3, atol=1e-6)
 
+@pytest.mark.parametrize("input_method", ["generator", "lil"])
+def test_wasserstein_vectorizer_incompatable_param(input_method):
+    with pytest.raises(ValueError):
+        vectorizer = WassersteinVectorizer(random_state=42, method="HeuristicLinearAlgebra", input_method=input_method)
 
-def test_wasserstein_vectorizer_generators():
+# both generator_n_distributions and generator_vector_dim must be specified for inpute_method='generator'
+def test_wasserstein_vectorizer_generator_missing_param():
+    with pytest.raises(ValueError):
+        WassersteinVectorizer(random_state=42, input_method='generator')
+    with pytest.raises(ValueError):
+        WassersteinVectorizer(random_state=42, input_method='generator', generator_n_distributions=10)
+    with pytest.raises(ValueError):
+        WassersteinVectorizer(random_state=42, input_method='generator', generator_vector_dim=10)
+
+def test_wasserstein_vectorizer_generators_bad_params():
     distributions_data_generator = (x for x in distributions_data_list)
     vectors_data_generator = (x for x in vectors_data_list)
-    vectorizer = WassersteinVectorizer(random_state=42)
+    vectorizer = WassersteinVectorizer(random_state=42,
+                                       input_method='generator',
+                                       generator_n_distributions=distributions_data.shape[0],
+                                       generator_vector_dim=vectors_data.shape[1],
+                                       reference_size=8,
+                                       )
+    #no reference vectors
+    with pytest.raises(ValueError):
+        vectorizer.fit(distributions_data_generator, vectors=vectors_data_generator)
+
+    #bad data type to fit
+    with pytest.raises(ValueError):
+        vectorizer.fit(distributions_data, vectors=vectors_data)
+
+    #wrong reference_size
+    with pytest.raises(ValueError):
+        vectorizer.fit(
+            distributions_data_generator,
+            vectors=vectors_data_generator,
+            reference_distribution=generator_reference_dist,
+            reference_vectors=generator_reference_vectors,
+        )
+
+@pytest.mark.parametrize("reference_distribution", [None, generator_reference_dist])
+def test_wasserstein_vectorizer_generators(reference_distribution):
+    distributions_data_generator = (x for x in distributions_data_list)
+    vectors_data_generator = (x for x in vectors_data_list)
+    vectorizer = WassersteinVectorizer(random_state=42,
+                                       input_method='generator',
+                                       generator_n_distributions=distributions_data.shape[0],
+                                       generator_vector_dim=vectors_data.shape[1],
+                                       )
     result = vectorizer.fit_transform(
         distributions_data_generator,
         vectors=vectors_data_generator,
-        reference_distribution=generator_reference_dist,
+        reference_distribution=reference_distribution,
         reference_vectors=generator_reference_vectors,
-        n_distributions=distributions_data.shape[0],
-        vector_dim=vectors_data.shape[1],
     )
+    # Generators exhaust so must be rebuilt
     distributions_data_generator = (x for x in distributions_data_list)
     vectors_data_generator = (x for x in vectors_data_list)
     transform_result = vectorizer.transform(
@@ -895,62 +957,49 @@ def test_wasserstein_vectorizer_generators():
 def test_wasserstein_vectorizer_generators_blockwise():
     distributions_data_generator = (x for x in distributions_data_list)
     vectors_data_generator = (x for x in vectors_data_list)
-    vectorizer = WassersteinVectorizer(random_state=42, memory_size="50k")
+    vectorizer = WassersteinVectorizer(random_state=42,
+                                       input_method='generator',
+                                       memory_size="50k",
+                                       generator_n_distributions=distributions_data.shape[0],
+                                       generator_vector_dim=vectors_data.shape[1],
+                                       )
     result = vectorizer.fit_transform(
         distributions_data_generator,
         vectors=vectors_data_generator,
         reference_distribution=generator_reference_dist,
         reference_vectors=generator_reference_vectors,
-        n_distributions=distributions_data.shape[0],
-        vector_dim=vectors_data.shape[1],
     )
     distributions_data_generator = (x for x in distributions_data_list)
     vectors_data_generator = (x for x in vectors_data_list)
     transform_result = vectorizer.transform(
         distributions_data_generator,
         vectors=vectors_data_generator,
-        n_distributions=distributions_data.shape[0],
-        vector_dim=vectors_data.shape[1],
     )
     assert np.allclose(result, transform_result, rtol=1e-3, atol=1e-6)
 
-
-def test_wasserstein_vectorizer_blockwise():
-    vectorizer = WassersteinVectorizer(random_state=42, memory_size="50k")
+@pytest.mark.parametrize("method", ["LOT_exact", "LOT_sinkhorn"])
+def test_wasserstein_vectorizer_blockwise(method):
+    vectorizer = WassersteinVectorizer(random_state=42, method=method, memory_size="50k")
     result = vectorizer.fit_transform(distributions_data, vectors=vectors_data)
     transform_result = vectorizer.transform(distributions_data, vectors=vectors_data)
     assert np.allclose(result, transform_result, rtol=1e-3, atol=1e-6)
 
-
-def test_sinkhorn_vectorizer_basic():
-    vectorizer = SinkhornVectorizer(random_state=42)
-    result = vectorizer.fit_transform(distributions_data, vectors=vectors_data)
-    transform_result = vectorizer.transform(distributions_data, vectors=vectors_data)
-    assert np.allclose(result, transform_result, rtol=1e-3, atol=1e-6)
-
-
-def test_sinkhorn_vectorizer_blockwise():
-    vectorizer = SinkhornVectorizer(random_state=42, memory_size="50k")
-    result = vectorizer.fit_transform(distributions_data, vectors=vectors_data)
-    transform_result = vectorizer.transform(distributions_data, vectors=vectors_data)
-    assert np.allclose(result, transform_result, rtol=1e-3, atol=1e-6)
-
-
-def test_wasserstein_vectorizer_list_based():
-    lil_data = normalize(distributions_data, norm="l1").tolil()
-    distributions = [np.array(x) for x in lil_data.data]
-    vectors = [vectors_data[x] for x in lil_data.rows]
-    vectorizer = WassersteinVectorizer(random_state=42)
-    result = vectorizer.fit_transform(distributions, vectors=vectors)
-    transform_result = vectorizer.transform(distributions, vectors=vectors)
-    assert np.allclose(result, transform_result, rtol=1e-3, atol=1e-6)
+# @pytest.mark.parametrize("metric", [cosine, "euclidean"])
+# def test_wasserstein_vectorizer_list_based(metric):
+#     lil_data = normalize(distributions_data, norm="l1").tolil()
+#     distributions = [np.array(x) for x in lil_data.data]
+#     vectors = [vectors_data[x] for x in lil_data.rows]
+#     vectorizer = WassersteinVectorizer(random_state=42, input_method='lil', metric=metric)
+#     result = vectorizer.fit_transform(distributions, vectors=vectors)
+#     transform_result = vectorizer.transform(distributions, vectors=vectors)
+#     assert np.allclose(result, transform_result, rtol=1e-3, atol=1e-6)
 
 
 def test_wasserstein_vectorizer_list_based_blockwise():
     lil_data = normalize(distributions_data, norm="l1").tolil()
     distributions = [np.array(x) for x in lil_data.data]
     vectors = [vectors_data[x] for x in lil_data.rows]
-    vectorizer = WassersteinVectorizer(random_state=42, memory_size="50k")
+    vectorizer = WassersteinVectorizer(random_state=42, input_method='lil', memory_size="50k")
     result = vectorizer.fit_transform(distributions, vectors=vectors)
     transform_result = vectorizer.transform(distributions, vectors=vectors)
     assert np.allclose(result, transform_result, rtol=1e-3, atol=1e-6)
@@ -964,7 +1013,7 @@ def test_wasserstein_vectorizer_list_compared_to_sparse():
     result_sparse = vectorizer_sparse.fit_transform(
         distributions_data, vectors=vectors_data
     )
-    vectorizer_list = WassersteinVectorizer(random_state=42)
+    vectorizer_list = WassersteinVectorizer(random_state=42, input_method='lil')
     result_list = vectorizer_list.fit_transform(
         distributions,
         vectors=vectors,
@@ -981,79 +1030,114 @@ def test_wasserstein_vectorizer_generator_compared_to_sparse():
     result_sparse = vectorizer_sparse.fit_transform(
         distributions_data, vectors=vectors_data
     )
-    vectorizer_gen = WassersteinVectorizer(random_state=42)
+    vectorizer_gen = WassersteinVectorizer(random_state=42,
+                                           input_method='generator',
+                                           generator_n_distributions=distributions_data.shape[0],
+                                           generator_vector_dim=vectors_data.shape[1],
+                                           )
     result_list = vectorizer_gen.fit_transform(
         distributions_data_generator,
         vectors=vectors_data_generator,
         reference_distribution=vectorizer_sparse.reference_distribution_,
         reference_vectors=vectorizer_sparse.reference_vectors_,
-        n_distributions=distributions_data.shape[0],
-        vector_dim=vectors_data.shape[1],
     )
     assert np.allclose(result_sparse, result_list, rtol=1e-3, atol=1e-6)
 
+#TODO: Write a test for a custom callable metric
 
-def test_approx_wasserstein_vectorizer_basic():
-    vectorizer = ApproximateWassersteinVectorizer(random_state=42)
-    result = vectorizer.fit_transform(distributions_data, vectors=vectors_data)
-    transform_result = vectorizer.transform(distributions_data, vectors=vectors_data)
-    assert np.allclose(result, transform_result, rtol=1e-3, atol=1e-6)
-
-
-@pytest.mark.parametrize(
-    "wasserstein_class",
-    [WassersteinVectorizer, SinkhornVectorizer, ApproximateWassersteinVectorizer],
-)
-def test_wasserstein_based_vectorizer_bad_params(wasserstein_class):
-    with pytest.raises(ValueError):
-        vectorizer = wasserstein_class()
+@pytest.mark.parametrize("input_method", ["generator", "lil"])
+def test_wasserstein_based_vectorizer_basic_bad_params(input_method):
+    with pytest.raises(NotImplementedError):
+        vectorizer = WassersteinVectorizer(method='LOT_sinkhorn', input_method=input_method)
         vectorizer.fit(distributions_data)
 
     with pytest.raises(ValueError):
-        vectorizer = wasserstein_class()
+        WassersteinVectorizer(method='not a real algorithm')
+
+    with pytest.raises(ValueError):
+        WassersteinVectorizer(input_method='not a real data format')
+
+    with pytest.raises(ValueError):
+        vectorizer = WassersteinVectorizer()
+        vectorizer.fit(X=distributions_data, vectors=np.array([[1, 2, 3], [2, 3, 4]]))
+
+#Testing incompatable fit types to those that have been specified in the constructor
+#TODO: test the transform as well
+@pytest.mark.parametrize("max_distribution_size", [256, 5])
+@pytest.mark.parametrize("method", ["LOT_exact", "HeuristicLinearAlgebra"])
+@pytest.mark.parametrize("input_method", ["spmatrix", "generator", "lil"])
+def test_wasserstein_based_vectorizer_bad_params(method, input_method, max_distribution_size):
+    with pytest.raises(ValueError):
+        vectorizer = WassersteinVectorizer(method=method, input_method=input_method, max_distribution_size=max_distribution_size)
+        vectorizer.fit(distributions_data)
+
+    with pytest.raises(ValueError):
+        vectorizer = WassersteinVectorizer(method=method, input_method=input_method)
         vectorizer.fit(mixed_token_data, vectors=vectors_data)
 
     with pytest.raises(ValueError):
-        vectorizer = wasserstein_class()
+        vectorizer = WassersteinVectorizer(method=method, input_method=input_method)
         vectorizer.fit(point_data, vectors=vectors_data)
 
     distributions_data_generator = (x for x in distributions_data_list)
     vectors_data_generator = (x for x in vectors_data_list)
     with pytest.raises(ValueError):
-        vectorizer = WassersteinVectorizer()
+        vectorizer = WassersteinVectorizer(method=method, input_method=input_method)
         vectorizer.fit(distributions_data_generator, vectors=vectors_data_generator)
 
-    distributions_data_generator = (x for x in distributions_data_list)
-    vectors_data_generator = (x for x in vectors_data_list)
-    with pytest.raises(ValueError):
-        vectorizer = WassersteinVectorizer()
-        vectorizer.fit(
-            distributions_data_generator,
-            vectors=vectors_data_generator,
-            reference_vectors=np.random.random((10, vectors_data.shape[1])),
-        )
 
-    distributions_data_generator = (x for x in distributions_data_list)
-    vectors_data_generator = (x for x in vectors_data_list)
-    with pytest.raises(ValueError):
-        vectorizer = WassersteinVectorizer(reference_size=20)
-        vectorizer.fit(
-            distributions_data_generator,
-            vectors=vectors_data_generator,
-            reference_vectors=np.random.random((10, vectors_data.shape[1])),
-        )
+# @pytest.mark.parametrize(
+#     "wasserstein_class",
+#     [WassersteinVectorizer, SinkhornVectorizer, ApproximateWassersteinVectorizer],
+# )
+# def test_wasserstein_based_vectorizer_bad_params(wasserstein_class):
+#     with pytest.raises(ValueError):
+#         vectorizer = wasserstein_class()
+#         vectorizer.fit(distributions_data)
+#
+#     with pytest.raises(ValueError):
+#         vectorizer = wasserstein_class()
+#         vectorizer.fit(mixed_token_data, vectors=vectors_data)
+#
+#     with pytest.raises(ValueError):
+#         vectorizer = wasserstein_class()
+#         vectorizer.fit(point_data, vectors=vectors_data)
+#
+#     distributions_data_generator = (x for x in distributions_data_list)
+#     vectors_data_generator = (x for x in vectors_data_list)
+#     with pytest.raises(ValueError):
+#         vectorizer = WassersteinVectorizer()
+#         vectorizer.fit(distributions_data_generator, vectors=vectors_data_generator)
+#
+#     distributions_data_generator = (x for x in distributions_data_list)
+#     vectors_data_generator = (x for x in vectors_data_list)
+#     with pytest.raises(ValueError):
+#         vectorizer = WassersteinVectorizer()
+#         vectorizer.fit(
+#             distributions_data_generator,
+#             vectors=vectors_data_generator,
+#             reference_vectors=np.random.random((10, vectors_data.shape[1])),
+#         )
+#
+#     distributions_data_generator = (x for x in distributions_data_list)
+#     vectors_data_generator = (x for x in vectors_data_list)
+#     with pytest.raises(ValueError):
+#         vectorizer = WassersteinVectorizer(reference_size=20)
+#         vectorizer.fit(
+#             distributions_data_generator,
+#             vectors=vectors_data_generator,
+#             reference_vectors=np.random.random((10, vectors_data.shape[1])),
+#         )
 
 
-@pytest.mark.parametrize(
-    "wasserstein_class", [WassersteinVectorizer, SinkhornVectorizer],
-)
-def test_wasserstein_based_vectorizer_bad_metrics(wasserstein_class):
+@pytest.mark.parametrize("method", ["LOT_exact", "LOT_sinkhorn"])
+def test_wasserstein_based_vectorizer_bad_metrics(method):
     with pytest.raises(ValueError):
-        vectorizer = wasserstein_class(metric="unsupported_metric")
+        vectorizer = WassersteinVectorizer(method=method, metric="unsupported_metric")
         vectorizer.fit(distributions_data, vectors=vectors_data)
 
     with pytest.raises(ValueError):
-        vectorizer = wasserstein_class(metric=0.75)
+        vectorizer = WassersteinVectorizer(method=method, metric=0.75)
         vectorizer.fit(distributions_data, vectors=vectors_data)
 
 
@@ -1067,38 +1151,54 @@ def test_summarize_embedding_list(dense, include_values):
     summary = summarize_embedding(
         weight_matrix, vect.column_index_dictionary_, include_values=include_values
     )
-    expected_result = (
-        [
-            ["foo", "wer", "pok"],
-            [],
-            ["bar", "foo", "wer"],
-            ["wer", "foo", "bar"],
-            ["bar", "foo", "wer"],
-            ["wer", "pok", "foo"],
-            ["wer", "foo", "pok"],
-        ],
-        [
-            [2.0, 1.0, 1.0],
-            [],
-            [4.0, 3.0, 2.0],
-            [2.0, 2.0, 2.0],
-            [4.0, 3.0, 2.0],
-            [3.0, 3.0, 3.0],
-            [4.0, 4.0, 2.0],
-        ],
-    )
+    expectn = namedtuple("Expectn", ["hard", "soft", "length"])
+    expected_result = [
+        expectn({"foo": 2.0}, {k: 1.0 for k in ["bar", "pok", "wer"]}, 3),
+        expectn({}, {}, 0),
+        expectn({"bar": 4.0, "foo": 3.0}, {"pok": 2.0, "wer": 2.0}, 3),
+        expectn({k: 2.0 for k in ["bar", "foo", "wer"]}, {}, 3),
+        expectn({"bar": 4.0, "foo": 3.0}, {"pok": 2.0, "wer": 2.0}, 3),
+        expectn({k: 3.0 for k in ["foo", "pok", "wer"]}, {}, 3),
+        expectn({"foo": 4.0, "wer": 4.0}, {"bar": 2.0, "pok": 2.0}, 3),
+    ]
 
     if include_values:
-        if dense:
-            assert summary[0][2:7] == expected_result[0][2:7]
-            assert summary[1][2:7] == expected_result[1][2:7]
-        else:
-            assert summary == expected_result
+        labels, values = summary
     else:
-        if dense:
-            assert summary[2:7] == expected_result[0][2:7]
-        else:
-            assert summary == expected_result[0]
+        labels = summary
+        values = [[None] * len(ll) for ll in labels]
+    for i in range(2 if dense else 0, 7):
+        expectation = expected_result[i]
+        assert len(labels[i]) == len(values[i]), (
+            f"Row {i}: got {len(labels[i])} labels, but {len(values[i])}"
+        )
+        assert len(labels[i]) == expectation.length, (
+            f"Row {i}: expected {expectation.length} summary elements, "
+            f"but got {len(values[i])}"
+        )
+        hard = copy(expectation.hard)
+        for label, value in zip(labels[i], values[i]):
+            if label in hard:
+                value_expected = hard[label]
+                del hard[label]
+            elif label in expectation.soft:
+                value_expected = expectation.soft[label]
+            else:
+                assert False, (
+                    f"Row {i}: got unexpected label {label}; was expecting "
+                    f"either of " + ', '.join(
+                        expectation.hard.keys() | expectation.soft.keys()
+                    )
+                )
+            if value:
+                assert value_expected == value, (
+                    f"Row {i}: expected value {hard[label]} for label "
+                    f"{label}, but got {value}"
+                )
+
+        assert not hard, (
+            f"Row {i}: did not get expected labels " + ', '.join(hard.keys())
+        )
 
 
 @pytest.mark.parametrize("dense", [True, False])
