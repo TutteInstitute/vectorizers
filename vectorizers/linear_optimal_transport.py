@@ -263,7 +263,6 @@ def sinkhorn_iterations_batch(x, y, u, v, K, max_iter=1000, error_tolerance=1e-9
     K_prime = precompute_K_prime(K, x)
 
     for iteration in range(max_iter):
-
         next_v = y.T / (K.T @ u)
 
         if np.any(~np.isfinite(next_v)):
@@ -865,7 +864,12 @@ def lot_vectors_dense(
         for i in range(len(sample_vectors) // 512 + 1):
             start = i * 512
             end = min(start + 512, len(sample_vectors))
-            normalized_sample_vectors.extend([np.ascontiguousarray(normalize(v, norm="l2")) for v in sample_vectors[start:end]])
+            normalized_sample_vectors.extend(
+                [
+                    np.ascontiguousarray(normalize(v, norm="l2"))
+                    for v in sample_vectors[start:end]
+                ]
+            )
         sample_vectors = normalized_sample_vectors
         # sample_vectors = tuple([normalize(v, norm="l2") for v in sample_vectors])
 
@@ -1366,6 +1370,7 @@ def sinkhorn_vectors_sparse(
 
     return result, components
 
+
 class WassersteinVectorizer(BaseEstimator, TransformerMixin):
     """Transform finite distributions over a metric space into vectors in a linear space
     such that euclidean or cosine distance approximates the Wasserstein distance
@@ -1483,7 +1488,8 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
         WassersteinVectorizer on a generator must specify the number of distributions
         in order to allocate appropriate amounts of memory.
     """
-    #TODO: Input type parameter that defaults scipy sparse.
+
+    # TODO: Input type parameter that defaults scipy sparse.
     # Check on initialization that input type and method type match up.
     # This allows our vectors to be distributions over a continuous space.
     def __init__(
@@ -1522,18 +1528,26 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
 
         valid_methods = ["LOT_exact", "LOT_sinkhorn", "HeuristicLinearAlgebra"]
         if method not in valid_methods:
-            raise ValueError(f"method={method} is not supported. Please select one of {valid_methods}")
+            raise ValueError(
+                f"method={method} is not supported. Please select one of {valid_methods}"
+            )
         valid_input_methods = ["spmatrix", "lil", "generator"]
         if input_method not in valid_input_methods:
-            raise ValueError(f"input_method={input_method} is not supported. Please select one of {valid_input_methods}")
+            raise ValueError(
+                f"input_method={input_method} is not supported. Please select one of {valid_input_methods}"
+            )
 
-        #LOT_sinkhorn only implemented for spmatrix
+        # LOT_sinkhorn only implemented for spmatrix
         if (method == "LOT_sinkhorn") and (input_method != "spmatrix"):
-            raise NotImplementedError(f"We apologize but input_method={input_method} "
-                                      f"has note been implemented for method={method}")
+            raise NotImplementedError(
+                f"We apologize but input_method={input_method} "
+                f"has note been implemented for method={method}"
+            )
         # HeuristicLinearAlgebra only valid for spmatrix
         if (method == "HeuristicLinearAlgebra") and (input_method != "spmatrix"):
-            raise ValueError(f"method={method} only works with matrix data.  Please selecting input_method=spmatrix")
+            raise ValueError(
+                f"method={method} only works with matrix data.  Please selecting input_method=spmatrix"
+            )
 
         if input_method == "generator":
             if self.generator_vector_dim is None:
@@ -1605,11 +1619,13 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
         memory_size = str_to_bytes(self.memory_size)
         metric = self._get_metric()
 
-        #fit() for spmatrix
+        # fit() for spmatrix
         if self.input_method == "spmatrix":
             if not (scipy.sparse.isspmatrix(X) or type(X) is np.ndarray):
-                raise ValueError("input_method is spmatrix.  This must be fit with a scipy.sparse matrix or an ndarray.\n"
-                                 f"You used a {type(X)}")
+                raise ValueError(
+                    "input_method is spmatrix.  This must be fit with a scipy.sparse matrix or an ndarray.\n"
+                    f"You used a {type(X)}"
+                )
             vectors = check_array(vectors)
             if type(X) is np.ndarray:
                 X = scipy.sparse.csr_matrix(X)
@@ -1622,7 +1638,7 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
             X = normalize(X, norm="l1")
 
             if self.method == "HeuristicLinearAlgebra":
-                #self.fit_transform(X, y, vectors=vectors, **fit_params)
+                # self.fit_transform(X, y, vectors=vectors, **fit_params)
                 self.vectors_ = vectors
                 basis_transformed_matrix = X @ vectors
                 basis_transformed_matrix /= np.power(
@@ -1635,16 +1651,19 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                     random_state=self.random_state,
                 )
                 self.embedding_ = u * np.sqrt(self.singular_values_)
-            #LOT use cases depend on reference_vectors
+            # LOT use cases depend on reference_vectors
             else:
                 if reference_vectors is None:
                     if (self.reference_size is None) and (self.method == "LOT_exact"):
                         reference_size = int(
                             np.median(np.squeeze(np.array((X != 0).sum(axis=1))))
                         )
-                    elif (self.reference_size is None) and (self.method == "LOT_sinkhorn"):
+                    elif (self.reference_size is None) and (
+                        self.method == "LOT_sinkhorn"
+                    ):
                         reference_size = (
-                            int(np.median(np.squeeze(np.array((X != 0).sum(axis=1))))) // 2
+                            int(np.median(np.squeeze(np.array((X != 0).sum(axis=1)))))
+                            // 2
                         )
                         if reference_size < 8:
                             reference_size = 8
@@ -1656,9 +1675,10 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                     u, s, v = scipy.sparse.linalg.svds(X, k=1)
                     reference_center = v @ vectors
                     if metric == cosine:
-                        reference_center /= np.sqrt(np.sum(reference_center ** 2))
+                        reference_center /= np.sqrt(np.sum(reference_center**2))
                     self.reference_vectors_ = reference_center + random_state.normal(
-                        scale=self.reference_scale, size=(reference_size, vectors.shape[1])
+                        scale=self.reference_scale,
+                        size=(reference_size, vectors.shape[1]),
                     )
                     if metric == cosine:
                         self.reference_vectors_ = normalize(
@@ -1700,29 +1720,35 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                         n_svd_iter=self.n_svd_iter,
                         cachedir=self.cachedir,
                     )
-                #TODO: remove unreachable condition?
+                # TODO: remove unreachable condition?
                 else:
-                    raise ValueError(f"This shouldn't be reachable.  sorry {self.method} isn't supported for sparse matrices")
+                    raise ValueError(
+                        f"This shouldn't be reachable.  sorry {self.method} isn't supported for sparse matrices"
+                    )
 
-        #fit() for GENERATOR
-        elif self.input_method == 'generator':
+        # fit() for GENERATOR
+        elif self.input_method == "generator":
             if not (isinstance(X, GeneratorType) or isinstance(vectors, GeneratorType)):
-                raise ValueError("input_method is generator.  This must be fit with a generator.\n"
-                                 f"You used a {type(X)}")
+                raise ValueError(
+                    "input_method is generator.  This must be fit with a generator.\n"
+                    f"You used a {type(X)}"
+                )
             if reference_vectors is None:
                 raise ValueError(
                     "WassersteinVectorizer on a generator must specify reference_vectors!"
                 )
             if self.reference_size is not None:
                 if reference_vectors.shape[0] != self.reference_size:
-                    raise ValueError(f"Specified reference size {self.reference_size} does not match the size "
-                                     f"of the reference vectors give ({reference_vectors.shape[0]})")
+                    raise ValueError(
+                        f"Specified reference size {self.reference_size} does not match the size "
+                        f"of the reference vectors give ({reference_vectors.shape[0]})"
+                    )
                 reference_size = self.reference_size
             else:
                 reference_size = reference_vectors.shape[0]
 
             # Checked to ensure the self.generator_vector_dim was specified in the constructor
-            #TODO: Should we check that generator_vector_dim is large enough for the actual vectors being generated?
+            # TODO: Should we check that generator_vector_dim is large enough for the actual vectors being generated?
             lot_dimension = reference_size * self.generator_vector_dim
             block_size = max(1, memory_size // (lot_dimension * 8))
 
@@ -1751,10 +1777,12 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
             )
 
         # Fit for lil
-        elif self.input_method == 'lil':
+        elif self.input_method == "lil":
             if type(X) not in (list, tuple, numba.typed.List):
-                raise ValueError("input_method is lil.  This must be fit with a list, tuple or numba.typed.List.\n"
-                                 f"You used a {type(X)}")
+                raise ValueError(
+                    "input_method is lil.  This must be fit with a list, tuple or numba.typed.List.\n"
+                    f"You used a {type(X)}"
+                )
             if self.reference_size is None:
                 reference_size = int(np.median([len(x) for x in X]))
             else:
@@ -1780,7 +1808,9 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
             for i in range(len(vectors) // 512 + 1):
                 start = i * 512
                 end = min(start + 512, len(X))
-                sample_vectors.extend(tuple([np.ascontiguousarray(x) for x in vectors[start:end]]))
+                sample_vectors.extend(
+                    tuple([np.ascontiguousarray(x) for x in vectors[start:end]])
+                )
 
             if len(vectors[0].shape) <= 1:
                 raise ValueError(
@@ -1802,7 +1832,7 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                         ),
                         axis=0,
                     )
-                    reference_center /= np.sqrt(np.sum(reference_center ** 2))
+                    reference_center /= np.sqrt(np.sum(reference_center**2))
                 else:
                     reference_center = np.mean(
                         np.vstack(
@@ -1840,13 +1870,13 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                 n_svd_iter=self.n_svd_iter,
                 cachedir=self.cachedir,
             )
-        #TODO: Unreachable.  Should be deleted?
+        # TODO: Unreachable.  Should be deleted?
         else:
             raise ValueError(
                 f"Input data of type {type(X)} not in a recognized format for WassersteinVectorizer"
             )
 
-        if self.n_components>self.components_.shape[0]:
+        if self.n_components > self.components_.shape[0]:
             Warning()
         return self
 
@@ -1920,11 +1950,13 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
             The transformed data.
         """
         # the HeuristicLinearAlgebra transform is simple and quite different than the other methods
-        if self.method == 'HeuristicLinearAlgebra' and self.input_method == 'spmatrix':
+        if self.method == "HeuristicLinearAlgebra" and self.input_method == "spmatrix":
             check_is_fitted(self, ["components_"])
             if not (scipy.sparse.isspmatrix(X) or type(X) is np.ndarray):
-                raise ValueError(f"input_method is spmatrix.  X must be a scipy.sparse matrix or an ndarray. \n"
-                                 f"X is currently a {type(X)}")
+                raise ValueError(
+                    f"input_method is spmatrix.  X must be a scipy.sparse matrix or an ndarray. \n"
+                    f"X is currently a {type(X)}"
+                )
             if type(X) is np.ndarray:
                 X = scipy.sparse.csr_matrix(X)
 
@@ -1937,7 +1969,7 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                 self.singular_values_
             )
         else:
-            #Preprocessing necessary for LOT_exact and LOT_sinkhorm
+            # Preprocessing necessary for LOT_exact and LOT_sinkhorm
             check_is_fitted(
                 self, ["components_", "reference_vectors_", "reference_distribution_"]
             )
@@ -1949,11 +1981,13 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
             memory_size = str_to_bytes(self.memory_size)
             metric = self._get_metric()
 
-        #Only reached if we are LOT_exact or LOT_sinkhorn
-        if self.input_method == 'spmatrix':
+        # Only reached if we are LOT_exact or LOT_sinkhorn
+        if self.input_method == "spmatrix":
             if not (scipy.sparse.isspmatrix(X) or type(X) is np.ndarray):
-                raise ValueError(f"input_method is spmatrix.  X must be a scipy.sparse matrix or an ndarray. \n"
-                                 f"X is currently a {type(X)}")
+                raise ValueError(
+                    f"input_method is spmatrix.  X must be a scipy.sparse matrix or an ndarray. \n"
+                    f"X is currently a {type(X)}"
+                )
             if type(X) is np.ndarray:
                 X = scipy.sparse.csr_matrix(X)
 
@@ -2003,14 +2037,20 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                     block_start = i * block_size
                     block_end = min(n_rows, block_start + block_size)
 
-                    n_chunks = ((block_end - block_start) // self.sinkhorn_chunk_size) + 1
+                    n_chunks = (
+                        (block_end - block_start) // self.sinkhorn_chunk_size
+                    ) + 1
                     completed_chunks = []
                     for j in range(n_chunks):
                         chunk_start = j * self.sinkhorn_chunk_size + block_start
-                        chunk_end = min(block_end, chunk_start + self.sinkhorn_chunk_size)
+                        chunk_end = min(
+                            block_end, chunk_start + self.sinkhorn_chunk_size
+                        )
                         raw_chunk = X[chunk_start:chunk_end]
                         col_sums = np.squeeze(np.array(raw_chunk.sum(axis=0)))
-                        sub_chunk = raw_chunk[:, col_sums > 0].astype(np.float64).toarray()
+                        sub_chunk = (
+                            raw_chunk[:, col_sums > 0].astype(np.float64).toarray()
+                        )
                         sub_vectors = vectors[col_sums > 0]
                         sub_cost = full_cost[:, col_sums > 0]
                         completed_chunks.append(
@@ -2027,20 +2067,21 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                     result_blocks.append(block @ self.components_.T)
             return np.vstack(result_blocks)
 
-
-        #GENERATOR CASE
+        # GENERATOR CASE
         # currently only works with LOT_exact
-        elif self.input_method == 'generator':
+        elif self.input_method == "generator":
             if not (isinstance(X, GeneratorType) or isinstance(vectors, GeneratorType)):
-                raise ValueError(f"input_method is generator.  X must be a generator. \n"
-                                 f"X is currently a {type(X)}")
+                raise ValueError(
+                    f"input_method is generator.  X must be a generator. \n"
+                    f"X is currently a {type(X)}"
+                )
             # This isn't necessary but will make the code easier to extend for future cases.
             # The constructor ensures that only implemented options are selected
-            if self.method == 'LOT_exact':
+            if self.method == "LOT_exact":
                 lot_dimension = self.reference_vectors_.size
                 block_size = memory_size // (lot_dimension * 8)
 
-                #Checked to ensure this was not None in the constructor
+                # Checked to ensure this was not None in the constructor
                 n_rows = self.generator_n_distributions
                 n_blocks = (n_rows // block_size) + 1
                 chunk_size = max(256, block_size // 64)
@@ -2089,11 +2130,13 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
 
         # LIL FORMAT
         # currently only works with LOT_exact
-        elif self.input_method == 'lil':
+        elif self.input_method == "lil":
             if type(X) not in (list, tuple, numba.typed.List):
-                raise ValueError(f"input_method is lil.  X must be a list, tuple or numba.typed.List. \n"
-                                 f"X is currently a {type(X)}")
-            #TODO: should probably check the vectors is also of the right type
+                raise ValueError(
+                    f"input_method is lil.  X must be a list, tuple or numba.typed.List. \n"
+                    f"X is currently a {type(X)}"
+                )
+            # TODO: should probably check the vectors is also of the right type
             lot_dimension = self.reference_vectors_.size
             block_size = memory_size // (lot_dimension * 8)
 
@@ -2118,13 +2161,20 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                     start = i * 512
                     end = min(start + 512, len(X))
                     sample_vectors.extend(
-                        tuple([np.ascontiguousarray(normalize(v, norm="l2")) for v in vectors[start:end]])
+                        tuple(
+                            [
+                                np.ascontiguousarray(normalize(v, norm="l2"))
+                                for v in vectors[start:end]
+                            ]
+                        )
                     )
             else:
                 for i in range(len(vectors) // 512 + 1):
                     start = i * 512
                     end = min(start + 512, len(X))
-                    sample_vectors.extend(tuple(np.ascontiguousarray(vectors[start:end])))
+                    sample_vectors.extend(
+                        tuple(np.ascontiguousarray(vectors[start:end]))
+                    )
 
             result_blocks = []
 
@@ -2144,7 +2194,6 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                 result_blocks.append(block @ self.components_.T)
 
             return np.vstack(result_blocks)
-
 
 
 class SinkhornVectorizer(BaseEstimator, TransformerMixin):
@@ -2324,7 +2373,7 @@ class SinkhornVectorizer(BaseEstimator, TransformerMixin):
                 u, s, v = scipy.sparse.linalg.svds(X, k=1)
                 reference_center = v @ vectors
                 if metric == cosine:
-                    reference_center /= np.sqrt(np.sum(reference_center ** 2))
+                    reference_center /= np.sqrt(np.sum(reference_center**2))
                 self.reference_vectors_ = reference_center + random_state.normal(
                     scale=self.reference_scale, size=(reference_size, vectors.shape[1])
                 )
@@ -2663,6 +2712,7 @@ class ApproximateWassersteinVectorizer(BaseEstimator, TransformerMixin):
             self.singular_values_
         )
 
+
 class WassersteinVectorizerOld(BaseEstimator, TransformerMixin):
     """Transform finite distributions over a metric space into vectors in a linear space
     such that euclidean or cosine distance approximates the Wasserstein distance
@@ -2838,7 +2888,7 @@ class WassersteinVectorizerOld(BaseEstimator, TransformerMixin):
                 u, s, v = scipy.sparse.linalg.svds(X, k=1)
                 reference_center = v @ vectors
                 if metric == cosine:
-                    reference_center /= np.sqrt(np.sum(reference_center ** 2))
+                    reference_center /= np.sqrt(np.sum(reference_center**2))
                 self.reference_vectors_ = reference_center + random_state.normal(
                     scale=self.reference_scale, size=(reference_size, vectors.shape[1])
                 )
@@ -2875,8 +2925,10 @@ class WassersteinVectorizerOld(BaseEstimator, TransformerMixin):
                 )
             if self.reference_size is not None:
                 if reference_vectors.shape[0] == self.reference_size:
-                    raise ValueError(f"Specified reference size {self.reference_size} does not match the size "
-                                     f"of the reference vectors give ({reference_vectors.shape[0]})")
+                    raise ValueError(
+                        f"Specified reference size {self.reference_size} does not match the size "
+                        f"of the reference vectors give ({reference_vectors.shape[0]})"
+                    )
                 reference_size = self.reference_size
             else:
                 reference_size = reference_vectors.shape[0]
@@ -2942,7 +2994,9 @@ class WassersteinVectorizerOld(BaseEstimator, TransformerMixin):
             for i in range(len(vectors) // 512 + 1):
                 start = i * 512
                 end = min(start + 512, len(X))
-                sample_vectors.extend(tuple([np.ascontiguousarray(x) for x in vectors[start:end]]))
+                sample_vectors.extend(
+                    tuple([np.ascontiguousarray(x) for x in vectors[start:end]])
+                )
 
             if len(vectors[0].shape) <= 1:
                 raise ValueError(
@@ -2964,7 +3018,7 @@ class WassersteinVectorizerOld(BaseEstimator, TransformerMixin):
                         ),
                         axis=0,
                     )
-                    reference_center /= np.sqrt(np.sum(reference_center ** 2))
+                    reference_center /= np.sqrt(np.sum(reference_center**2))
                 else:
                     reference_center = np.mean(
                         np.vstack(
@@ -3220,13 +3274,20 @@ class WassersteinVectorizerOld(BaseEstimator, TransformerMixin):
                     start = i * 512
                     end = min(start + 512, len(X))
                     sample_vectors.extend(
-                        tuple([np.ascontiguousarray(normalize(v, norm="l2")) for v in vectors[start:end]])
+                        tuple(
+                            [
+                                np.ascontiguousarray(normalize(v, norm="l2"))
+                                for v in vectors[start:end]
+                            ]
+                        )
                     )
             else:
                 for i in range(len(vectors) // 512 + 1):
                     start = i * 512
                     end = min(start + 512, len(X))
-                    sample_vectors.extend(tuple(np.ascontiguousarray(vectors[start:end])))
+                    sample_vectors.extend(
+                        tuple(np.ascontiguousarray(vectors[start:end]))
+                    )
 
             result_blocks = []
 

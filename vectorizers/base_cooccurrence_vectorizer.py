@@ -589,7 +589,6 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         return cooccurrence_matrix.tocsr()
 
     def fit_transform(self, X, y=None, **fit_params):
-
         if self.validate_data:
             validate_homogeneous_token_types(X)
 
@@ -747,7 +746,7 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         algorithm="arpack",
         n_iter=10,
         power=0.25,
-        random_state=None
+        random_state=None,
     ):
         check_is_fitted(self, ["column_label_dictionary_"])
 
@@ -763,7 +762,10 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             u, s, v = svds(self.reduced_matrix_, k=dimension, random_state=random_state)
         elif algorithm == "randomized":
             u, s, v = randomized_svd(
-                self.reduced_matrix_, n_components=dimension, n_iter=n_iter, random_state=random_state
+                self.reduced_matrix_,
+                n_components=dimension,
+                n_iter=n_iter,
+                random_state=random_state,
             )
         else:
             raise ValueError("algorithm should be one of 'arpack' or 'randomized'")
