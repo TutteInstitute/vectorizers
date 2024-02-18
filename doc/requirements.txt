@@ -12,3 +12,4 @@ ipykernel
 nbsphinx
 numpydoc
 sphinx-rtd-theme
+sphinx-gallery
