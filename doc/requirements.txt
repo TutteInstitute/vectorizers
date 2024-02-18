@@ -1,0 +1,14 @@
+numpy
+scipy
+scikit-learn
+numba
+pandas
+dask
+pynndescent>=0.5
+pomegranate
+pygments>=2.4.1
+jupyterlab_pygments>=0.1.1
+ipykernel
+nbsphinx
+numpydoc
+sphinx-rtd-theme
