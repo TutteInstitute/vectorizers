@@ -100,7 +100,7 @@ def column_weights(
 ):
     n_cols = indptr.shape[0] - 1
     weights = np.ones(n_cols)
-    for i in range(n_cols):
+    for i in numba.prange(n_cols):
         weights[i] = column_kl_divergence_func(
             indices[indptr[i] : indptr[i + 1]],
             data[indptr[i] : indptr[i + 1]],
