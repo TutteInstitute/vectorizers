@@ -40,6 +40,7 @@ machine learning.
 
    document_vectorization
    CategoricalColumnTransformer_intro
+   information_weight_transform
 
 .. toctree::
    :maxdepth: 2
