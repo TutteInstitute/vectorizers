@@ -10,7 +10,9 @@ Ngram and Skipgram Vectorizer
    :template: class.rst
 
    NgramVectorizer
+.. autoclass:: vectorizers.NgramVectorizer
    SkipgramVectorizer
+.. autoclass:: vectorizers.SkimgramVectorizer
    LZCompressionVectorizer
    BytePairEncodingVectorizer
 
@@ -47,6 +49,7 @@ Utility Vectorizers and Transformers
    EdgeListVectorizer
    CategoricalColumnTransformer
    InformationWeightTransformer
+.. autoclass:: vectorizers.transformers.InformationWeightTransformer
    RowDenoisingTransformer
    CountFeatureCompressionTransformer
 
