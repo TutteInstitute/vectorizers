@@ -40,7 +40,6 @@ machine learning.
 
    document_vectorization
    CategoricalColumnTransformer_intro
-   information_weight_transform
 
 .. toctree::
    :maxdepth: 2
@@ -48,6 +47,12 @@ machine learning.
 
    token_cooccurrence_vectorizer_multi_labelled_cyber_example
    categorical_column_transformer_example
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Understanding the Tools
+
+   information_weight_transform
 
 .. toctree::
    :maxdepth: 2
