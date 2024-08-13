@@ -50,6 +50,12 @@ machine learning.
 
 .. toctree::
    :maxdepth: 2
+   :caption: Understanding the Tools
+
+   information_weight_transform
+
+.. toctree::
+   :maxdepth: 2
    :caption: API Reference:
 
    api
