@@ -21,7 +21,7 @@ from vectorizers import LabelledTreeCooccurrenceVectorizer
 from vectorizers import WassersteinVectorizer
 from vectorizers import ApproximateWassersteinVectorizer
 from vectorizers import SinkhornVectorizer
-from vectorizers import LZCompressionVectorizer, BytePairEncodingVectorizer
+from vectorizers import LZCompressionVectorizer
 from pynndescent.distances import cosine
 
 from vectorizers.ngram_vectorizer import ngrams_of
@@ -33,7 +33,9 @@ from vectorizers._window_kernels import (
     flat_kernel,
 )
 from vectorizers.utils import summarize_embedding, categorical_columns_to_list
-from vectorizers.mixed_gram_vectorizer import to_unicode
+
+from . import raw_string_data
+
 
 token_data = (
     (1, 3, 1, 4, 2),
@@ -159,15 +161,6 @@ generator_reference_vectors = (
     np.mean(distributions_data.toarray(), axis=0) @ vectors_data
 ) + np.random.normal(scale=0.25 * np.mean(np.abs(vectors_data)), size=(16, 150))
 
-
-raw_string_data = [
-    "asdfj;afoosdaflksapokwerfoobarpokwersdfsadfsadfnbkajyfoopokwer",
-    "pokfoo;ohnASDbarfoobarpoksdf sgn;asregtjpoksdfpokpokwer",
-    "werqweoijsdcasdfpoktrfoobarpokqwernasdfasdpokpokpok",
-    "pokwerpokwqerpokwersadfpokqwepokwerpokpok",
-    "foobarfoofooasdfsdfgasdffoobarbazcabfoobarbarbazfoobaz",
-    "pokfoopokbarpokwerpokbazgfniusnvbgasgbabgsadfjnkr[pko",
-]
 
 random_timed_token_data = (
     (["a", 0.1], ["c", 0.2], ["a", 0.4], ["d", 0.5], ["b", 0.6]),
@@ -1338,44 +1331,3 @@ def test_lzcompression_vectorizer_badparams():
     with pytest.raises(ValueError):
         lzc = LZCompressionVectorizer(max_columns=-1)
         lzc.fit(raw_string_data)
-
-
-def test_bpe_vectorizer_basic():
-    bpe = BytePairEncodingVectorizer()
-    result1 = bpe.fit_transform(raw_string_data)
-    result2 = bpe.transform(raw_string_data)
-    assert np.allclose(result1.toarray(), result2.toarray())
-
-
-def test_bpe_tokens_ngram_matches():
-    bpe1 = BytePairEncodingVectorizer(return_type="matrix")
-    bpe2 = BytePairEncodingVectorizer(return_type="tokens")
-
-    result1 = bpe1.fit_transform(raw_string_data)
-    token_dictionary = {
-        to_unicode(code, bpe1.tokens_, bpe1.max_char_code_): n
-        for code, n in bpe1.column_label_dictionary_.items()
-    }
-
-    tokens = bpe2.fit_transform(raw_string_data)
-    result2 = NgramVectorizer(token_dictionary=token_dictionary).fit_transform(tokens)
-
-    assert np.allclose(result1.toarray(), result2.toarray())
-
-
-def test_bpe_bad_params():
-    with pytest.raises(ValueError):
-        bpe = BytePairEncodingVectorizer(max_vocab_size=-1)
-        bpe.fit(raw_string_data)
-
-    with pytest.raises(ValueError):
-        bpe = BytePairEncodingVectorizer(min_token_occurrence=-1)
-        bpe.fit(raw_string_data)
-
-    with pytest.raises(ValueError):
-        bpe = BytePairEncodingVectorizer(return_type=-1)
-        bpe.fit(raw_string_data)
-
-    with pytest.raises(ValueError):
-        bpe = BytePairEncodingVectorizer(return_type="nonsense")
-        bpe.fit(raw_string_data)
