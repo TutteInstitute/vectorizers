@@ -47,3 +47,33 @@ def test_bpe_bad_params():
     with pytest.raises(ValueError):
         bpe = BytePairEncodingVectorizer(return_type="nonsense")
         bpe.fit(raw_string_data)
+
+
+@pytest.mark.parametrize("trash", [0, -1])
+def test_bpe_trash_character(trash):
+    pytest.fail()
+
+
+def test_bpe_set_max_char_code():
+    pytest.fail()
+
+
+@pytest.mark.parametrize(
+    "name,max_expected",
+    [
+        ("ascii", 127),
+        ("utf-8(1)", 127),
+        ("common", 2047),
+        ("utf-8(2)", 2047),
+        ("bmp", 65536),
+        ("utf-8(3)", 65536),
+        ("unicode", 1_114_111),
+        ("utf-8(*)", 1_114_111),
+    ]
+)
+def test_bpe_max_char_code_limits(name, max_expected):
+    pytest.fail()
+
+
+def test_bpe_maintain_jaccard_connection():
+    pytest.fail()
