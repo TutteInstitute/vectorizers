@@ -533,6 +533,15 @@ def bpe_encode(chars, code_list, max_char_code):
 
     return compressed_chars
 
+
+@numba.njit(nogil=True, parallel=True)
+def bpe_encode_all(strings, code_list, max_char_code):
+    encodings = numba.typed.List([np.empty((1,), dtype=np.int64) for _ in strings])
+    for i in numba.prange(len(strings)):
+        encodings[i] = bpe_encode(strings[i], code_list, max_char_code)
+    return encodings
+
+
 def bpe_decode(code_array, tokens, max_char_code):
     """Decode a BPE code array into a string
 
@@ -986,11 +995,7 @@ class BytePairEncodingVectorizer(BaseEstimator, TransformerMixin):
              The transformed data, with the return type depending on the value of ``return_type``.
          """
         check_is_fitted(self, ["tokens_", "code_list_", "max_char_code_"])
-
-        encodings = [
-            bpe_encode(string, self.code_list_, self.max_char_code_)
-            for string in X
-        ]
+        encodings = bpe_encode_all(X, self.code_list_, self.max_char_code_)
 
         if self.return_type == "sequences":
             return encodings
