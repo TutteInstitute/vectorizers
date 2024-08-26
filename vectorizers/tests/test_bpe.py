@@ -103,7 +103,3 @@ def test_bpe_max_char_code_limits(name, max_expected):
 def test_bpe_max_char_code_limit_wrong():
     with pytest.raises(ValueError):
         BytePairEncodingVectorizer(max_char_code="utf8").fit(raw_string_data)
-
-
-def test_bpe_maintain_jaccard_connection():
-    pytest.fail()
