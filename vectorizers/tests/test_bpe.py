@@ -49,9 +49,14 @@ def test_bpe_bad_params():
         bpe.fit(raw_string_data)
 
 
-@pytest.mark.parametrize("trash", [0, -1])
-def test_bpe_trash_character(trash):
-    pytest.fail()
+def test_bpe_trash_token():
+    bpe = BytePairEncodingVectorizer(return_type="sequences").fit(raw_string_data)
+    tokenized_no_trash = bpe.transform(raw_string_data)
+    assert len(tokenized_no_trash) == len(raw_string_data)
+    assert not any(0 in tokens for tokens in tokenized_no_trash)
+    tokenized_with_trash = bpe.transform(["asdf{qwer"])
+    assert len(tokenized_with_trash) == 1
+    assert 0 in tokenized_with_trash[0]
 
 
 def test_bpe_set_max_char_code():
