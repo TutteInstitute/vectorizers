@@ -89,17 +89,20 @@ def test_bpe_set_max_char_code_too_low():
     "name,max_expected",
     [
         ("ascii", 127),
-        ("utf-8(1)", 127),
         ("common", 2047),
-        ("utf-8(2)", 2047),
-        ("bmp", 65536),
-        ("utf-8(3)", 65536),
+        ("bmp", 65535),
         ("unicode", 1_114_111),
-        ("utf-8(*)", 1_114_111),
     ]
 )
 def test_bpe_max_char_code_limits(name, max_expected):
-    pytest.fail()
+    assert max_expected == BytePairEncodingVectorizer(
+        max_char_code=name
+    ).fit(raw_string_data).max_char_code_
+
+
+def test_bpe_max_char_code_limit_wrong():
+    with pytest.raises(ValueError):
+        BytePairEncodingVectorizer(max_char_code="utf8").fit(raw_string_data)
 
 
 def test_bpe_maintain_jaccard_connection():

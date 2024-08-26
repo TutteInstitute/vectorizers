@@ -1,6 +1,7 @@
 import numpy as np
 import numba
 import scipy.sparse
+from typing import cast, Union
 
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted, check_random_state
@@ -787,6 +788,22 @@ class LZCompressionVectorizer(BaseEstimator, TransformerMixin):
         return result
 
 
+_NAMES_LIMIT = {
+    "ascii": 127,
+    "common": 2047,
+    "bmp": 65535,
+    "unicode": 1_114_111,
+}
+
+
+def _named_limit_to_max_char_code(name_or_mcc: Union[str, int]) -> int:
+    if isinstance(name_or_mcc, int):
+        return cast(int, name_or_mcc)
+    if name_or_mcc in _NAMES_LIMIT:
+        return _NAMES_LIMIT[name_or_mcc]
+    raise ValueError(f"`{name_or_mcc}' is not a known char code space limit name")
+
+
 class BytePairEncodingVectorizer(BaseEstimator, TransformerMixin):
     """Create vector representations of strings using a Byte Pair Encoding. This can
     be viewed as a kind of compression vectorizer (since BPE is also a compression scheme),
@@ -820,6 +837,22 @@ class BytePairEncodingVectorizer(BaseEstimator, TransformerMixin):
           * "sequences": a list of arrays of integer codes providing the encodings of each string
           * "tokens": a list of lists of string tokens with the vectorizer acting as a tokenizer
 
+    max_char_code: int or string (optional, default=0)
+        The limit of the token space allocated for string characters: characters of
+        code point value larger than this will be mapped to 0. If this is set to a
+        lesser value than the largest code point encountered in the training data
+        against which this model is fit, the limit is increased so as all training
+        characters fit in the space. The value of attribute ``max_char_code_``
+        will reflect the actual numerical limit posterior to adjustments supported
+        by training data. In addition to an integer value, max_char_code can be
+        set to any of the following named limits:
+          * "ascii": 127, the limit of the standard ASCII character set (encoded as a
+                     single byte by UTF-8).
+          * "common": 2047 (encoded on at most two bytes by UTF-8).
+          * "bmp": 65535, the limit of the Unicode Basic Multilingual Pane (encoded
+                   on at most 3 bytes by UTF-8).
+          * "unicode": 1,114,111, the maximum Unicode code point.
+
     Attributes
     ----------
     code_list_: list of pairs of ints
@@ -841,7 +874,7 @@ class BytePairEncodingVectorizer(BaseEstimator, TransformerMixin):
         max_vocab_size: int = 10000,
         min_token_occurrence: int = 1,
         return_type: str = "matrix",
-        max_char_code: int = 0
+        max_char_code: Union[int, str] = 0
     ):
         self.max_vocab_size = max_vocab_size
         self.min_token_occurence = min_token_occurrence
@@ -882,7 +915,7 @@ class BytePairEncodingVectorizer(BaseEstimator, TransformerMixin):
             X,
             vocab_size=self.max_vocab_size,
             min_count=self.min_token_occurence,
-            max_char_code=self.max_char_code,
+            max_char_code=_named_limit_to_max_char_code(self.max_char_code),
         )
 
         if self.return_type == "sequences":
