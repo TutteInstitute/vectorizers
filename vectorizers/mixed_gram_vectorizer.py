@@ -362,7 +362,7 @@ def pair_to_list(pair, code_list, max_char_code):
 
 
 @numba.njit()
-def bpe_train(char_list, vocab_size=10000, min_count=1):
+def bpe_train(char_list, vocab_size=10000, min_count=1, max_char_code=0):
     """Train a byte pair encoding on a given list of strings.
 
     Parameters
@@ -375,6 +375,12 @@ def bpe_train(char_list, vocab_size=10000, min_count=1):
 
     min_count: int
         The minimum number of occurrences a pair must have to be considered for merging.
+
+    max_char_code: int64
+        Suggested value for the code limit between expected character codes and codes
+        given to learned tokens. If the value passed on input is larger than the largest
+        code point observed in the training data, it is retained; otherwise,
+        that largest code point is returned as max_char_code on output.
 
     Returns
     -------
@@ -396,7 +402,6 @@ def bpe_train(char_list, vocab_size=10000, min_count=1):
     """
     # Initialize compressed chars
     compressed_chars = [np.empty(len(chars), dtype=np.int64) for chars in char_list]
-    max_char_code = 0
     for i, chars in enumerate(char_list):
         for j, c in enumerate(chars):
             c_val = ord(c)
@@ -831,10 +836,17 @@ class BytePairEncodingVectorizer(BaseEstimator, TransformerMixin):
         values associated with new learned tokens begin at ``max_char_code_ + 1``.
     """
 
-    def __init__(self, max_vocab_size=10000, min_token_occurrence=1, return_type="matrix"):
+    def __init__(
+        self,
+        max_vocab_size: int = 10000,
+        min_token_occurrence: int = 1,
+        return_type: str = "matrix",
+        max_char_code: int = 0
+    ):
         self.max_vocab_size = max_vocab_size
         self.min_token_occurence = min_token_occurrence
         self.return_type = return_type
+        self.max_char_code = max_char_code
 
 
     def fit_transform(self, X, y=None, **fit_params):
@@ -866,7 +878,12 @@ class BytePairEncodingVectorizer(BaseEstimator, TransformerMixin):
             self.code_list_,
             encodings,
             self.max_char_code_,
-        ) = bpe_train(X, vocab_size=self.max_vocab_size, min_count=self.min_token_occurence)
+        ) = bpe_train(
+            X,
+            vocab_size=self.max_vocab_size,
+            min_count=self.min_token_occurence,
+            max_char_code=self.max_char_code,
+        )
 
         if self.return_type == "sequences":
             return encodings

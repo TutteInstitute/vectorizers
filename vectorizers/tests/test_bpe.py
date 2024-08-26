@@ -60,7 +60,29 @@ def test_bpe_trash_token():
 
 
 def test_bpe_set_max_char_code():
-    pytest.fail()
+    MCC = 65535
+    bpe = BytePairEncodingVectorizer(
+        max_char_code=MCC,
+        return_type="sequences"
+    ).fit(raw_string_data)
+    tokens = bpe.transform(raw_string_data)
+    largest_char = max(max(ord(c) for c in s) for s in raw_string_data)
+    assert largest_char < 126
+    assert all(
+        all(
+            token <= largest_char or token > MCC
+            for token in seq
+        )
+        for seq in tokens
+    )
+    tokens_strange = bpe.transform([chr(126) + chr(2000) + chr(60000)])
+    assert 1 == len(tokens_strange)
+    assert np.all([126, 2000, 60000] == tokens_strange[0])
+
+
+def test_bpe_set_max_char_code_too_low():
+    bpe = BytePairEncodingVectorizer(max_char_code=50).fit(raw_string_data)
+    assert max(max(ord(c) for c in s) for s in raw_string_data) == bpe.max_char_code_
 
 
 @pytest.mark.parametrize(
