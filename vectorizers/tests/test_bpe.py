@@ -103,3 +103,25 @@ def test_bpe_max_char_code_limits(name, max_expected):
 def test_bpe_max_char_code_limit_wrong():
     with pytest.raises(ValueError):
         BytePairEncodingVectorizer(max_char_code="utf8").fit(raw_string_data)
+
+
+def test_bpe_contract_pair_single_token_training():
+    seqs_tokens = BytePairEncodingVectorizer(return_type="tokens").fit_transform([
+        "asdfqwerty",
+        "asdf",
+        "qwzxasdfcv"
+    ])
+    assert [
+        ["asdf", "qw", "e", "r", "t", "y"],
+        ["asdf"],
+        ["qw", "z", "x", "asdf", "c", "v"],
+    ] == seqs_tokens
+
+
+def test_bpe_contract_pair_single_token_inference():
+    bpe = BytePairEncodingVectorizer(return_type="tokens").fit([
+        "asdfqwerty",
+        "asdfg",
+        "qwzxasdfcv",
+    ])
+    assert [["asdf"]] == bpe.transform(["asdf"])

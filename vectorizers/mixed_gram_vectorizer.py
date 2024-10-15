@@ -227,6 +227,8 @@ def contract_and_count_pairs(char_list, pair_to_contract, pair_counts, new_code=
     """
     skip_char = False
     len_char_list = len(char_list)
+    if len_char_list < 2:
+        return char_list, pair_counts
     last_char_added = -1
     new_char_list = np.zeros(len_char_list, dtype=np.int64)
     new_char_index = 0
@@ -478,6 +480,8 @@ def contract_pair(char_list, pair_to_contract, new_code=-1):
     """
     skip_char = False
     len_char_list = len(char_list)
+    if len_char_list < 2:
+        return char_list
     new_char_list = np.zeros(len_char_list, dtype=np.int64)
     new_char_index = 0
 
