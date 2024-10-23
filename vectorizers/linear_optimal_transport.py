@@ -1778,11 +1778,27 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
 
         # Fit for lil
         elif self.input_method == "lil":
-            if type(X) not in (list, tuple, numba.typed.List):
+            for name, arg in [("X", X), ("vectors", vectors)]:
+                if type(arg) not in (list, tuple, numba.typed.List):
+                    raise ValueError(
+                        f"With input_method='lil', parameter {name} must be either a "
+                        "list, tuple or numba.typed.List; "
+                        f"you used a {type(X)}"
+                    )
+            if len(X) != len(vectors):
                 raise ValueError(
-                    "input_method is lil.  This must be fit with a list, tuple or numba.typed.List.\n"
-                    f"You used a {type(X)}"
+                    "The length of sequences X and vectors must be the same, but "
+                    f"here, len(X) == {len(X)} != {len(vectors)} == len(vectors)"
                 )
+            for i, (ws, vecs) in enumerate(zip(X, vectors)):
+                if ws.shape[0] != vecs.shape[0]:
+                    raise ValueError(
+                        "With input_method='lil', each sequence of weights must "
+                        "be associated to a corresponding number of vectors; "
+                        f"however, X[{i}] has {ws.shape[0]} weights, while "
+                        f"vectors[{i}] has {vecs.shape[0]} vectors"
+                    )
+
             if self.reference_size is None:
                 reference_size = int(np.median([len(x) for x in X]))
             else:
@@ -1797,7 +1813,7 @@ class WassersteinVectorizer(BaseEstimator, TransformerMixin):
                     start = i * 512
                     end = min(start + 512, len(X))
                     distributions.extend(tuple(X[start:end]))
-            except numba.TypingError:
+            except (TypeError, numba.TypingError):
                 raise ValueError(
                     "WassersteinVectorizer requires list or tuple input to"
                     " have homogeneous numeric type."

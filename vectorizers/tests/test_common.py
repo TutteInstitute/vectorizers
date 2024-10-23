@@ -1148,6 +1148,62 @@ def test_wasserstein_based_vectorizer_bad_params(
         vectorizer.fit(distributions_data_generator, vectors=vectors_data_generator)
 
 
+@pytest.mark.parametrize("seq_X", [list, tuple])
+@pytest.mark.parametrize("seq_vectors", [list, tuple])
+def test_wasserstein_lil_different_length_X_vectors(seq_X, seq_vectors):
+    with pytest.raises(ValueError):
+        WassersteinVectorizer(input_method="lil", method="LOT_exact").fit(
+            seq_X(np.array(a) for a in [[1., 1.], [1., 1., 1.], [1., 1., 1.]]),
+            vectors=seq_vectors([vectors_data[:2, :], vectors_data[2:2 + 3, :]])
+        )
+
+
+@pytest.mark.parametrize("seq_X", [list, tuple])
+@pytest.mark.parametrize("seq_vectors", [list, tuple])
+def test_wasserstein_lil_incoherent_X_vectors(seq_X, seq_vectors):
+    with pytest.raises(ValueError):
+        WassersteinVectorizer(input_method="lil", method="LOT_exact").fit(
+            seq_X(np.array(a) for a in [[1., 1.], [1., 1., 1.], [1., 1., 1.]]),
+            vectors=seq_vectors([
+                vectors_data[:2],
+                vectors_data[2:2 + 3],
+                vectors_data[5:5 + 4],
+            ])
+        )
+
+
+@pytest.mark.parametrize("seq_X", [list, tuple])
+@pytest.mark.parametrize("seq_vectors", [list, tuple])
+def test_wasserstein_lil_vectors_varying_size(seq_X, seq_vectors):
+    with pytest.raises(ValueError):
+        WassersteinVectorizer(input_method="lil", method="LOT_exact").fit(
+            seq_X(np.array(a) for a in [[1., 1.], [1., 1., 1.], [1., 1., 1.]]),
+            vectors=seq_vectors([
+                vectors_data[:2],
+                vectors_data[2:2 + 3],
+                np.hstack([vectors_data[5:5 + 3], np.zeros((3, 1))]),
+            ])
+        )
+
+
+@pytest.mark.parametrize("seq_X", [list, tuple])
+@pytest.mark.parametrize("seq_vectors", [list, tuple])
+def test_wasserstein_lil_weights_non_sequence(seq_X, seq_vectors):
+    with pytest.raises(ValueError):
+        WassersteinVectorizer(input_method="lil", method="LOT_exact").fit(
+            seq_X(np.array(a) for a in [
+                np.ones((2, 2)),
+                np.ones((3, 2)),
+                np.ones((3, 2)),
+            ]),
+            vectors=seq_vectors([
+                vectors_data[:2],
+                vectors_data[2:2 + 3],
+                vectors_data[5:5 + 3],
+            ])
+        )
+
+
 @pytest.mark.parametrize("method", ["LOT_exact", "LOT_sinkhorn"])
 def test_wasserstein_based_vectorizer_bad_metrics(method):
     with pytest.raises(ValueError):
