@@ -1148,48 +1148,60 @@ def test_wasserstein_based_vectorizer_bad_params(
         vectorizer.fit(distributions_data_generator, vectors=vectors_data_generator)
 
 
-# @pytest.mark.parametrize(
-#     "wasserstein_class",
-#     [WassersteinVectorizer, SinkhornVectorizer, ApproximateWassersteinVectorizer],
-# )
-# def test_wasserstein_based_vectorizer_bad_params(wasserstein_class):
-#     with pytest.raises(ValueError):
-#         vectorizer = wasserstein_class()
-#         vectorizer.fit(distributions_data)
-#
-#     with pytest.raises(ValueError):
-#         vectorizer = wasserstein_class()
-#         vectorizer.fit(mixed_token_data, vectors=vectors_data)
-#
-#     with pytest.raises(ValueError):
-#         vectorizer = wasserstein_class()
-#         vectorizer.fit(point_data, vectors=vectors_data)
-#
-#     distributions_data_generator = (x for x in distributions_data_list)
-#     vectors_data_generator = (x for x in vectors_data_list)
-#     with pytest.raises(ValueError):
-#         vectorizer = WassersteinVectorizer()
-#         vectorizer.fit(distributions_data_generator, vectors=vectors_data_generator)
-#
-#     distributions_data_generator = (x for x in distributions_data_list)
-#     vectors_data_generator = (x for x in vectors_data_list)
-#     with pytest.raises(ValueError):
-#         vectorizer = WassersteinVectorizer()
-#         vectorizer.fit(
-#             distributions_data_generator,
-#             vectors=vectors_data_generator,
-#             reference_vectors=np.random.random((10, vectors_data.shape[1])),
-#         )
-#
-#     distributions_data_generator = (x for x in distributions_data_list)
-#     vectors_data_generator = (x for x in vectors_data_list)
-#     with pytest.raises(ValueError):
-#         vectorizer = WassersteinVectorizer(reference_size=20)
-#         vectorizer.fit(
-#             distributions_data_generator,
-#             vectors=vectors_data_generator,
-#             reference_vectors=np.random.random((10, vectors_data.shape[1])),
-#         )
+@pytest.mark.parametrize("seq_X", [list, tuple])
+@pytest.mark.parametrize("seq_vectors", [list, tuple])
+def test_wasserstein_lil_different_length_X_vectors(seq_X, seq_vectors):
+    with pytest.raises(ValueError):
+        WassersteinVectorizer(input_method="lil", method="LOT_exact").fit(
+            seq_X(np.array(a) for a in [[1., 1.], [1., 1., 1.], [1., 1., 1.]]),
+            vectors=seq_vectors([vectors_data[:2, :], vectors_data[2:2 + 3, :]])
+        )
+
+
+@pytest.mark.parametrize("seq_X", [list, tuple])
+@pytest.mark.parametrize("seq_vectors", [list, tuple])
+def test_wasserstein_lil_incoherent_X_vectors(seq_X, seq_vectors):
+    with pytest.raises(ValueError):
+        WassersteinVectorizer(input_method="lil", method="LOT_exact").fit(
+            seq_X(np.array(a) for a in [[1., 1.], [1., 1., 1.], [1., 1., 1.]]),
+            vectors=seq_vectors([
+                vectors_data[:2],
+                vectors_data[2:2 + 3],
+                vectors_data[5:5 + 4],
+            ])
+        )
+
+
+@pytest.mark.parametrize("seq_X", [list, tuple])
+@pytest.mark.parametrize("seq_vectors", [list, tuple])
+def test_wasserstein_lil_vectors_varying_size(seq_X, seq_vectors):
+    with pytest.raises(ValueError):
+        WassersteinVectorizer(input_method="lil", method="LOT_exact").fit(
+            seq_X(np.array(a) for a in [[1., 1.], [1., 1., 1.], [1., 1., 1.]]),
+            vectors=seq_vectors([
+                vectors_data[:2],
+                vectors_data[2:2 + 3],
+                np.hstack([vectors_data[5:5 + 3], np.zeros((3, 1))]),
+            ])
+        )
+
+
+@pytest.mark.parametrize("seq_X", [list, tuple])
+@pytest.mark.parametrize("seq_vectors", [list, tuple])
+def test_wasserstein_lil_weights_non_sequence(seq_X, seq_vectors):
+    with pytest.raises(ValueError):
+        WassersteinVectorizer(input_method="lil", method="LOT_exact").fit(
+            seq_X(np.array(a) for a in [
+                np.ones((2, 2)),
+                np.ones((3, 2)),
+                np.ones((3, 2)),
+            ]),
+            vectors=seq_vectors([
+                vectors_data[:2],
+                vectors_data[2:2 + 3],
+                vectors_data[5:5 + 3],
+            ])
+        )
 
 
 @pytest.mark.parametrize("method", ["LOT_exact", "LOT_sinkhorn"])
