@@ -19,6 +19,12 @@ pr:
     - doc/*
     - README.rst
 
+parameters:
+  - name: includeReleaseCandidates
+    displayName: "Allow pre-release dependencies"
+    type: boolean
+    default: false
+
 variables:
   triggeredByPullRequest: $[eq(variables['Build.Reason'], 'PullRequest')]
 
@@ -29,15 +35,6 @@ stages:
       - job: run_platform_tests
         strategy:
           matrix:
-            mac_py38:
-              imageName: 'macOS-latest'
-              python.version: '3.8'
-            linux_py38:
-              imageName: 'ubuntu-latest'
-              python.version: '3.8'
-            windows_py38:
-              imageName: 'windows-latest'
-              python.version: '3.8'
             mac_py39:
               imageName: 'macOS-latest'
               python.version: '3.9'
@@ -56,7 +53,24 @@ stages:
             windows_py310:
               imageName: 'windows-latest'
               python.version: '3.10'
-
+            mac_py311:
+              imageName: 'macOS-latest'
+              python.version: '3.11'
+            linux_py311:
+              imageName: 'ubuntu-latest'
+              python.version: '3.11'
+            windows_py311:
+              imageName: 'windows-latest'
+              python.version: '3.11'
+            mac_py312:
+              imageName: 'macOS-latest'
+              python.version: '3.12'
+            linux_py312:
+              imageName: 'ubuntu-latest'
+              python.version: '3.12'
+            windows_py312:
+              imageName: 'windows-latest'
+              python.version: '3.12'
         pool:
           vmImage: $(imageName)
 
@@ -68,8 +82,17 @@ stages:
 
         - script: |
             python -m pip install --upgrade pip
+          displayName: 'Upgrade pip'
+
+        - script: |
             pip install -r requirements.txt
           displayName: 'Install dependencies'
+          condition: ${{ eq(parameters.includeReleaseCandidates, false) }}
+
+        - script: |
+            pip install --pre -r requirements.txt
+          displayName: 'Install dependencies (allow pre-releases)'
+          condition: ${{ eq(parameters.includeReleaseCandidates, true) }}
 
         - script: |
             pip install -e .
