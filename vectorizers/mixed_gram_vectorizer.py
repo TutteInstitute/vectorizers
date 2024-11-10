@@ -1,6 +1,7 @@
 import numpy as np
 import numba
 import scipy.sparse
+from typing import cast, Union
 
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted, check_random_state
@@ -226,6 +227,8 @@ def contract_and_count_pairs(char_list, pair_to_contract, pair_counts, new_code=
     """
     skip_char = False
     len_char_list = len(char_list)
+    if len_char_list < 2:
+        return char_list, pair_counts
     last_char_added = -1
     new_char_list = np.zeros(len_char_list, dtype=np.int64)
     new_char_index = 0
@@ -362,7 +365,7 @@ def pair_to_list(pair, code_list, max_char_code):
 
 
 @numba.njit()
-def bpe_train(char_list, vocab_size=10000, min_count=1):
+def bpe_train(char_list, vocab_size=10000, min_count=1, max_char_code=0):
     """Train a byte pair encoding on a given list of strings.
 
     Parameters
@@ -375,6 +378,12 @@ def bpe_train(char_list, vocab_size=10000, min_count=1):
 
     min_count: int
         The minimum number of occurrences a pair must have to be considered for merging.
+
+    max_char_code: int64
+        Suggested value for the code limit between expected character codes and codes
+        given to learned tokens. If the value passed on input is larger than the largest
+        code point observed in the training data, it is retained; otherwise,
+        that largest code point is returned as max_char_code on output.
 
     Returns
     -------
@@ -396,7 +405,6 @@ def bpe_train(char_list, vocab_size=10000, min_count=1):
     """
     # Initialize compressed chars
     compressed_chars = [np.empty(len(chars), dtype=np.int64) for chars in char_list]
-    max_char_code = 0
     for i, chars in enumerate(char_list):
         for j, c in enumerate(chars):
             c_val = ord(c)
@@ -472,6 +480,8 @@ def contract_pair(char_list, pair_to_contract, new_code=-1):
     """
     skip_char = False
     len_char_list = len(char_list)
+    if len_char_list < 2:
+        return char_list
     new_char_list = np.zeros(len_char_list, dtype=np.int64)
     new_char_index = 0
 
@@ -526,6 +536,15 @@ def bpe_encode(chars, code_list, max_char_code):
         new_code += 1
 
     return compressed_chars
+
+
+@numba.njit(nogil=True, parallel=True)
+def bpe_encode_all(strings, code_list, max_char_code):
+    encodings = numba.typed.List([np.empty((1,), dtype=np.int64) for _ in strings])
+    for i in numba.prange(len(strings)):
+        encodings[i] = bpe_encode(strings[i], code_list, max_char_code)
+    return encodings
+
 
 def bpe_decode(code_array, tokens, max_char_code):
     """Decode a BPE code array into a string
@@ -782,6 +801,22 @@ class LZCompressionVectorizer(BaseEstimator, TransformerMixin):
         return result
 
 
+_NAMES_LIMIT = {
+    "ascii": 127,
+    "common": 2047,
+    "bmp": 65535,
+    "unicode": 1_114_111,
+}
+
+
+def _named_limit_to_max_char_code(name_or_mcc: Union[str, int]) -> int:
+    if isinstance(name_or_mcc, int):
+        return cast(int, name_or_mcc)
+    if name_or_mcc in _NAMES_LIMIT:
+        return _NAMES_LIMIT[name_or_mcc]
+    raise ValueError(f"`{name_or_mcc}' is not a known char code space limit name")
+
+
 class BytePairEncodingVectorizer(BaseEstimator, TransformerMixin):
     """Create vector representations of strings using a Byte Pair Encoding. This can
     be viewed as a kind of compression vectorizer (since BPE is also a compression scheme),
@@ -815,6 +850,22 @@ class BytePairEncodingVectorizer(BaseEstimator, TransformerMixin):
           * "sequences": a list of arrays of integer codes providing the encodings of each string
           * "tokens": a list of lists of string tokens with the vectorizer acting as a tokenizer
 
+    max_char_code: int or string (optional, default=0)
+        The limit of the token space allocated for string characters: characters of
+        code point value larger than this will be mapped to 0. If this is set to a
+        lesser value than the largest code point encountered in the training data
+        against which this model is fit, the limit is increased so as all training
+        characters fit in the space. The value of attribute ``max_char_code_``
+        will reflect the actual numerical limit posterior to adjustments supported
+        by training data. In addition to an integer value, max_char_code can be
+        set to any of the following named limits:
+          * "ascii": 127, the limit of the standard ASCII character set (encoded as a
+                     single byte by UTF-8).
+          * "common": 2047 (encoded on at most two bytes by UTF-8).
+          * "bmp": 65535, the limit of the Unicode Basic Multilingual Pane (encoded
+                   on at most 3 bytes by UTF-8).
+          * "unicode": 1,114,111, the maximum Unicode code point.
+
     Attributes
     ----------
     code_list_: list of pairs of ints
@@ -831,10 +882,17 @@ class BytePairEncodingVectorizer(BaseEstimator, TransformerMixin):
         values associated with new learned tokens begin at ``max_char_code_ + 1``.
     """
 
-    def __init__(self, max_vocab_size=10000, min_token_occurrence=1, return_type="matrix"):
+    def __init__(
+        self,
+        max_vocab_size: int = 10000,
+        min_token_occurrence: int = 1,
+        return_type: str = "matrix",
+        max_char_code: Union[int, str] = 0
+    ):
         self.max_vocab_size = max_vocab_size
         self.min_token_occurence = min_token_occurrence
         self.return_type = return_type
+        self.max_char_code = max_char_code
 
 
     def fit_transform(self, X, y=None, **fit_params):
@@ -866,7 +924,12 @@ class BytePairEncodingVectorizer(BaseEstimator, TransformerMixin):
             self.code_list_,
             encodings,
             self.max_char_code_,
-        ) = bpe_train(X, vocab_size=self.max_vocab_size, min_count=self.min_token_occurence)
+        ) = bpe_train(
+            X,
+            vocab_size=self.max_vocab_size,
+            min_count=self.min_token_occurence,
+            max_char_code=_named_limit_to_max_char_code(self.max_char_code),
+        )
 
         if self.return_type == "sequences":
             return encodings
@@ -936,11 +999,7 @@ class BytePairEncodingVectorizer(BaseEstimator, TransformerMixin):
              The transformed data, with the return type depending on the value of ``return_type``.
          """
         check_is_fitted(self, ["tokens_", "code_list_", "max_char_code_"])
-
-        encodings = [
-            bpe_encode(string, self.code_list_, self.max_char_code_)
-            for string in X
-        ]
+        encodings = bpe_encode_all(X, self.code_list_, self.max_char_code_)
 
         if self.return_type == "sequences":
             return encodings

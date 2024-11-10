@@ -21,7 +21,7 @@ from vectorizers import LabelledTreeCooccurrenceVectorizer
 from vectorizers import WassersteinVectorizer
 from vectorizers import ApproximateWassersteinVectorizer
 from vectorizers import SinkhornVectorizer
-from vectorizers import LZCompressionVectorizer, BytePairEncodingVectorizer
+from vectorizers import LZCompressionVectorizer
 from pynndescent.distances import cosine
 
 from vectorizers.ngram_vectorizer import ngrams_of
@@ -33,7 +33,9 @@ from vectorizers._window_kernels import (
     flat_kernel,
 )
 from vectorizers.utils import summarize_embedding, categorical_columns_to_list
-from vectorizers.mixed_gram_vectorizer import to_unicode
+
+from . import raw_string_data
+
 
 token_data = (
     (1, 3, 1, 4, 2),
@@ -159,15 +161,6 @@ generator_reference_vectors = (
     np.mean(distributions_data.toarray(), axis=0) @ vectors_data
 ) + np.random.normal(scale=0.25 * np.mean(np.abs(vectors_data)), size=(16, 150))
 
-
-raw_string_data = [
-    "asdfj;afoosdaflksapokwerfoobarpokwersdfsadfsadfnbkajyfoopokwer",
-    "pokfoo;ohnASDbarfoobarpoksdf sgn;asregtjpoksdfpokpokwer",
-    "werqweoijsdcasdfpoktrfoobarpokqwernasdfasdpokpokpok",
-    "pokwerpokwqerpokwersadfpokqwepokwerpokpok",
-    "foobarfoofooasdfsdfgasdffoobarbazcabfoobarbarbazfoobaz",
-    "pokfoopokbarpokwerpokbazgfniusnvbgasgbabgsadfjnkr[pko",
-]
 
 random_timed_token_data = (
     (["a", 0.1], ["c", 0.2], ["a", 0.4], ["d", 0.5], ["b", 0.6]),
@@ -1155,48 +1148,60 @@ def test_wasserstein_based_vectorizer_bad_params(
         vectorizer.fit(distributions_data_generator, vectors=vectors_data_generator)
 
 
-# @pytest.mark.parametrize(
-#     "wasserstein_class",
-#     [WassersteinVectorizer, SinkhornVectorizer, ApproximateWassersteinVectorizer],
-# )
-# def test_wasserstein_based_vectorizer_bad_params(wasserstein_class):
-#     with pytest.raises(ValueError):
-#         vectorizer = wasserstein_class()
-#         vectorizer.fit(distributions_data)
-#
-#     with pytest.raises(ValueError):
-#         vectorizer = wasserstein_class()
-#         vectorizer.fit(mixed_token_data, vectors=vectors_data)
-#
-#     with pytest.raises(ValueError):
-#         vectorizer = wasserstein_class()
-#         vectorizer.fit(point_data, vectors=vectors_data)
-#
-#     distributions_data_generator = (x for x in distributions_data_list)
-#     vectors_data_generator = (x for x in vectors_data_list)
-#     with pytest.raises(ValueError):
-#         vectorizer = WassersteinVectorizer()
-#         vectorizer.fit(distributions_data_generator, vectors=vectors_data_generator)
-#
-#     distributions_data_generator = (x for x in distributions_data_list)
-#     vectors_data_generator = (x for x in vectors_data_list)
-#     with pytest.raises(ValueError):
-#         vectorizer = WassersteinVectorizer()
-#         vectorizer.fit(
-#             distributions_data_generator,
-#             vectors=vectors_data_generator,
-#             reference_vectors=np.random.random((10, vectors_data.shape[1])),
-#         )
-#
-#     distributions_data_generator = (x for x in distributions_data_list)
-#     vectors_data_generator = (x for x in vectors_data_list)
-#     with pytest.raises(ValueError):
-#         vectorizer = WassersteinVectorizer(reference_size=20)
-#         vectorizer.fit(
-#             distributions_data_generator,
-#             vectors=vectors_data_generator,
-#             reference_vectors=np.random.random((10, vectors_data.shape[1])),
-#         )
+@pytest.mark.parametrize("seq_X", [list, tuple])
+@pytest.mark.parametrize("seq_vectors", [list, tuple])
+def test_wasserstein_lil_different_length_X_vectors(seq_X, seq_vectors):
+    with pytest.raises(ValueError):
+        WassersteinVectorizer(input_method="lil", method="LOT_exact").fit(
+            seq_X(np.array(a) for a in [[1., 1.], [1., 1., 1.], [1., 1., 1.]]),
+            vectors=seq_vectors([vectors_data[:2, :], vectors_data[2:2 + 3, :]])
+        )
+
+
+@pytest.mark.parametrize("seq_X", [list, tuple])
+@pytest.mark.parametrize("seq_vectors", [list, tuple])
+def test_wasserstein_lil_incoherent_X_vectors(seq_X, seq_vectors):
+    with pytest.raises(ValueError):
+        WassersteinVectorizer(input_method="lil", method="LOT_exact").fit(
+            seq_X(np.array(a) for a in [[1., 1.], [1., 1., 1.], [1., 1., 1.]]),
+            vectors=seq_vectors([
+                vectors_data[:2],
+                vectors_data[2:2 + 3],
+                vectors_data[5:5 + 4],
+            ])
+        )
+
+
+@pytest.mark.parametrize("seq_X", [list, tuple])
+@pytest.mark.parametrize("seq_vectors", [list, tuple])
+def test_wasserstein_lil_vectors_varying_size(seq_X, seq_vectors):
+    with pytest.raises(ValueError):
+        WassersteinVectorizer(input_method="lil", method="LOT_exact").fit(
+            seq_X(np.array(a) for a in [[1., 1.], [1., 1., 1.], [1., 1., 1.]]),
+            vectors=seq_vectors([
+                vectors_data[:2],
+                vectors_data[2:2 + 3],
+                np.hstack([vectors_data[5:5 + 3], np.zeros((3, 1))]),
+            ])
+        )
+
+
+@pytest.mark.parametrize("seq_X", [list, tuple])
+@pytest.mark.parametrize("seq_vectors", [list, tuple])
+def test_wasserstein_lil_weights_non_sequence(seq_X, seq_vectors):
+    with pytest.raises(ValueError):
+        WassersteinVectorizer(input_method="lil", method="LOT_exact").fit(
+            seq_X(np.array(a) for a in [
+                np.ones((2, 2)),
+                np.ones((3, 2)),
+                np.ones((3, 2)),
+            ]),
+            vectors=seq_vectors([
+                vectors_data[:2],
+                vectors_data[2:2 + 3],
+                vectors_data[5:5 + 3],
+            ])
+        )
 
 
 @pytest.mark.parametrize("method", ["LOT_exact", "LOT_sinkhorn"])
@@ -1338,44 +1343,3 @@ def test_lzcompression_vectorizer_badparams():
     with pytest.raises(ValueError):
         lzc = LZCompressionVectorizer(max_columns=-1)
         lzc.fit(raw_string_data)
-
-
-def test_bpe_vectorizer_basic():
-    bpe = BytePairEncodingVectorizer()
-    result1 = bpe.fit_transform(raw_string_data)
-    result2 = bpe.transform(raw_string_data)
-    assert np.allclose(result1.toarray(), result2.toarray())
-
-
-def test_bpe_tokens_ngram_matches():
-    bpe1 = BytePairEncodingVectorizer(return_type="matrix")
-    bpe2 = BytePairEncodingVectorizer(return_type="tokens")
-
-    result1 = bpe1.fit_transform(raw_string_data)
-    token_dictionary = {
-        to_unicode(code, bpe1.tokens_, bpe1.max_char_code_): n
-        for code, n in bpe1.column_label_dictionary_.items()
-    }
-
-    tokens = bpe2.fit_transform(raw_string_data)
-    result2 = NgramVectorizer(token_dictionary=token_dictionary).fit_transform(tokens)
-
-    assert np.allclose(result1.toarray(), result2.toarray())
-
-
-def test_bpe_bad_params():
-    with pytest.raises(ValueError):
-        bpe = BytePairEncodingVectorizer(max_vocab_size=-1)
-        bpe.fit(raw_string_data)
-
-    with pytest.raises(ValueError):
-        bpe = BytePairEncodingVectorizer(min_token_occurrence=-1)
-        bpe.fit(raw_string_data)
-
-    with pytest.raises(ValueError):
-        bpe = BytePairEncodingVectorizer(return_type=-1)
-        bpe.fit(raw_string_data)
-
-    with pytest.raises(ValueError):
-        bpe = BytePairEncodingVectorizer(return_type="nonsense")
-        bpe.fit(raw_string_data)
