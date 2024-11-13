@@ -117,7 +117,7 @@ def find_bin_boundaries(flat, n_bins):
 
 def expand_boundaries(my_interval_index, absolute_range):
     """
-    Expands the outer bind on a pandas IntervalIndex to encompase the range specified by the 2-tuple absolute_range.
+    Expands the outer bind on a pandas IntervalIndex to encompass the range specified by the 2-tuple absolute_range.
 
     Parameters
     ----------
@@ -131,7 +131,7 @@ def expand_boundaries(my_interval_index, absolute_range):
         A pandas IntervalIndex with the boundaries potentially expanded to encompas the absolute range.
     """
     """
-    expands the outer bind on a pandas IntervalIndex to encompase the range specified by the 2-tuple absolute_range
+    expands the outer bind on a pandas IntervalIndex to encompass the range specified by the 2-tuple absolute_range
     :param my_interval_index:
     :param absolute_range: 2tuple 
     :return: a pandas IntervalIndex
