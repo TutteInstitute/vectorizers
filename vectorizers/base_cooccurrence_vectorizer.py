@@ -215,6 +215,7 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         self.epsilon = epsilon
         self.token_label_dictionary_ = {}
         self.token_index_dictionary_ = {}
+        self.coo_initial_memory = coo_initial_memory
         self.coo_initial_bytes = str_to_bytes(coo_initial_memory)
 
         # Set attributes
