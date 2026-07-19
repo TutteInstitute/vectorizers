@@ -81,7 +81,8 @@ def supervised_column_kl(
     for i in range(count_indices.shape[0]):
         idx = count_indices[i]
         label = target[idx]
-        observed[label] += count_data[i]
+        if label >= 0:
+            observed[label] += count_data[i]
 
     observed += prior_strength * baseline_probabilities
     observed /= observed.sum()
