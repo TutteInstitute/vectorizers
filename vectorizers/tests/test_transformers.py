@@ -223,15 +223,15 @@ def test_iw_transformer_column_groups(prior_strength, approx_prior):
 
 @pytest.mark.parametrize("prior_strength", [0.1, 1.0])
 @pytest.mark.parametrize("approx_prior", [True, False])
-def test_iw_transformer_column_groups_single_weight(prior_strength, approx_prior):
+def test_iw_transformer_supervised_column_groups(prior_strength, approx_prior):
     IWT = InformationWeightTransformer(
         prior_strength=prior_strength,
         approx_prior=approx_prior,
     )
     result = IWT.fit_transform(
         test_matrix,
-        column_groups=np.array([0, 1, 1]),
-        single_column_group_weight=np.array([False, True])
+        np.array([0, 1, 1]),
+        column_groups=np.array([0, 1, 1])
     )
     transform = IWT.transform(test_matrix)
     assert np.allclose(result.toarray(), transform.toarray())
