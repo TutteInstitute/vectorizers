@@ -37,7 +37,9 @@ test_time_series = [
     np.random.random(size=44),
 ]
 
-changepoint_position = np.random.randint(11, 100) # changepoint position must be at least window_width in
+changepoint_position = np.random.randint(
+    11, 100
+)  # changepoint position must be at least window_width in
 changepoint_sequence = np.random.poisson(0.75, size=100)
 changepoint_sequence[changepoint_position] = 10
 
@@ -199,66 +201,54 @@ def test_iw_transformer(prior_strength, approx_prior):
 
 @pytest.mark.parametrize("prior_strength", [0.1, 1.0])
 @pytest.mark.parametrize("approx_prior", [True, False])
-def test_iw_transformer_supervised(prior_strength, approx_prior):
+@pytest.mark.parametrize("target", [None, np.array([0, 1, 1])])
+@pytest.mark.parametrize("column_groups", [None, np.array([0, 1, 1])])
+def test_iw_transformer_fit_args(prior_strength, approx_prior, target, column_groups):
     IWT = InformationWeightTransformer(
         prior_strength=prior_strength,
         approx_prior=approx_prior,
     )
-    result = IWT.fit_transform(test_matrix, np.array([0, 1, 1]))
+    result = IWT.fit_transform(test_matrix, target, column_groups=column_groups)
     transform = IWT.transform(test_matrix)
+    print(target, column_groups)
     assert np.allclose(result.toarray(), transform.toarray())
+    assert np.all(IWT.information_weights_ >= 0)
 
 
 @pytest.mark.parametrize("prior_strength", [0.1, 1.0])
 @pytest.mark.parametrize("approx_prior", [True, False])
-def test_iw_transformer_column_groups(prior_strength, approx_prior):
-    IWT = InformationWeightTransformer(
-        prior_strength=prior_strength,
-        approx_prior=approx_prior,
-    )
-    result = IWT.fit_transform(test_matrix, column_groups=np.array([0, 1, 1]))
-    transform = IWT.transform(test_matrix)
-    assert np.allclose(result.toarray(), transform.toarray())
-
-
-@pytest.mark.parametrize("prior_strength", [0.1, 1.0])
-@pytest.mark.parametrize("approx_prior", [True, False])
-def test_iw_transformer_column_groups_single_weight(prior_strength, approx_prior):
+@pytest.mark.parametrize("target", [None, np.array([0, 1, 1])])
+@pytest.mark.parametrize("column_groups", [None, np.array([0, 1, 1])])
+def test_iw_transformer_zero_column(
+    prior_strength, approx_prior, target, column_groups
+):
     IWT = InformationWeightTransformer(
         prior_strength=prior_strength,
         approx_prior=approx_prior,
     )
     result = IWT.fit_transform(
-        test_matrix,
-        column_groups=np.array([0, 1, 1]),
-        single_column_group_weight=np.array([False, True])
+        test_matrix_zero_column, target, column_groups=column_groups
     )
-    transform = IWT.transform(test_matrix)
-    assert np.allclose(result.toarray(), transform.toarray())
-
-
-@pytest.mark.parametrize("prior_strength", [0.1, 1.0])
-@pytest.mark.parametrize("approx_prior", [True, False])
-def test_iw_transformer_zero_column(prior_strength, approx_prior):
-    IWT = InformationWeightTransformer(
-        prior_strength=prior_strength,
-        approx_prior=approx_prior,
-    )
-    result = IWT.fit_transform(test_matrix_zero_column)
     transform = IWT.transform(test_matrix_zero_column)
     assert np.allclose(result.toarray(), transform.toarray())
+    assert np.all(IWT.information_weights_ >= 0)
 
 
 @pytest.mark.parametrize("prior_strength", [0.1, 1.0])
 @pytest.mark.parametrize("approx_prior", [True, False])
-def test_iw_transformer_zero_row(prior_strength, approx_prior):
+@pytest.mark.parametrize("target", [None, np.array([0, 1, 1])])
+@pytest.mark.parametrize("column_groups", [None, np.array([0, 1, 1])])
+def test_iw_transformer_zero_row(prior_strength, approx_prior, target, column_groups):
     IWT = InformationWeightTransformer(
         prior_strength=prior_strength,
         approx_prior=approx_prior,
     )
-    result = IWT.fit_transform(test_matrix_zero_row)
+    result = IWT.fit_transform(
+        test_matrix_zero_row, target, column_groups=column_groups
+    )
     transform = IWT.transform(test_matrix_zero_row)
     assert np.allclose(result.toarray(), transform.toarray())
+    assert np.all(IWT.information_weights_ >= 0)
 
 
 @pytest.mark.parametrize("algorithm", ["randomized", "arpack"])
@@ -271,9 +261,13 @@ def test_count_feature_compression_basic(algorithm):
 
 @pytest.mark.parametrize("algorithm", ["randomized", "arpack"])
 def test_count_feature_compression_fit_transform_is_fit_and_transform(algorithm):
-    make_cfc = lambda: CountFeatureCompressionTransformer(n_components=2, algorithm=algorithm)
+    make_cfc = lambda: CountFeatureCompressionTransformer(
+        n_components=2, algorithm=algorithm
+    )
     cfc_fit = make_cfc().fit(test_matrix)
-    assert np.allclose(cfc_fit.transform(test_matrix), make_cfc().fit_transform(test_matrix))
+    assert np.allclose(
+        cfc_fit.transform(test_matrix), make_cfc().fit_transform(test_matrix)
+    )
 
 
 def test_count_feature_compression_warns():
@@ -359,13 +353,16 @@ def test_sliding_window_generator_matches_transformer(pad_width, kernel, sample)
         for j, point in enumerate(point_cloud):
             assert np.allclose(point, generator_result[i][j])
 
+
 @pytest.mark.parametrize("window_width", [5, 10])
 def test_sliding_window_count_changepoint(window_width):
     swt = SlidingWindowTransformer(
-        window_width=window_width, kernels=[("count_changepoint", 1.0, 2.0)],
+        window_width=window_width,
+        kernels=[("count_changepoint", 1.0, 2.0)],
     )
     changepoint_scores = swt.fit_transform([changepoint_sequence])[0].flatten()
     assert np.argmax(changepoint_scores) + window_width - 1 == changepoint_position
+
 
 @pytest.mark.parametrize("pad_width", [0, 1])
 @pytest.mark.parametrize(
@@ -429,10 +426,13 @@ def test_sliding_window_transformer_bad_params():
     with pytest.raises(ValueError):
         result = swt.fit_transform(test_time_series)
 
+
 def test_seq_diff_transformer_basic():
     sdt = SequentialDifferenceTransformer()
     diffs = sdt.fit_transform(test_time_series)
     transform_diffs = sdt.transform(test_time_series)
     for i, seq_diffs in enumerate(diffs):
         assert np.allclose(np.array(seq_diffs), np.array(transform_diffs[i]))
-        assert np.allclose(test_time_series[i][:-1] + np.ravel(seq_diffs), test_time_series[i][1:])
+        assert np.allclose(
+            test_time_series[i][:-1] + np.ravel(seq_diffs), test_time_series[i][1:]
+        )
