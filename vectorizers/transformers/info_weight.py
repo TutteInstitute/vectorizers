@@ -101,14 +101,6 @@ def column_weights(
     target=MOCK_TARGET,
     column_groups=None,
 ):
-    """
-    Compute the marginals to compare each column to. Returns
-    an (n column groups) x (n columns) matrix or an
-    (n column groups) x (n targets) matrix where each row
-    is the marginal of the column group.
-
-    indptr, indices, and data arrays are from csr format.
-    """
     n_cols = indptr.shape[0] - 1
     weights = np.ones(n_cols)
     for i in numba.prange(n_cols):
