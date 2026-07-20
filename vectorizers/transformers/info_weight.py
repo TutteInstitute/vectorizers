@@ -87,7 +87,15 @@ def supervised_column_kl(
     observed += prior_strength * baseline_probabilities
     observed /= observed.sum()
 
-    return np.sum(observed * np.log(observed / baseline_probabilities))
+    # Zeros in baseline_probabilities may cause nans in the log
+    # But this can only happen when observed is also 0, so due
+    # to the multiplication it does not contribute to the sum
+    non_zero = observed > 0
+    result = np.sum(
+        observed[non_zero]
+        * np.log(observed[non_zero] / baseline_probabilities[non_zero])
+    )
+    return result
 
 
 @numba.njit(nogil=True, parallel=True)
@@ -307,15 +315,18 @@ class InformationWeightTransformer(BaseEstimator, TransformerMixin):
             column_groups=column_groups,
         )
 
+        mean_weight = np.mean(self.information_weights_)
+        if mean_weight > 0:
+            self.information_weights_ /= mean_weight
+            # This should never happen
+        self.information_weights_ = np.maximum(self.information_weights_, 0.0)
+        self.information_weights_ = np.power(
+            self.information_weights_, self.weight_power
+        )
+
         if y is not None:
             unsupervised_power = (1.0 - self.supervision_weight) * self.weight_power
             supervised_power = self.supervision_weight * self.weight_power
-
-            self.information_weights_ /= np.mean(self.information_weights_)
-            self.information_weights_ = np.maximum(self.information_weights_, 0.0)
-            self.information_weights_ = np.power(
-                self.information_weights_, unsupervised_power
-            )
 
             target_classes = np.unique(y)
             target_dict = dict(
@@ -331,7 +342,10 @@ class InformationWeightTransformer(BaseEstimator, TransformerMixin):
                 target=target,
                 column_groups=column_groups,
             )
-            self.supervised_weights_ /= np.mean(self.supervised_weights_)
+            mean_supervised_weight = np.mean(self.information_weights_)
+            if mean_supervised_weight > 0:
+                self.supervised_weights_ /= mean_supervised_weight
+            # This should never happen
             self.supervised_weights_ = np.maximum(self.supervised_weights_, 0.0)
             self.supervised_weights_ = np.power(
                 self.supervised_weights_, supervised_power
@@ -339,12 +353,6 @@ class InformationWeightTransformer(BaseEstimator, TransformerMixin):
 
             self.information_weights_ = (
                 self.information_weights_ * self.supervised_weights_
-            )
-        else:
-            self.information_weights_ /= np.mean(self.information_weights_)
-            self.information_weights_ = np.maximum(self.information_weights_, 0.0)
-            self.information_weights_ = np.power(
-                self.information_weights_, self.weight_power
             )
 
         return self
