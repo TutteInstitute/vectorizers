@@ -143,19 +143,19 @@ def compute_baseline_probabilities(
     """
     n_groups = 1
     if column_groups is not None:
-        n_groups = column_groups.max()+1
-    n_targets = indptr.shape[0]-1
+        n_groups = column_groups.max() + 1
+    n_targets = indptr.shape[0] - 1
     if target is not None:
-        n_targets = target.max()+1
+        n_targets = target.max() + 1
     counts = np.zeros((n_groups, n_targets), dtype=np.int64)
-    for row in range(indptr.shape[0]-1):
+    for row in range(indptr.shape[0] - 1):
         this_target = row
         if target is not None:
             if target[row] >= 0:
                 this_target = target[row]
             else:
                 continue
-        for i in range(indptr[row], indptr[row+1]):
+        for i in range(indptr[row], indptr[row + 1]):
             group = 0
             if column_groups is not None:
                 group = column_groups[indices[i]]
