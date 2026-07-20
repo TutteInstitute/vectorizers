@@ -214,7 +214,9 @@ def information_weight(
         The learned weights to be applied to columns based on the amount
         of information provided by the column.
     """
-    if approximate_prior:
+    if target is not None:
+        column_kl_divergence_func = supervised_column_kl
+    elif approximate_prior:
         column_kl_divergence_func = column_kl_divergence_approx_prior
     else:
         column_kl_divergence_func = column_kl_divergence_exact_prior
@@ -331,7 +333,11 @@ class InformationWeightTransformer(BaseEstimator, TransformerMixin):
                 [np.int64(target_dict[label]) for label in y], dtype=np.int64
             )
             self.supervised_weights_ = information_weight(
-                X, self.prior_strength, self.approx_prior, target=target
+                X,
+                self.prior_strength,
+                self.approx_prior,
+                target=target,
+                column_groups=column_groups,
             )
             self.supervised_weights_ /= np.mean(self.supervised_weights_)
             self.supervised_weights_ = np.maximum(self.supervised_weights_, 0.0)
