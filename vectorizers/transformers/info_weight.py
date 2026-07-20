@@ -135,9 +135,9 @@ def compute_baseline_probabilities(
 ):
     """
     Compute the marginals to compare each column to. Returns
-    an (n column groups) x (n columns) matrix or an
-    (n column groups) x (n targets) matrix where each row
-    is the marginal of the column group.
+    an (n column groups) x (n samples) matrix (unsupervised) or an
+    (n column groups) x (n targets) matrix (supervised) where each
+    row is the marginal of the column group.
 
     indptr, indices, and data arrays are from csr format.
     """
