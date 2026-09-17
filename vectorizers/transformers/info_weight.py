@@ -81,12 +81,21 @@ def supervised_column_kl(
     for i in range(count_indices.shape[0]):
         idx = count_indices[i]
         label = target[idx]
-        observed[label] += count_data[i]
+        if label >= 0:
+            observed[label] += count_data[i]
 
     observed += prior_strength * baseline_probabilities
     observed /= observed.sum()
 
-    return np.sum(observed * np.log(observed / baseline_probabilities))
+    # Zeros in baseline_probabilities may cause nans in the log
+    # But this can only happen when observed is also 0, so due
+    # to the multiplication it does not contribute to the sum
+    non_zero = observed > 0
+    result = np.sum(
+        observed[non_zero]
+        * np.log(observed[non_zero] / baseline_probabilities[non_zero])
+    )
+    return result
 
 
 @numba.njit(nogil=True, parallel=True)
@@ -98,55 +107,14 @@ def column_weights(
     column_kl_divergence_func,
     prior_strength=0.1,
     target=MOCK_TARGET,
-    column_groups=MOCK_TARGET,
-    single_column_group_weight=MOCK_BOOL,
+    column_groups=None,
 ):
     n_cols = indptr.shape[0] - 1
     weights = np.ones(n_cols)
     for i in numba.prange(n_cols):
-        weights[i] = column_kl_divergence_func(
-            indices[indptr[i] : indptr[i + 1]],
-            data[indptr[i] : indptr[i + 1]],
-            baseline_probabilities,
-            prior_strength=prior_strength,
-            target=target,
-        )
-    return weights
-
-
-@numba.njit(nogil=True, parallel=True)
-def column_group_baseline_probabilities(
-    indptr,
-    indices,
-    data,
-    column_groups,
-):
-    counts = np.zeros((column_groups.max()+1, indptr.shape[0]-1), dtype=np.int64)
-    for row in numba.prange(counts.shape[1]):
-        for i in range(indptr[row], indptr[row+1]):
-            col = indices[i]
-            column_group = column_groups[col]
-            counts[column_group, row] += 1
-    probabilities = counts / np.sum(counts, axis=1).reshape(-1, 1)
-    return probabilities
-
-
-@numba.njit(nogil=True, parallel=True)
-def grouped_column_weights(
-    indptr,
-    indices,
-    data,
-    baseline_probabilities,
-    column_kl_divergence_func,
-    prior_strength=0.1,
-    target=MOCK_TARGET,
-    column_groups=MOCK_TARGET,
-    single_column_group_weight=MOCK_BOOL,
-):
-    n_cols = indptr.shape[0] - 1
-    weights = np.ones(n_cols)
-    for i in numba.prange(n_cols):
-        group = column_groups[i]
+        group = 0
+        if column_groups is not None:
+            group = column_groups[i]
         weights[i] = column_kl_divergence_func(
             indices[indptr[i] : indptr[i + 1]],
             data[indptr[i] : indptr[i + 1]],
@@ -154,18 +122,46 @@ def grouped_column_weights(
             prior_strength=prior_strength,
             target=target,
         )
-    for group, single_weight in enumerate(single_column_group_weight):
-        if not single_weight:
-            continue
-        group_columns = np.where(column_groups == group)[0]
-        column_counts = np.zeros_like(group_columns)
-        for i in range(column_counts.shape[0]):
-            column = group_columns[i]
-            column_counts[i] = np.sum(data[indptr[column]:indptr[column+1]])
-        column_probabilities = column_counts / np.sum(column_counts)
-        group_weight = np.sum(weights[group_columns] * column_probabilities)
-        weights[group_columns] = group_weight
     return weights
+
+
+@numba.njit(nogil=True)
+def compute_baseline_probabilities(
+    indptr,
+    indices,
+    data,
+    target=None,
+    column_groups=None,
+):
+    """
+    Compute the marginals to compare each column to. Returns
+    an (n column groups) x (n samples) matrix (unsupervised) or an
+    (n column groups) x (n targets) matrix (supervised) where each
+    row is the marginal of the column group.
+
+    indptr, indices, and data arrays are from csr format.
+    """
+    n_groups = 1
+    if column_groups is not None:
+        n_groups = column_groups.max() + 1
+    n_targets = indptr.shape[0] - 1
+    if target is not None:
+        n_targets = target.max() + 1
+    counts = np.zeros((n_groups, n_targets), dtype=np.int64)
+    for row in range(indptr.shape[0] - 1):
+        this_target = row
+        if target is not None:
+            if target[row] >= 0:
+                this_target = target[row]
+            else:
+                continue
+        for i in range(indptr[row], indptr[row + 1]):
+            group = 0
+            if column_groups is not None:
+                group = column_groups[indices[i]]
+            counts[group, this_target] += data[i]
+    probabilities = counts / np.sum(counts, axis=1).reshape(-1, 1)
+    return probabilities
 
 
 def information_weight(
@@ -174,7 +170,6 @@ def information_weight(
     approximate_prior=False,
     target=None,
     column_groups=None,
-    single_column_group_weight=None,
 ):
     """Compute information based weights for columns. The information weight
     is estimated as the amount of information gained by moving from a baseline
@@ -210,14 +205,8 @@ def information_weight(
 
     column_groups: ndarray or None (optional, default=None)
         If columns have a natural grouping, i.e. cols 10-15 are a one-hot-encoding of a single
-        categorical variable, we can force these columns to have a single information weight
-        corresponding to the expected information gained from observing this categorical. If
-        None then all columns have the same group. Groups must be labelled 0-n without gaps
-        and the next parameter may be passed.
-
-    single_column_group_weight ndarray or None (optional, default=None)
-        Flag whether each column group should be force to have a single information weight.
-        If cols_groups is passed and this is not, default to False for each group.
+        categorical variable, we should compare the column distribution to the within group
+        marginal. If passed None then all columns have the same group.
 
     Returns
     -------
@@ -225,58 +214,35 @@ def information_weight(
         The learned weights to be applied to columns based on the amount
         of information provided by the column.
     """
-    if approximate_prior:
+    if target is not None:
+        column_kl_divergence_func = supervised_column_kl
+    elif approximate_prior:
         column_kl_divergence_func = column_kl_divergence_approx_prior
     else:
         column_kl_divergence_func = column_kl_divergence_exact_prior
 
-    baseline_counts = np.squeeze(np.array(data.sum(axis=1)))
-    if target is not None:
-        baseline_probabilities = np.zeros(target.max() + 1)
-        for i in range(baseline_probabilities.shape[0]):
-            baseline_probabilities[i] = baseline_counts[target == i].sum()
-        baseline_probabilities /= baseline_probabilities.sum()
-        column_kl_divergence_func = supervised_column_kl
-    elif column_groups is not None:
-        csr_data = data.tocsr()
-        baseline_probabilities = column_group_baseline_probabilities(
-            csr_data.indptr,
-            csr_data.indices,
-            csr_data.data,
-            column_groups
-        )
-    else:
-        baseline_probabilities = baseline_counts / baseline_counts.sum()
+    csr_data = data.tocsr()
+    baseline_probabilities = compute_baseline_probabilities(
+        csr_data.indptr,
+        csr_data.indices,
+        csr_data.data,
+        target,
+        column_groups,
+    )
 
     csc_data = data.tocsc()
     csc_data.sort_indices()
+    weights = column_weights(
+        csc_data.indptr,
+        csc_data.indices,
+        csc_data.data,
+        baseline_probabilities,
+        column_kl_divergence_func,
+        prior_strength=prior_strength,
+        target=target,
+        column_groups=column_groups,
+    )
 
-    if column_groups is not None:
-        if single_column_group_weight is None:
-            single_column_group_weight = np.zeros(column_groups.max()+1, dtype=np.bool)
-        weights = grouped_column_weights(
-            csc_data.indptr,
-            csc_data.indices,
-            csc_data.data,
-            baseline_probabilities,
-            column_kl_divergence_func,
-            prior_strength=prior_strength,
-            target=target,
-            column_groups=column_groups,
-            single_column_group_weight=single_column_group_weight,
-        )
-    else:
-        weights = column_weights(
-            csc_data.indptr,
-            csc_data.indices,
-            csc_data.data,
-            baseline_probabilities,
-            column_kl_divergence_func,
-            prior_strength=prior_strength,
-            target=target,
-            column_groups=column_groups,
-            single_column_group_weight=single_column_group_weight,
-        )
     return weights
 
 
@@ -324,7 +290,7 @@ class InformationWeightTransformer(BaseEstimator, TransformerMixin):
         self.weight_power = weight_power
         self.supervision_weight = supervision_weight
 
-    def fit(self, X, y=None, column_groups=None, single_column_group_weight=None, **fit_kwds):
+    def fit(self, X, y=None, column_groups=None, **fit_kwds):
         """Learn the appropriate column weighting as information weights
         from the observed count data ``X``.
 
@@ -347,18 +313,20 @@ class InformationWeightTransformer(BaseEstimator, TransformerMixin):
             self.prior_strength,
             self.approx_prior,
             column_groups=column_groups,
-            single_column_group_weight=single_column_group_weight,
+        )
+
+        mean_weight = np.mean(self.information_weights_)
+        if mean_weight > 0:
+            self.information_weights_ /= mean_weight
+            # This should never happen
+        self.information_weights_ = np.maximum(self.information_weights_, 0.0)
+        self.information_weights_ = np.power(
+            self.information_weights_, self.weight_power
         )
 
         if y is not None:
             unsupervised_power = (1.0 - self.supervision_weight) * self.weight_power
             supervised_power = self.supervision_weight * self.weight_power
-
-            self.information_weights_ /= np.mean(self.information_weights_)
-            self.information_weights_ = np.maximum(self.information_weights_, 0.0)
-            self.information_weights_ = np.power(
-                self.information_weights_, unsupervised_power
-            )
 
             target_classes = np.unique(y)
             target_dict = dict(
@@ -368,9 +336,16 @@ class InformationWeightTransformer(BaseEstimator, TransformerMixin):
                 [np.int64(target_dict[label]) for label in y], dtype=np.int64
             )
             self.supervised_weights_ = information_weight(
-                X, self.prior_strength, self.approx_prior, target=target
+                X,
+                self.prior_strength,
+                self.approx_prior,
+                target=target,
+                column_groups=column_groups,
             )
-            self.supervised_weights_ /= np.mean(self.supervised_weights_)
+            mean_supervised_weight = np.mean(self.information_weights_)
+            if mean_supervised_weight > 0:
+                self.supervised_weights_ /= mean_supervised_weight
+            # This should never happen
             self.supervised_weights_ = np.maximum(self.supervised_weights_, 0.0)
             self.supervised_weights_ = np.power(
                 self.supervised_weights_, supervised_power
@@ -378,12 +353,6 @@ class InformationWeightTransformer(BaseEstimator, TransformerMixin):
 
             self.information_weights_ = (
                 self.information_weights_ * self.supervised_weights_
-            )
-        else:
-            self.information_weights_ /= np.mean(self.information_weights_)
-            self.information_weights_ = np.maximum(self.information_weights_, 0.0)
-            self.information_weights_ = np.power(
-                self.information_weights_, self.weight_power
             )
 
         return self
