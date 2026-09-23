@@ -13,6 +13,7 @@ Ngram and Skipgram Vectorizer
    SkipgramVectorizer
    LZCompressionVectorizer
    BytePairEncodingVectorizer
+   TreeBytePairEncodingVectorizer
 
 TokenCooccurrenceVectorizers
 ===========================

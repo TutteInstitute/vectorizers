@@ -8,6 +8,7 @@ from .skip_gram_vectorizer import SkipgramVectorizer
 from .ngram_vectorizer import NgramVectorizer
 from .kde_vectorizer import KDEVectorizer
 from .tree_token_cooccurrence import LabelledTreeCooccurrenceVectorizer
+from .tree_bpe import TreeBytePairEncodingVectorizer
 from .edge_list_vectorizer import EdgeListVectorizer
 from .linear_optimal_transport import (
     WassersteinVectorizer,
@@ -33,6 +34,7 @@ __all__ = [
     "NgramVectorizer",
     "KDEVectorizer",
     "LabelledTreeCooccurrenceVectorizer",
+    "TreeBytePairEncodingVectorizer",
     "WassersteinVectorizer",
     "SinkhornVectorizer",
     "ApproximateWassersteinVectorizer",
