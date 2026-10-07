@@ -88,7 +88,7 @@ class CountFeatureCompressionTransformer(BaseEstimator, TransformerMixin):
 
         normed_data = normalize(X)
         rescaled_data = scipy.sparse.csr_matrix(normed_data)
-        rescaled_data.data = np.power(normed_data.data, self.rescaling_power)
+        rescaled_data.data = np.power(rescaled_data.data, self.rescaling_power)
         if self.algorithm == "arpack":
             u, s, v = svds(rescaled_data, k=self.n_components)
         elif self.algorithm == "randomized":
@@ -147,7 +147,7 @@ class CountFeatureCompressionTransformer(BaseEstimator, TransformerMixin):
         )
         normed_data = normalize(X)
         rescaled_data = scipy.sparse.csr_matrix(normed_data)
-        rescaled_data.data = np.power(normed_data.data, self.rescaling_power)
+        rescaled_data.data = np.power(rescaled_data.data, self.rescaling_power)
 
         result = (rescaled_data @ self.components_.T) / self.component_scaling_
 
