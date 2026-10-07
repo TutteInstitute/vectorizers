@@ -449,8 +449,6 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
             self._token_dictionary_,
         )
 
-        n_unique_tokens = len(self._token_dictionary_)
-
         row, col, data = skip_grams_matrix_coo_data(
             token_sequences,
             self._window_sizes,
@@ -458,7 +456,13 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
             tuple(*self.kernel_args.values()),
         )
 
-        base_matrix = scipy.sparse.coo_matrix((data, (row, col)))
+        # Use the column space from fit; skip-grams beyond it never occurred in fit
+        n_columns = self._column_is_kept.shape[0]
+        in_range = col < n_columns
+        base_matrix = scipy.sparse.coo_matrix(
+            (data[in_range], (row[in_range], col[in_range])),
+            shape=(len(token_sequences), n_columns),
+        )
         result = base_matrix.tocsc()[:, self._column_is_kept].tocsr()
 
         return result

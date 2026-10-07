@@ -768,6 +768,19 @@ def test_skipgram_vectorizer_basic():
     assert np.all(transform_result.tocoo().col == result.tocoo().col)
 
 
+def test_skipgram_vectorizer_transform_new_data():
+    vectorizer = SkipgramVectorizer()
+    result = vectorizer.fit_transform(text_token_data)
+    n_columns = result.shape[1]
+    # Subsets of the training data and unseen tokens keep the fitted columns
+    subset = vectorizer.transform(text_token_data[:1])
+    assert subset.shape == (1, n_columns)
+    assert np.allclose(subset.toarray(), result[:1].toarray())
+    unseen = vectorizer.transform([["unseen", "tokens"], []])
+    assert unseen.shape == (2, n_columns)
+    assert np.all(unseen.toarray() == 0)
+
+
 def test_skipgram_vectorizer_max_doc():
     vectorizer = SkipgramVectorizer(max_document_occurrences=2)
     count_matrix = vectorizer.fit_transform(text_token_data_permutation)
