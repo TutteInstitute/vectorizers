@@ -780,7 +780,7 @@ class LZCompressionVectorizer(BaseEstimator, TransformerMixin):
                     indices.append(col)
                     data.append(val)
 
-            indptr.append(indptr[-1] + len(encoding_dict))
+            indptr.append(len(indices))
 
         if indptr[-1] > np.iinfo(np.int32).max:  # = 2**31 - 1
             indices_dtype = np.int64
