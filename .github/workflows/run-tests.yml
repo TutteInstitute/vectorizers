@@ -1,0 +1,131 @@
+name: vectorizers
+on:
+  workflow_dispatch:
+  push:
+    branches:
+    - main
+    - master
+    tags:
+    - release-*
+  pull_request:
+    branches:
+    - master
+    - main
+    paths-ignore:
+    - doc/**
+    - README.rst
+env:
+  triggeredByPullRequest: "$[eq(variables['Build.Reason'], 'PullRequest')]"
+jobs:
+  RunAllTests-run_platform_tests:
+    runs-on:
+      - "${{ matrix.imageName }}"
+    strategy:
+      matrix:
+        include:
+        - imageName: macOS-latest
+          python.version: '3.11'
+        - imageName: ubuntu-latest
+          python.version: '3.11'
+        - imageName: windows-latest
+          python.version: '3.11'
+        - imageName: macOS-latest
+          python.version: '3.12'
+        - imageName: ubuntu-latest
+          python.version: '3.12'
+        - imageName: windows-latest
+          python.version: '3.12'
+        - imageName: macOS-latest
+          python.version: '3.13'
+        - imageName: ubuntu-latest
+          python.version: '3.13'
+        - imageName: windows-latest
+          python.version: '3.13'
+        - imageName: macOS-latest
+          python.version: '3.14'
+        - imageName: ubuntu-latest
+          python.version: '3.14'
+        - imageName: windows-latest
+          python.version: '3.14'
+    steps:
+    - name: checkout
+      uses: actions/checkout@v4.1.0
+    - name: Use Python ${{ matrix.python.version }}
+      uses: actions/setup-python@v5.0.0
+      with:
+        python-version: "${{ matrix.python.version }}"
+    - name: Upgrade pip
+      run: python -m pip install --upgrade pip
+    - name: Install LLVM via Homebrew (macOS only)
+      if: runner.os == 'Darwin'
+      run: |-
+        brew install llvm@20
+        # Homebrew formula names can change, so we ensure it links correctly if necessary
+        brew link --force --overwrite llvm@20
+    - name: Configure LLVM Environment Variables (macOS only)
+      if: runner.os == 'Darwin'
+      run: |-
+        # Determine the LLVM install prefix dynamically
+        LLVM_PREFIX=$(brew --prefix llvm@20)
+        # Set the LLVM_CONFIG environment variable used by llvmlite's build script
+        echo "LLVM_CONFIG=$LLVM_PREFIX/bin/llvm-config" >> "$GITHUB_ENV"
+        echo "LLVM_CONFIG set to: $LLVM_PREFIX/bin/llvm-config"
+        # Also set CMAKE_PREFIX_PATH in case other dependencies need it
+        echo "CMAKE_PREFIX_PATH=$LLVM_PREFIX/lib/cmake" >> "$GITHUB_ENV"
+    - name: Install package and dependencies
+      env:
+        LLVM_CONFIG: "${{ env.LLVM_CONFIG }}"
+        CMAKE_PREFIX_PATH: "${{ env.CMAKE_PREFIX_PATH }}"
+      run: |-
+        python -m pip install -U uv
+        uv sync --group cicd
+    - name: Run tests
+      run: uv run pytest vectorizers/tests --show-capture=no -v --disable-warnings --junitxml=junit/test-results.xml --cov=vectorizers/ --cov-report=xml --cov-report=html
+    # - if: always()
+    #   name: Publish test results
+    #   uses: EnricoMi/publish-unit-test-result-action@v2.12.0
+    #   with:
+    #     comment_title: "${{ runner.os }} - ${{ github.run_number }}[${{ github.job }}] - Python ${{ matrix.python.version }}"
+    #     junit_files: "${{ github.workspace }}/**/junit/test-results.xml"
+#   BuildPublishArtifact-BuildArtifacts:
+#     name: Build source dists and wheels
+#     needs:
+#     - RunAllTests-run_platform_tests
+#     runs-on: ubuntu-latest
+#     if: success() && startsWith(github.ref, 'refs/tags/release-') && env.triggeredByPullRequest == false
+#     steps:
+#     - name: checkout
+#       uses: actions/checkout@v4.1.0
+#     - name: Use Python 3.13
+#       uses: actions/setup-python@v5.0.0
+#       with:
+#         python-version: '3.13'
+#     - name: Install dependencies
+#       run: |-
+#         python -m pip install --upgrade pip
+#         python -m pip install -U uv
+#         uv sync
+#     - name: Build package
+#       run: uv build --no-sources --sdist --wheel
+#     - name: Get package version
+#       run: |-
+#         export PACKAGE_VERSION="$(uv version --short)"
+#         echo "Package Version: ${PACKAGE_VERSION}"
+#         echo "##vso[task.setvariable variable=packageVersionFormatted;]release-${PACKAGE_VERSION}"
+#       shell: bash
+#     - name: Raise error if version doesnt match tag
+#       if: success() && variables['github.refName'] != env.packageVersionFormatted
+#       run: |-
+#         echo "Version in git tag ${{ github.ref }} does not match version derived from setup.py ${{ env.packageVersionFormatted }}"
+#         exit 1
+# #     # This item has no matching transformer
+# #     - task: DownloadSecureFile@1
+# #       name: PYPIRC_CONFIG
+# #       displayName: Download pypirc
+# #       inputs:
+# #         secureFile: pypirc
+#     - name: Upload to PyPI
+#       if: success() && variables['github.refName'] == env.packageVersionFormatted
+#       run: |-
+#         uvx twine check dist/*
+#         uvx twine upload --repository pypi --config-file ${{ env.PYPIRC_CONFIG_secureFilePath }} dist/*
