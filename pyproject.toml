@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "vectorizers"
 version = "0.2.2"
-maintainers = [{name = "John Healy", email = "leland.mcinnes@gmail.com"}, {name = "Leland McInnes"}, {name = "Colin Weir"}]
+maintainers = [{name = "John Healy"}, {name = "Leland McInnes", email = "leland.mcinnes@gmail.com"}, {name = "Colin Weir"}]
 license = "BSD-3-Clause"
 description = "A suite of vectorizers for various data types."
 readme = "README.rst"
