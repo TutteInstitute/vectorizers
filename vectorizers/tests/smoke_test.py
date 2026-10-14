@@ -1,0 +1,22 @@
+"""Check that some imports work"""
+
+
+import vectorizers
+from vectorizers import TokenCooccurrenceVectorizer
+from vectorizers import TimedTokenCooccurrenceVectorizer
+from vectorizers import NgramCooccurrenceVectorizer
+from vectorizers import MultiSetCooccurrenceVectorizer
+from vectorizers import NgramVectorizer
+from vectorizers import SkipgramVectorizer
+from vectorizers import DistributionVectorizer
+from vectorizers import HistogramVectorizer
+from vectorizers import KDEVectorizer
+from vectorizers import LabelledTreeCooccurrenceVectorizer
+from vectorizers import WassersteinVectorizer
+from vectorizers import ApproximateWassersteinVectorizer
+from vectorizers import SinkhornVectorizer
+from vectorizers import LZCompressionVectorizer
+
+from vectorizers import BytePairEncodingVectorizer
+from vectorizers import NgramVectorizer
+from vectorizers.mixed_gram_vectorizer import to_unicode
