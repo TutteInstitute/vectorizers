@@ -4,23 +4,13 @@
   :width: 600
   :alt: Vectorizers Logo
 
-|Travis|_ |AppVeyor|_ |Codecov|_ |CircleCI|_ |ReadTheDocs|_
-
-.. |Travis| image:: https://travis-ci.com/TutteInstitute/vectorizers.svg?branch=master
-.. _Travis: https://travis-ci.com/TutteInstitute/vectorizers
-
-.. |AppVeyor| image:: https://ci.appveyor.com/api/projects/status/sjawsgwo7g4k3jon?svg=true
-.. _AppVeyor: https://ci.appveyor.com/project/lmcinnes/vectorizers
+|Codecov|_ |ReadTheDocs|_
 
 .. |Codecov| image:: https://codecov.io/gh/TutteInstitute/vectorizers/branch/master/graph/badge.svg
 .. _Codecov: https://codecov.io/gh/TutteInstitute/vectorizers
 
-
-.. |CircleCI| image:: https://circleci.com/gh/TutteInstitute/vectorizers.svg?style=shield&circle-token=:circle-token
-.. _CircleCI: https://circleci.com/gh/scikit-learn-contrib/project-template/tree/master
-
-.. |ReadTheDocs| image:: https://readthedocs.org/projects/vectorizers/badge/?version=latest
-.. _ReadTheDocs: https://vectorizers.readthedocs.io/en/latest/?badge=latest
+.. |ReadTheDocs| image:: https://app.readthedocs.org/projects/vectorizers/badge/?version=latest
+.. _ReadTheDocs: https://vectorizers.readthedocs.io/en/latest/
 
 ===========
 Vectorizers
