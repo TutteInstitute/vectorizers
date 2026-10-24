@@ -83,6 +83,6 @@ jobs:
 
       - name: Publish
         # Real PyPI
-        # run: uv publish --trusted-publishing always
+        run: uv publish --trusted-publishing always
         # TestPyPI
-        run: uv publish --publish-url https://test.pypi.org/legacy/ --trusted-publishing always
+        # run: uv publish --publish-url https://test.pypi.org/legacy/ --trusted-publishing always
