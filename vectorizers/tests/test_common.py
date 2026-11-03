@@ -1335,6 +1335,15 @@ def test_lzcompression_vectorizer_basic():
     assert np.allclose(result1.toarray(), result2.toarray())
 
 
+def test_lzcompression_vectorizer_transform_unseen():
+    lzc = LZCompressionVectorizer().fit(raw_string_data[:3])
+    result = lzc.transform(["zzzzzzzz", raw_string_data[0]])
+    assert result.shape == (2, len(lzc.column_label_dictionary_))
+    assert np.allclose(
+        result[1].toarray(), lzc.transform(raw_string_data[:1]).toarray()
+    )
+
+
 def test_lzcompression_vectorizer_badparams():
     with pytest.raises(ValueError):
         lzc = LZCompressionVectorizer(max_dict_size=-1)
