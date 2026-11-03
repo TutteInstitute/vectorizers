@@ -1,4 +1,4 @@
-name: vectorizers
+name: Run tests
 on:
   workflow_dispatch:
   workflow_call:
