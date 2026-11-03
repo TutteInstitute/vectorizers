@@ -1019,11 +1019,21 @@ class BytePairEncodingVectorizer(BaseEstimator, TransformerMixin):
             indptr = [0]
 
             for row in encodings:
-                indices.extend([self.column_label_dictionary_[x] for x in row])
-                data.extend([1 for i in range(row.shape[0])])
+                # Codes that never occurred during fit have no column; skip them
+                row_indices = [
+                    self.column_label_dictionary_[x]
+                    for x in row
+                    if x in self.column_label_dictionary_
+                ]
+                indices.extend(row_indices)
+                data.extend([1] * len(row_indices))
                 indptr.append(len(indices))
 
-            result = scipy.sparse.csr_matrix((data, indices, indptr), dtype=np.float32)
+            result = scipy.sparse.csr_matrix(
+                (data, indices, indptr),
+                shape=(len(indptr) - 1, len(self.column_label_dictionary_)),
+                dtype=np.float32,
+            )
             result.sum_duplicates()
 
             return result

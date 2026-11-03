@@ -15,6 +15,23 @@ def test_bpe_vectorizer_basic():
     assert np.allclose(result1.toarray(), result2.toarray())
 
 
+def test_bpe_transform_matrix_unseen_and_subset():
+    bpe = BytePairEncodingVectorizer(return_type="matrix")
+    full = bpe.fit_transform(raw_string_data)
+    n_columns = len(bpe.column_label_dictionary_)
+    assert full.shape == (len(raw_string_data), n_columns)
+
+    # A subset of the training data keeps the same columns
+    subset = bpe.transform(raw_string_data[3:4])
+    assert subset.shape == (1, n_columns)
+    assert np.allclose(subset.toarray(), full[3:4].toarray())
+
+    # Characters that were not seen during fit are ignored rather than raising
+    unseen = bpe.transform(["asdf~~~foobar"])
+    assert unseen.shape == (1, n_columns)
+    assert unseen.sum() > 0
+
+
 def test_bpe_tokens_ngram_matches():
     bpe1 = BytePairEncodingVectorizer(return_type="matrix")
     bpe2 = BytePairEncodingVectorizer(return_type="tokens")
