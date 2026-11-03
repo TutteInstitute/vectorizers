@@ -270,6 +270,24 @@ def test_count_feature_compression_fit_transform_is_fit_and_transform(algorithm)
     )
 
 
+@pytest.mark.parametrize("algorithm", ["randomized", "arpack"])
+def test_count_feature_compression_dense_input(algorithm):
+    data = np.random.RandomState(0).poisson(1.0, size=(20, 10)).astype(np.float64)
+    sparse_cfc = CountFeatureCompressionTransformer(
+        n_components=3, algorithm=algorithm, random_state=42
+    )
+    sparse_result = sparse_cfc.fit_transform(scipy.sparse.csr_matrix(data))
+    dense_cfc = CountFeatureCompressionTransformer(
+        n_components=3, algorithm=algorithm, random_state=42
+    )
+    dense_result = dense_cfc.fit_transform(data)
+    assert np.allclose(dense_result, sparse_result)
+    assert np.allclose(
+        sparse_cfc.transform(data),
+        sparse_cfc.transform(scipy.sparse.csr_matrix(data)),
+    )
+
+
 def test_count_feature_compression_warns():
     cfc = CountFeatureCompressionTransformer(n_components=5)
     with pytest.warns(UserWarning):
