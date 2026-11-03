@@ -4,7 +4,6 @@ from sklearn.base import BaseEstimator, TransformerMixin
 import scipy.sparse
 
 MOCK_TARGET = np.ones(1, dtype=np.int64)
-MOCK_BOOL = np.ones(1, dtype=np.bool)
 
 
 @numba.njit(nogil=True)
