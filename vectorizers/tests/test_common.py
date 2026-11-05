@@ -868,6 +868,34 @@ def test_histogram_vectorizer_outlier_bins():
     assert transform_result[0][-1] == 1.0
 
 
+def test_histogram_vectorizer_right_closed_bins_drop_out_of_range():
+    vectorizer = HistogramVectorizer(n_components=4, absolute_range=(0.0, 4.0))
+    vectorizer.fit([[0.5, 3.5]])  # edges: 0, 1.25, 2, 2.75, 4
+    result = vectorizer.transform([[0.0, 1.25, 2.0, 2.5, 4.0, 4.5, -1.0, np.nan]])
+    assert np.array_equal(result, [[1, 1, 1, 1]])
+
+
+def test_histogram_vectorizer_series_rows():
+    vectorizer = HistogramVectorizer(n_components=4, absolute_range=(0.0, 4.0))
+    vectorizer.fit([[0.5, 3.5]])
+    result = vectorizer.transform([pd.Series([0.5, 0.5, 0.5, 3.5])])
+    assert np.array_equal(result, [[3, 0, 0, 1]])
+
+
+def test_histogram_vectorizer_timestamp_bins():
+    start, end = pd.Timestamp("2019-01-01"), pd.Timestamp("2021-01-01")
+    vectorizer = HistogramVectorizer(n_components=2, absolute_range=(start, end))
+    vectorizer.fit([[pd.Timestamp("2019-06-01"), pd.Timestamp("2020-06-01")]])
+    rows = [[pd.Timestamp("2019-02-01"), pd.Timestamp("2020-12-01")]]
+    assert np.array_equal(vectorizer.transform(rows), [[1, 1]])
+
+
+def test_histogram_vectorizer_rejects_non_1d_rows():
+    vectorizer = HistogramVectorizer(n_components=4).fit([[0.5, 3.5]])
+    with pytest.raises(ValueError):
+        vectorizer.transform(pd.DataFrame([[0.5, 3.5]]))
+
+
 def test_kde_vectorizer_basic():
     vectorizer = KDEVectorizer(n_components=20)
     result = vectorizer.fit_transform(value_sequence_data)
