@@ -1,6 +1,5 @@
 from warnings import warn
 import numpy as np
-import numba
 
 from sklearn.base import BaseEstimator, TransformerMixin
 import scipy.linalg
@@ -14,9 +13,6 @@ from .utils import (
 import vectorizers.distances as distances
 
 from ._window_kernels import _KERNEL_FUNCTIONS
-
-MOCK_DICT = numba.typed.Dict()
-MOCK_DICT[(-1, -1)] = -1
 
 
 def build_tree_skip_grams(
