@@ -11,6 +11,8 @@ from .utils import (
     flatten,
     make_tuple_converter,
     validate_homogeneous_token_types,
+    typed_dict_to_picklable,
+    typed_dict_from_picklable,
 )
 from .coo_utils import (
     coo_append,
@@ -451,6 +453,21 @@ class NgramCooccurrenceVectorizer(BaseCooccurrenceVectorizer):
             coo_initial_memory=coo_initial_memory,
         )
         self.ngram_size = ngram_size
+
+    def __getstate__(self):
+        state = dict(super().__getstate__())
+        if "_raw_ngram_dictionary_" in state:
+            state["_raw_ngram_dictionary_"] = typed_dict_to_picklable(
+                state["_raw_ngram_dictionary_"]
+            )
+        return state
+
+    def __setstate__(self, state):
+        super().__setstate__(state)
+        if "_raw_ngram_dictionary_" in state:
+            self._raw_ngram_dictionary_ = typed_dict_from_picklable(
+                state["_raw_ngram_dictionary_"]
+            )
 
     def _em_cooccurrence_iteration(self, token_sequences, cooccurrence_matrix):
         # call the numba function to return the new matrix.data

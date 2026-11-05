@@ -359,6 +359,18 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         assert self.n_iter >= 0
         assert self.epsilon >= 0
 
+    def __getstate__(self):
+        state = dict(super().__getstate__())
+        # numba typed Lists can't be pickled; __setstate__ rebuilds this one from fitted state
+        if "_full_kernel_args" in state:
+            state["_full_kernel_args"] = None
+        return state
+
+    def __setstate__(self, state):
+        super().__setstate__(state)
+        if "_full_kernel_args" in state:
+            self._set_full_kernel_args()
+
     def _get_default_kernel_functions(self):
         return _KERNEL_FUNCTIONS
 

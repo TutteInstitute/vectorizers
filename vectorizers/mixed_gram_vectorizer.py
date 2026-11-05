@@ -6,6 +6,8 @@ from typing import cast, Union
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted, check_random_state
 
+from .utils import typed_dict_to_picklable, typed_dict_from_picklable
+
 MAX_INT32 = np.iinfo(np.int32).max
 
 @numba.njit()
@@ -646,6 +648,21 @@ class LZCompressionVectorizer(BaseEstimator, TransformerMixin):
         self.hash_function = hash_function
         self.base_dictionary = base_dictionary
         self.random_state = random_state
+
+    def __getstate__(self):
+        state = dict(super().__getstate__())
+        if "column_label_dictionary_" in state:
+            state["column_label_dictionary_"] = typed_dict_to_picklable(
+                state["column_label_dictionary_"]
+            )
+        return state
+
+    def __setstate__(self, state):
+        super().__setstate__(state)
+        if "column_label_dictionary_" in state:
+            self.column_label_dictionary_ = typed_dict_from_picklable(
+                state["column_label_dictionary_"]
+            )
 
     def fit_transform(self, X, y=None, **fit_params):
         """Train the transformer on a list of strings ``X`` and

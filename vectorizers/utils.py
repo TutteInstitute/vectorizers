@@ -9,7 +9,7 @@ from sklearn.mixture import GaussianMixture
 from sklearn.preprocessing import normalize, LabelBinarizer
 from collections import Counter
 import re
-from warnings import warn
+from warnings import warn, catch_warnings, simplefilter
 
 import os
 
@@ -24,6 +24,32 @@ if "NUMBA_DISABLE_JIT" in os.environ and not os.environ["NUMBA_DISABLE_JIT"] in 
 
 else:
     from numba.np.unsafe.ndarray import to_fixed_tuple
+
+
+def typed_dict_to_picklable(typed_dict):
+    """Turn a numba typed Dict, which can't be pickled, into its type and a plain dict."""
+    # With NUMBA_DISABLE_JIT typed Dicts are plain dicts and pickle as they are
+    if not isinstance(typed_dict, numba.typed.Dict):
+        return typed_dict
+    dict_type = numba.typeof(typed_dict)
+    # Keys like int32 box to Python ints, so reading them from Python casts them back
+    # and warns; the cast is lossless because the keys came from that type
+    with catch_warnings():
+        simplefilter("ignore", numba.core.errors.NumbaTypeSafetyWarning)
+        items = dict(typed_dict)
+    return dict_type, items
+
+
+def typed_dict_from_picklable(picklable):
+    """Rebuild a numba typed Dict from the output of typed_dict_to_picklable."""
+    if isinstance(picklable, dict):
+        return picklable
+    dict_type, items = picklable
+    typed_dict = numba.typed.Dict.empty(dict_type.key_type, dict_type.value_type)
+    with catch_warnings():
+        simplefilter("ignore", numba.core.errors.NumbaTypeSafetyWarning)
+        typed_dict.update(items)
+    return typed_dict
 
 
 @numba.njit(nogil=True)
