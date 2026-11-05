@@ -257,20 +257,28 @@ class HistogramVectorizer(BaseEstimator, TransformerMixin):
         self.metric_ = distances.hellinger
         return self
 
-    def _vector_transform(self, vector):
-        """
-        Applies the transform to a single row of the data.
-        """
-        return pd.cut(vector, self.bin_intervals_).value_counts()
-
     def transform(self, X):
         """
         Apply binning to a full data set returning an nparray.
         """
         check_is_fitted(self, ["bin_intervals_"])
-        result = np.ndarray((len(X), len(self.bin_intervals_)))
+        n_bins = len(self.bin_intervals_)
+        result = np.ndarray((len(X), n_bins))
+        if self.bin_intervals_.dtype.subtype.kind not in "iuf":
+            for i, seq in enumerate(X):
+                # an ndarray (not a Series) makes pd.cut count in bin order
+                counts = pd.cut(np.asarray(seq), self.bin_intervals_).value_counts()
+                result[i, :] = counts.values
+            return result
+
+        edges = np.append(self.bin_intervals_.left, self.bin_intervals_.right[-1])
         for i, seq in enumerate(X):
-            result[i, :] = self._vector_transform(seq).values
+            values = np.asarray(seq, dtype=float)
+            if values.ndim != 1:
+                raise ValueError("Each row of X must be one-dimensional")
+            bins = np.searchsorted(edges, values, side="left") - 1
+            in_range = (bins >= 0) & (bins < n_bins)
+            result[i, :] = np.bincount(bins[in_range], minlength=n_bins)
         return result
 
 
