@@ -1,5 +1,6 @@
 from collections import namedtuple
 from copy import copy
+import pickle
 import pytest
 from sklearn.exceptions import NotFittedError
 from sklearn.preprocessing import normalize
@@ -1352,3 +1353,20 @@ def test_lzcompression_vectorizer_badparams():
     with pytest.raises(ValueError):
         lzc = LZCompressionVectorizer(max_columns=-1)
         lzc.fit(raw_string_data)
+
+
+@pytest.mark.parametrize(
+    "vectorizer, data",
+    [
+        (TokenCooccurrenceVectorizer(), token_data),
+        (TimedTokenCooccurrenceVectorizer(), timed_tiny_token_data),
+        (NgramCooccurrenceVectorizer(), text_token_data_ngram),
+        (MultiSetCooccurrenceVectorizer(), [hyperedges]),
+        (LZCompressionVectorizer(), raw_string_data),
+        (LZCompressionVectorizer(max_columns=None), raw_string_data),
+    ],
+)
+def test_fitted_vectorizer_pickle_roundtrip(vectorizer, data):
+    vectorizer.fit(data)
+    unpickled = pickle.loads(pickle.dumps(vectorizer))
+    assert (vectorizer.transform(data) != unpickled.transform(data)).nnz == 0
