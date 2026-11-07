@@ -25,7 +25,7 @@ from vectorizers import SinkhornVectorizer
 from vectorizers import LZCompressionVectorizer
 from pynndescent.distances import cosine
 
-from vectorizers.ngram_vectorizer import ngrams_of
+from vectorizers.ngram_vectorizer import ngrams_of, _row_ids
 from vectorizers._vectorizers import find_bin_boundaries
 from vectorizers.tree_token_cooccurrence import build_tree_skip_grams
 from vectorizers.preprocessing import remove_node
@@ -231,11 +231,71 @@ def test_TokenCooccurrence_window_0(n_iter):
 def test_ngram_size(ngram_behaviour):
     model = NgramVectorizer(ngram_size=2, ngram_behaviour=ngram_behaviour)
     matrix = model.fit_transform(text_token_data)
-    assert matrix.nnz == 43
     if ngram_behaviour == "exact":
+        assert matrix.nnz == 43
         assert matrix.shape == (7, 15)
     if ngram_behaviour == "subgrams":
+        assert matrix.nnz == 67
         assert matrix.shape == (7, 19)
+
+
+def test_ngram_subgrams_count_every_size():
+    subgrams = NgramVectorizer(ngram_size=2, ngram_behaviour="subgrams")
+    matrix = subgrams.fit_transform(text_token_data)
+    for size in (1, 2):
+        exact = NgramVectorizer(ngram_size=size)
+        exact_matrix = exact.fit_transform(text_token_data)
+        for label, column in exact.column_label_dictionary_.items():
+            key = label if size > 1 else (label,)
+            column_in_subgrams = subgrams.column_label_dictionary_[key]
+            assert np.array_equal(
+                matrix[:, column_in_subgrams].toarray(),
+                exact_matrix[:, column].toarray(),
+            )
+
+
+def test_ngram_row_ids_lexicographic_with_overflow():
+    rows = np.random.default_rng(0).integers(-1, 50, size=(1000, 4)).astype(np.int32)
+    ids, representative = _row_ids(rows, 51)
+    assert [tuple(r) for r in rows[representative]] == sorted(set(map(tuple, rows)))
+    # A huge base overflows int64 keys, forcing compaction; ids must not change
+    big_ids, big_representative = _row_ids(rows, 2**40)
+    assert np.array_equal(ids, big_ids)
+    assert np.array_equal(rows[representative], rows[big_representative])
+
+
+def test_ngram_vectorizer_masking():
+    docs = [["a", "b", "c", "a", "b"], ["b", "c"], ["a", "rare", "b"]]
+    rare = {"rare"}
+
+    pruned = NgramVectorizer(ngram_size=2, excluded_tokens=rare).fit(docs)
+    # Without a mask the n-gram spans the gap left by "rare"
+    assert pruned.transform([["a", "rare", "b"]]).toarray()[
+        0, pruned.column_label_dictionary_[("a", "b")]
+    ] == 1
+
+    masked = NgramVectorizer(ngram_size=2, excluded_tokens=rare, mask_string="<M>")
+    matrix = masked.fit_transform(docs)
+    assert ("a", "<M>") in masked.column_label_dictionary_
+    assert ("<M>", "b") in masked.column_label_dictionary_
+    assert matrix[2].sum() == 2
+    assert (masked.transform(docs) != matrix).nnz == 0
+
+    nullified = NgramVectorizer(
+        ngram_size=2, excluded_tokens=rare, mask_string="<M>", nullify_mask=True
+    )
+    matrix = nullified.fit_transform(docs)
+    assert not any("<M>" in label for label in nullified.column_label_dictionary_)
+    assert matrix[2].nnz == 0
+    assert (nullified.transform(docs) != matrix).nnz == 0
+    assert nullified.transform([["a", "unseen", "b"]]).nnz == 0
+
+    unigrams = NgramVectorizer(excluded_tokens=rare, mask_string="<M>", nullify_mask=True)
+    matrix = unigrams.fit_transform(docs)
+    assert matrix[:, unigrams.column_label_dictionary_["<M>"]].nnz == 0
+
+    with pytest.raises(ValueError):
+        NgramVectorizer(nullify_mask=True).fit(docs)
 
 
 def test_LabeledTreeCooccurrenceVectorizer():

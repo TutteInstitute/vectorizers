@@ -209,6 +209,65 @@ def prune_token_dictionary(
         new_token_dictionary.
     """
 
+    if ignored_tokens is not None:
+        tokens_to_prune = set(ignored_tokens)
+    else:
+        tokens_to_prune = set([])
+
+    if excluded_token_regex is not None:
+        tokens_to_prune.update(
+            select_tokens_by_regex(token_dictionary.keys(), excluded_token_regex)
+        )
+
+    keep = np.ones(len(token_frequencies), dtype=bool)
+    keep[
+        [token_dictionary[token] for token in tokens_to_prune if token in token_dictionary]
+    ] = False
+    keep = token_pruning_mask(
+        token_frequencies,
+        token_doc_frequencies=token_doc_frequencies,
+        keep=keep,
+        max_unique_tokens=max_unique_tokens,
+        min_frequency=min_frequency,
+        max_frequency=max_frequency,
+        min_occurrences=min_occurrences,
+        max_occurrences=max_occurrences,
+        min_document_frequency=min_document_frequency,
+        max_document_frequency=max_document_frequency,
+        min_document_occurrences=min_document_occurrences,
+        max_document_occurrences=max_document_occurrences,
+        total_tokens=total_tokens,
+        total_documents=total_documents,
+    )
+
+    vocab_tokens = [token for token, index in token_dictionary.items() if keep[index]]
+    new_token_frequency = np.array(
+        [token_frequencies[token_dictionary[token]] for token in vocab_tokens]
+    )
+    new_vocabulary = dict(zip(vocab_tokens, range(len(vocab_tokens))))
+
+    return new_vocabulary, new_token_frequency
+
+
+def token_pruning_mask(
+    token_frequencies,
+    token_doc_frequencies=np.array([]),
+    keep=None,
+    max_unique_tokens=None,
+    min_frequency=0.0,
+    max_frequency=1.0,
+    min_occurrences=None,
+    max_occurrences=None,
+    min_document_frequency=0.0,
+    max_document_frequency=1.0,
+    min_document_occurrences=None,
+    max_document_occurrences=None,
+    total_tokens=None,
+    total_documents=None,
+):
+    """The array form of the frequency constraints of prune_token_dictionary:
+    a boolean mask over token indices of the tokens to keep. Tokens already
+    excluded by ``keep`` do not count towards ``max_unique_tokens``."""
     if min_occurrences is None:
         if min_frequency is None:
             min_frequency = 0.0
@@ -248,46 +307,17 @@ def prune_token_dictionary(
                 1.0, max_document_occurrences / total_documents
             )
 
-    if ignored_tokens is not None:
-        tokens_to_prune = set(ignored_tokens)
-    else:
-        tokens_to_prune = set([])
+    keep = np.ones(len(token_frequencies), dtype=bool) if keep is None else keep.copy()
+    keep[token_frequencies < min_frequency] = False
+    keep[token_frequencies > max_frequency] = False
+    keep[np.where(token_doc_frequencies < min_document_frequency)[0]] = False
+    keep[np.where(token_doc_frequencies > max_document_frequency)[0]] = False
 
-    reverse_token_dictionary = {index: word for word, index in token_dictionary.items()}
+    if max_unique_tokens is not None and keep.sum() > max_unique_tokens:
+        freq = np.sort(token_frequencies[keep])[-max_unique_tokens - 1]
+        keep &= token_frequencies > freq
 
-    infrequent_tokens = np.where(token_frequencies < min_frequency)[0]
-    frequent_tokens = np.where(token_frequencies > max_frequency)[0]
-
-    infrequent_doc_tokens = np.where(token_doc_frequencies < min_document_frequency)[0]
-    frequent_doc_tokens = np.where(token_doc_frequencies > max_document_frequency)[0]
-
-    tokens_to_prune.update({reverse_token_dictionary[i] for i in infrequent_tokens})
-    tokens_to_prune.update({reverse_token_dictionary[i] for i in frequent_tokens})
-    tokens_to_prune.update({reverse_token_dictionary[i] for i in infrequent_doc_tokens})
-    tokens_to_prune.update({reverse_token_dictionary[i] for i in frequent_doc_tokens})
-
-    if excluded_token_regex is not None:
-        tokens_to_prune.update(
-            select_tokens_by_regex(token_dictionary.keys(), excluded_token_regex)
-        )
-
-    vocab_tokens = [token for token in token_dictionary if token not in tokens_to_prune]
-    new_token_frequency = np.array(
-        [token_frequencies[token_dictionary[token]] for token in vocab_tokens]
-    )
-
-    if max_unique_tokens is not None:
-        if len(new_token_frequency) > max_unique_tokens:
-            freq = np.sort(new_token_frequency)[-max_unique_tokens - 1]
-            new_inds = new_token_frequency > freq
-            new_token_frequency = new_token_frequency[new_inds]
-            vocab_tokens = [
-                token for i, token in enumerate(vocab_tokens) if new_inds[i]
-            ]
-
-    new_vocabulary = dict(zip(vocab_tokens, range(len(vocab_tokens))))
-
-    return new_vocabulary, new_token_frequency
+    return keep
 
 
 def remove_node(adjacency_matrix, node, inplace=True):

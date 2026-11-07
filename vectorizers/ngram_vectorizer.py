@@ -1,5 +1,8 @@
+import itertools
+
 import numpy as np
 import numba
+import pandas as pd
 
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.exceptions import NotFittedError
@@ -9,17 +12,8 @@ import scipy.linalg
 import scipy.stats
 import scipy.sparse
 
-from .utils import (
-    flatten,
-    validate_homogeneous_token_types,
-)
-
-from .preprocessing import (
-    prune_token_dictionary,
-    construct_token_dictionary_and_frequency,
-    construct_document_frequency,
-    preprocess_token_sequences,
-)
+from .utils import validate_homogeneous_token_types
+from .preprocessing import prune_token_dictionary, token_pruning_mask
 
 
 @numba.njit(nogil=True)
@@ -59,6 +53,132 @@ def ngrams_of(sequence, ngram_size, ngram_behaviour="exact"):
         else:
             raise ValueError("Unrecognized ngram_behaviour!")
     return result
+
+
+def _factorize_documents(X, validate=False):
+    """Encode all tokens of a list of token sequences in a single pass.
+
+    Returns
+    -------
+    codes: array of shape (n_tokens,)
+        The index of each token in ``unique_tokens``.
+
+    unique_tokens: list
+        The distinct tokens, in sorted order.
+
+    offsets: array of shape (len(X) + 1,)
+        Document ``i`` is ``codes[offsets[i]:offsets[i + 1]]``.
+    """
+    offsets = np.zeros(len(X) + 1, dtype=np.int64)
+    np.cumsum(np.fromiter(map(len, X), dtype=np.int64, count=len(X)), out=offsets[1:])
+    flat = np.fromiter(
+        itertools.chain.from_iterable(X), dtype=object, count=offsets[-1]
+    )
+    codes, uniques = pd.factorize(flat)
+    if codes.shape[0] and codes.min() < 0:
+        # None/NaN tokens are rare; keeping them as tokens is a slower path
+        codes, uniques = pd.factorize(flat, use_na_sentinel=False)
+    if validate:
+        validate_homogeneous_token_types([list(uniques)])
+    order = sorted(range(len(uniques)), key=uniques.__getitem__)
+    rank = np.empty(len(order), dtype=np.int64)
+    rank[order] = np.arange(len(order))
+    return rank[codes], [uniques[i] for i in order], offsets
+
+
+def _compress(values, keep, offsets):
+    """Remove the entries of a flat segmented array where ``keep`` is False,
+    adjusting the segment offsets to match."""
+    if keep.all():
+        return values, offsets
+    return values[keep], np.concatenate(([0], np.cumsum(keep)))[offsets]
+
+
+def _encode_tokens(token_codes, unique_tokens, offsets, token_dictionary, unknown=-1):
+    """Index factorized tokens by ``token_dictionary``. Tokens not in it become
+    ``unknown``, and are dropped if that is -1."""
+    index = np.array(
+        [token_dictionary.get(token, unknown) for token in unique_tokens],
+        dtype=np.int64,
+    )[token_codes]
+    return _compress(index, index >= 0, offsets)
+
+
+@numba.njit(nogil=True, parallel=True)
+def _ngram_index_rows(tokens, offsets, ngram_size, subgrams):
+    """All n-grams of each segment as rows of token indices, padded with -1."""
+    min_size = 1 if subgrams else ngram_size
+    n_docs = offsets.shape[0] - 1
+    gram_offsets = np.zeros(n_docs + 1, dtype=np.int64)
+    for d in range(n_docs):
+        for size in range(min_size, ngram_size + 1):
+            gram_offsets[d + 1] += max(offsets[d + 1] - offsets[d] - size + 1, 0)
+    gram_offsets = np.cumsum(gram_offsets)
+
+    grams = np.full((gram_offsets[-1], ngram_size), -1, dtype=np.int32)
+    for d in numba.prange(n_docs):
+        pos = gram_offsets[d]
+        end = offsets[d + 1]
+        for i in range(offsets[d], end):
+            for size in range(min_size, min(ngram_size, end - i) + 1):
+                grams[pos, :size] = tokens[i : i + size]
+                pos += 1
+    return grams, gram_offsets
+
+
+@numba.njit(nogil=True, parallel=True)
+def _segment_count_arrays(columns, offsets):
+    """CSR (indptr, indices, data) counting the non-negative values of each
+    segment."""
+    n_rows = offsets.shape[0] - 1
+    columns = columns.copy()
+    row_nnz = np.zeros(n_rows + 1, dtype=np.int64)
+    for r in numba.prange(n_rows):
+        segment = columns[offsets[r] : offsets[r + 1]]
+        segment.sort()
+        nnz = 0
+        for i in range(segment.shape[0]):
+            if segment[i] >= 0 and (i == 0 or segment[i] != segment[i - 1]):
+                nnz += 1
+        row_nnz[r + 1] = nnz
+    indptr = np.cumsum(row_nnz)
+
+    indices = np.empty(indptr[-1], dtype=columns.dtype)
+    data = np.zeros(indptr[-1], dtype=np.int64)
+    for r in numba.prange(n_rows):
+        segment = columns[offsets[r] : offsets[r + 1]]
+        pos = indptr[r] - 1
+        for i in range(segment.shape[0]):
+            if segment[i] >= 0:
+                if i == 0 or segment[i] != segment[i - 1]:
+                    pos += 1
+                    indices[pos] = segment[i]
+                data[pos] += 1
+    return indptr, indices, data
+
+
+def _row_keys(rows, base):
+    """Integer keys for the rows of a -1 padded array of indices less than
+    ``base - 1``, equal exactly for equal rows and ordered as the rows are
+    lexicographically (so shorter rows precede their extensions)."""
+    keys = np.zeros(rows.shape[0], dtype=np.int64)
+    n_keys = 1
+    for k in range(rows.shape[1]):
+        if n_keys * base > np.iinfo(np.int64).max:
+            keys, uniques = pd.factorize(keys, sort=True)
+            n_keys = len(uniques)
+        keys = keys * base + rows[:, k] + 1
+        n_keys *= base
+    return keys
+
+
+def _row_ids(rows, base):
+    """Consecutive ids in the order of _row_keys, and the index of a
+    representative row for each id."""
+    ids, uniques = pd.factorize(_row_keys(rows, base), sort=True)
+    representative = np.empty(len(uniques), dtype=np.int64)
+    representative[ids] = np.arange(ids.shape[0])
+    return ids, representative
 
 
 class NgramVectorizer(BaseEstimator, TransformerMixin):
@@ -136,12 +256,13 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         The regular expression by which tokens are ignored if re.fullmatch returns True.
 
     mask_string: str (optional, default=None)
-        Prunes the filtered tokens when None, otherwise replaces them with the
-        provided mask_string.
+        Prunes the filtered tokens when None, so that n-grams span the gaps they
+        leave; otherwise replaces them with the provided mask_string.
 
     nullify_mask: bool (optional, default=False)
-        Sets all cooccurrences with the mask_string equal to zero by skipping over them
-        during processing.
+        Drop every n-gram containing the mask_string, so that only n-grams made
+        entirely of retained tokens, without spanning gaps, are counted.
+        Requires mask_string.
 
     validate_data: bool (optional, default=True)
         Check whether the data is valid (e.g. of homogeneous token type).
@@ -210,143 +331,178 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
         self.column_label_dictionary_ = {}
         self.column_index_dictionary_ = {}
         self._mask_index = None
-        self._mask_ngram_index = None
 
-    def fit(self, X, y=None, **fit_params):
-
-        if self.validate_data:
-            validate_homogeneous_token_types(X)
-
-        # noinspection PyTupleAssignmentBalance
-        (
-            token_sequences,
-            self._token_dictionary_,
-            self._inverse_token_dictionary_,
-            self._token_frequencies_,
-        ) = preprocess_token_sequences(
-            X,
-            token_dictionary=self.token_dictionary,
+    def _pruning_parameters(self):
+        return dict(
             max_unique_tokens=self.max_unique_tokens,
-            min_occurrences=self.min_occurrences,
-            max_occurrences=self.max_occurrences,
             min_frequency=self.min_frequency,
             max_frequency=self.max_frequency,
-            min_document_occurrences=self.min_document_occurrences,
-            max_document_occurrences=self.max_document_occurrences,
+            min_occurrences=self.min_occurrences,
+            max_occurrences=self.max_occurrences,
             min_document_frequency=self.min_document_frequency,
             max_document_frequency=self.max_document_frequency,
-            ignored_tokens=self.excluded_tokens,
-            excluded_token_regex=self.excluded_token_regex,
-            masking=self.mask_string,
+            min_document_occurrences=self.min_document_occurrences,
+            max_document_occurrences=self.max_document_occurrences,
         )
-        ngrams = [
-            list(map(tuple, ngrams_of(sequence, self.ngram_size, self.ngram_behaviour)))
-            for sequence in token_sequences
-        ]
 
-        if self.ngram_dictionary is not None:
-            self.column_label_dictionary_ = self.ngram_dictionary
-        elif self.ngram_size == 1:
-            self.column_label_dictionary_ = self._token_dictionary_
+    def _document_frequencies(self, codes, offsets, n_codes):
+        if {
+            self.min_document_frequency,
+            self.min_document_occurrences,
+            self.max_document_frequency,
+            self.max_document_occurrences,
+        } == {None}:
+            return np.array([])
+        _, indices, _ = _segment_count_arrays(codes, offsets)
+        return np.bincount(indices, minlength=n_codes) / (len(offsets) - 1)
+
+    def _columns_by_label(self, rows):
+        # A user supplied ngram_dictionary is keyed by bare tokens for unigrams
+        bare_unigrams = self.ngram_dictionary is not None
+        columns = np.empty(rows.shape[0], dtype=np.int64)
+        for i, row in enumerate(rows.tolist()):
+            gram = tuple(self._inverse_token_dictionary_[t] for t in row if t >= 0)
+            if bare_unigrams and len(gram) == 1:
+                gram = gram[0]
+            columns[i] = self.column_label_dictionary_.get(gram, -1)
+        return columns
+
+    def _ngrams(self, tokens, offsets):
+        """The n-grams of the encoded documents as -1 padded rows of token indices,
+        without those containing a nullified mask, and their offsets."""
+        grams, offsets = _ngram_index_rows(
+            tokens.astype(np.int32),
+            offsets,
+            self.ngram_size,
+            self.ngram_behaviour == "subgrams",
+        )
+        if self._mask_index is not None:
+            grams, offsets = _compress(
+                grams, ~(grams == self._mask_index).any(axis=1), offsets
+            )
+        return grams, offsets
+
+    def _ngram_columns(self, tokens, offsets):
+        """The column of every n-gram of the encoded documents (-1 if it is not a
+        column), and the offsets delimiting each document's n-grams."""
+        if self.ngram_size == 1 and self.ngram_dictionary is None:
+            if self._mask_index is not None:
+                tokens = np.where(tokens == self._mask_index, -1, tokens)
+            return tokens, offsets
+        grams, offsets = self._ngrams(tokens, offsets)
+        base = len(self._token_dictionary_) + 1
+        ngram_rows = getattr(self, "_ngram_rows_", None)
+        if ngram_rows is None:
+            ids, representative = _row_ids(grams, base)
+            return self._columns_by_label(grams[representative])[ids], offsets
+        # Key the learned n-grams together with the new ones, so keys are shared
+        keys = _row_keys(np.vstack([ngram_rows, grams]), base)
+        n_learned = len(ngram_rows)
+        return pd.Index(keys[:n_learned]).get_indexer(keys[n_learned:]), offsets
+
+    def _count_matrix(self, columns, offsets):
+        indptr, indices, data = _segment_count_arrays(columns, offsets)
+        result = scipy.sparse.csr_matrix(
+            (data, indices, indptr),
+            shape=(len(offsets) - 1, len(self.column_label_dictionary_)),
+            dtype=np.float32,
+        )
+        result.sort_indices()
+        return result
+
+    def _fit_tokens(self, X):
+        """Learn the token dictionary; return the encoded documents."""
+        token_codes, unique_tokens, offsets = _factorize_documents(
+            X, validate=self.validate_data
+        )
+        if self.token_dictionary is None:
+            token_dictionary, token_frequencies = prune_token_dictionary(
+                dict(zip(unique_tokens, range(len(unique_tokens)))),
+                np.bincount(token_codes).astype(np.float32) / len(token_codes),
+                token_doc_frequencies=self._document_frequencies(
+                    token_codes, offsets, len(unique_tokens)
+                ),
+                ignored_tokens=self.excluded_tokens,
+                excluded_token_regex=self.excluded_token_regex,
+                total_tokens=len(token_codes),
+                total_documents=len(offsets) - 1,
+                **self._pruning_parameters(),
+            )
         else:
-            (
-                raw_ngram_dictionary,
-                ngram_frequencies,
-                total_ngrams,
-            ) = construct_token_dictionary_and_frequency(
-                flatten(ngrams), token_dictionary=None
+            token_dictionary = self.token_dictionary
+            known, _ = _encode_tokens(
+                token_codes, unique_tokens, offsets, token_dictionary
             )
-            if {
-                self.min_document_frequency,
-                self.min_document_occurrences,
-                self.max_document_frequency,
-                self.max_document_occurrences,
-            } != {None}:
-                ngram_doc_frequencies = construct_document_frequency(
-                    ngrams, raw_ngram_dictionary
-                )
-            else:
-                ngram_doc_frequencies = np.array([])
-
-            raw_ngram_dictionary, ngram_frequencies = prune_token_dictionary(
-                raw_ngram_dictionary,
-                ngram_frequencies,
-                token_doc_frequencies=ngram_doc_frequencies,
-                max_unique_tokens=self.max_unique_tokens,
-                min_frequency=self.min_frequency,
-                max_frequency=self.max_frequency,
-                min_occurrences=self.min_occurrences,
-                max_occurrences=self.max_occurrences,
-                min_document_frequency=self.min_document_frequency,
-                max_document_frequency=self.max_document_frequency,
-                min_document_occurrences=self.min_document_occurrences,
-                max_document_occurrences=self.max_document_occurrences,
-                total_tokens=total_ngrams,
-                total_documents=len(token_sequences),
+            token_frequencies = np.bincount(known).astype(np.float32) / len(
+                token_codes
             )
 
-            self.column_label_dictionary_ = {
-                tuple(
-                    self._inverse_token_dictionary_[token_index]
-                    for token_index in ngram
-                ): token_index
-                for ngram, token_index in raw_ngram_dictionary.items()
-            }
+        unknown_token = -1
+        if self.mask_string is not None:
+            token_dictionary.pop(self.mask_string, None)
+            unknown_token = len(token_dictionary)
+        tokens, offsets = _encode_tokens(
+            token_codes, unique_tokens, offsets, token_dictionary, unknown_token
+        )
+        if self.mask_string is not None:
+            token_dictionary[self.mask_string] = unknown_token
 
+        self._token_dictionary_ = token_dictionary
+        self._inverse_token_dictionary_ = {
+            index: token for token, index in token_dictionary.items()
+        }
+        self._token_frequencies_ = token_frequencies
+        self._mask_index = np.int32(unknown_token) if self.nullify_mask else None
+        return tokens, offsets
+
+    def _fit_ngram_columns(self, tokens, offsets):
+        """Learn the n-gram dictionary; return the column of every n-gram."""
+        n_documents = len(offsets) - 1
+        grams, offsets = self._ngrams(tokens, offsets)
+        ids, representative = _row_ids(grams, len(self._token_dictionary_) + 1)
+        kept = np.flatnonzero(
+            token_pruning_mask(
+                np.bincount(ids).astype(np.float32) / len(ids),
+                token_doc_frequencies=self._document_frequencies(
+                    ids, offsets, len(representative)
+                ),
+                total_tokens=len(ids),
+                total_documents=n_documents,
+                **self._pruning_parameters(),
+            )
+        )
+        # Sorted, so the position of an n-gram's row is its column index
+        self._ngram_rows_ = grams[representative[kept]]
+        self.column_label_dictionary_ = {
+            tuple(self._inverse_token_dictionary_[t] for t in row if t >= 0): i
+            for i, row in enumerate(self._ngram_rows_.tolist())
+        }
+        column_of_id = np.full(len(representative), -1, dtype=np.int64)
+        column_of_id[kept] = np.arange(len(kept))
+        return column_of_id[ids], offsets
+
+    def fit(self, X, y=None, **fit_params):
+        if self.ngram_behaviour not in ("exact", "subgrams"):
+            raise ValueError("Unrecognized ngram_behaviour!")
+        if self.nullify_mask and self.mask_string is None:
+            raise ValueError("Cannot nullify mask with mask_string = None")
+
+        tokens, offsets = self._fit_tokens(X)
+        self._ngram_rows_ = None
+        if self.ngram_dictionary is None and self.ngram_size > 1:
+            columns, offsets = self._fit_ngram_columns(tokens, offsets)
+        else:
+            self.column_label_dictionary_ = (
+                self._token_dictionary_
+                if self.ngram_dictionary is None
+                else self.ngram_dictionary
+            )
+            columns, offsets = self._ngram_columns(tokens, offsets)
         self.column_index_dictionary_ = {
             index: token for token, index in self.column_label_dictionary_.items()
         }
 
-        if self.nullify_mask:
-            self._mask_index = np.int32(len(self._token_frequencies_))
-            mask_ngram = tuple(self._mask_index * np.ones(self.ngram_size))
-            if mask_ngram in self.column_label_dictionary_:
-                self._mask_ngram_index = self.column_label_dictionary_[mask_ngram]
-
-        indptr = [0]
-        indices = []
-        data = []
-        for sequence in ngrams:
-            counter = {}
-            for index_gram in sequence:
-                try:
-                    if len(index_gram) == 1:
-                        token_gram = self._inverse_token_dictionary_[index_gram[0]]
-                    else:
-                        token_gram = tuple(
-                            self._inverse_token_dictionary_[index]
-                            for index in index_gram
-                        )
-                    col_index = self.column_label_dictionary_[token_gram]
-                    if not (self.nullify_mask and col_index is self._mask_ngram_index):
-                        if col_index in counter:
-                            counter[col_index] += 1
-                        else:
-                            counter[col_index] = 1
-                except KeyError:
-                    # Out of predefined ngrams; drop
-                    continue
-
-            indptr.append(indptr[-1] + len(counter))
-            indices.extend(counter.keys())
-            data.extend(counter.values())
-
-        if indptr[-1] > np.iinfo(np.int32).max:  # = 2**31 - 1
-            indices_dtype = np.int64
-        else:
-            indices_dtype = np.int32
-
-        indices = np.asarray(indices, dtype=indices_dtype)
-        indptr = np.asarray(indptr, dtype=indices_dtype)
-        data = np.asarray(data, dtype=np.intc)
-
-        self._train_matrix = scipy.sparse.csr_matrix(
-            (data, indices, indptr),
-            shape=(len(indptr) - 1, len(self.column_label_dictionary_)),
-            dtype=np.float32,
-        )
-        self._train_matrix.sort_indices()
-
+        self._train_matrix = self._count_matrix(columns, offsets)
         return self
 
     def fit_transform(self, X, y=None, **fit_params):
@@ -362,59 +518,18 @@ class NgramVectorizer(BaseEstimator, TransformerMixin):
                 "column_label_dictionary_",
             ],
         )
-        # noinspection PyTupleAssignmentBalance
-        (token_sequences, _, _, _) = preprocess_token_sequences(
-            X, self._token_dictionary_,
+        token_codes, unique_tokens, offsets = _factorize_documents(X)
+        # Mask unseen tokens as fit does, so n-grams never bridge them
+        unknown_token = (
+            -1
+            if self.mask_string is None
+            else self._token_dictionary_.get(self.mask_string, -1)
         )
-
-        indptr = [0]
-        indices = []
-        data = []
-
-        for sequence in token_sequences:
-            counter = {}
-            numba_sequence = np.array(sequence)
-            for index_gram in ngrams_of(
-                numba_sequence, self.ngram_size, self.ngram_behaviour
-            ):
-                try:
-                    if len(index_gram) == 1:
-                        token_gram = self._inverse_token_dictionary_[index_gram[0]]
-                    else:
-                        token_gram = tuple(
-                            self._inverse_token_dictionary_[index]
-                            for index in index_gram
-                        )
-                    col_index = self.column_label_dictionary_[token_gram]
-                    if not (self.nullify_mask and col_index is self._mask_ngram_index):
-                        if col_index in counter:
-                            counter[col_index] += 1
-                        else:
-                            counter[col_index] = 1
-                except KeyError:
-                    # Out of predefined ngrams; drop
-                    continue
-
-            indptr.append(indptr[-1] + len(counter))
-            indices.extend(counter.keys())
-            data.extend(counter.values())
-
-        if indptr[-1] > np.iinfo(np.int32).max:  # = 2**31 - 1
-            indices_dtype = np.int64
-        else:
-            indices_dtype = np.int32
-        indices = np.asarray(indices, dtype=indices_dtype)
-        indptr = np.asarray(indptr, dtype=indices_dtype)
-        data = np.asarray(data, dtype=np.intc)
-
-        result = scipy.sparse.csr_matrix(
-            (data, indices, indptr),
-            shape=(len(indptr) - 1, len(self.column_label_dictionary_)),
-            dtype=np.float32,
+        tokens, offsets = _encode_tokens(
+            token_codes, unique_tokens, offsets, self._token_dictionary_, unknown_token
         )
-        result.sort_indices()
-
-        return result
+        columns, offsets = self._ngram_columns(tokens, offsets)
+        return self._count_matrix(columns, offsets)
 
     def __add__(self, other):
         try:
