@@ -6,7 +6,7 @@ import scipy.sparse
 MOCK_TARGET = np.ones(1, dtype=np.int64)
 
 
-@numba.njit(nogil=True)
+@numba.njit(nogil=True, cache=True)
 def column_kl_divergence_exact_prior(
     count_indices,
     count_data,
@@ -36,7 +36,7 @@ def column_kl_divergence_exact_prior(
     return result
 
 
-@numba.njit(nogil=True)
+@numba.njit(nogil=True, cache=True)
 def column_kl_divergence_approx_prior(
     count_indices,
     count_data,
@@ -68,7 +68,7 @@ def column_kl_divergence_approx_prior(
     return result
 
 
-@numba.njit(nogil=True)
+@numba.njit(nogil=True, cache=True)
 def supervised_column_kl(
     count_indices,
     count_data,
@@ -97,6 +97,8 @@ def supervised_column_kl(
     return result
 
 
+# Not cached: numba keys the cache on the kernel passed in, whose type differs in
+# every process, so each process would only add another cache file.
 @numba.njit(nogil=True, parallel=True)
 def column_weights(
     indptr,
@@ -124,7 +126,7 @@ def column_weights(
     return weights
 
 
-@numba.njit(nogil=True)
+@numba.njit(nogil=True, cache=True)
 def compute_baseline_probabilities(
     indptr,
     indices,
