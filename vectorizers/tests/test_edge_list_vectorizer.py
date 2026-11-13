@@ -65,4 +65,18 @@ def test_edgelist_specified_column_missing_index():
     assert np.allclose(result.toarray()[:, 4], np.array([0, 2, 0, 8]))
 
 
+def test_edgelist_transform_keeps_fitted_shape():
+    model = EdgeListVectorizer().fit(test_data)
+    fitted = model.transform(test_data)
+    # A subset of the edges gives the same row/column layout as fit
+    subset = model.transform([["a", "b", 1]])
+    assert subset.shape == fitted.shape
+    assert subset.toarray()[0, 0] == 1
+    assert subset.sum() == 1
+    # Edges with unknown labels are dropped, even if none are left
+    unseen = model.transform([["a", "z", 1], ["z", "b", 3]])
+    assert unseen.shape == fitted.shape
+    assert unseen.nnz == 0
+
+
 # TODO: Write a unit test for joint_space=True

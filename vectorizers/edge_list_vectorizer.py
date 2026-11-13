@@ -177,8 +177,12 @@ class EdgeListVectorizer(BaseEstimator, TransformerMixin):
             self.column_label_dictionary_[x] for x in edge_list[valid_edges, 1]
         ]
 
+        # Use the same shape as fit so rows and columns line up with the training matrix
+        max_row = np.max(list(self.row_index_dictionary_.keys())) + 1
+        max_col = np.max(list(self.column_index_dictionary_.keys())) + 1
         matrix = scipy.sparse.coo_matrix(
-            (edge_list[valid_edges, 2].astype(float), (row_indices, col_indices))
+            (edge_list[valid_edges, 2].astype(float), (row_indices, col_indices)),
+            shape=(max_row, max_col),
         ).tocsr()
         matrix.sum_duplicates()
         return matrix
