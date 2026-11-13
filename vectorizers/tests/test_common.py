@@ -29,6 +29,7 @@ from vectorizers.ngram_vectorizer import ngrams_of, _row_ids
 from vectorizers._vectorizers import find_bin_boundaries
 from vectorizers.tree_token_cooccurrence import build_tree_skip_grams
 from vectorizers.preprocessing import remove_node
+from vectorizers.skip_gram_vectorizer import skip_grams_matrix_coo_data
 from vectorizers._window_kernels import (
     harmonic_kernel,
     flat_kernel,
@@ -855,6 +856,15 @@ def test_skipgram_vectorizer_mixed():
     vectorizer = SkipgramVectorizer()
     with pytest.raises(ValueError):
         vectorizer.fit_transform(mixed_token_data)
+
+
+def test_skip_grams_matrix_coo_data_large_vocabulary():
+    # Pair ids of a 50,000 token vocabulary do not fit in int32
+    window_sizes = np.full(50001, 1)
+    row, col, data = skip_grams_matrix_coo_data(
+        [np.array([49999, 49998])], window_sizes, flat_kernel, ()
+    )
+    assert 49999 * 50000 + 49998 in col
 
 
 def test_distribution_vectorizer_basic():
