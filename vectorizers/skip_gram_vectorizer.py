@@ -137,7 +137,7 @@ def skip_grams_matrix_coo_data(
         for i, skip_gram in enumerate(skip_gram_data):
             result_row.append(row_idx)
             result_col.append(
-                np.int32(skip_gram[0]) * n_unique_tokens + np.int32(skip_gram[1])
+                np.int64(skip_gram[0]) * n_unique_tokens + np.int64(skip_gram[1])
             )
             result_data.append(skip_gram[2])
 
