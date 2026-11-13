@@ -407,10 +407,15 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
             tuple(*self.kernel_args.values()),
         )
 
-        base_matrix = scipy.sparse.coo_matrix((data, (row, col)))
+        # Column ids span every possible token pair: build on the observed ids only
+        observed_columns, compact_col = np.unique(col, return_inverse=True)
+        base_matrix = scipy.sparse.coo_matrix((data, (row, compact_col)))
         column_sums = np.array(base_matrix.sum(axis=0))[0]
-        self._column_is_kept = column_sums > 0
-        self._kept_columns = np.where(self._column_is_kept)[0]
+        compact_column_is_kept = column_sums > 0
+        self._kept_columns = observed_columns[compact_column_is_kept].astype(np.intp)
+        pair_id_space_width = observed_columns[-1] + 1
+        self._column_is_kept = np.zeros(pair_id_space_width, dtype=bool)
+        self._column_is_kept[self._kept_columns] = True
 
         self.column_label_dictionary_ = {}
         for i in range(self._kept_columns.shape[0]):
@@ -426,7 +431,7 @@ class SkipgramVectorizer(BaseEstimator, TransformerMixin):
         self.column_index_dictionary_ = {
             index: token for token, index in self.column_label_dictionary_.items()
         }
-        self._train_matrix = base_matrix.tocsc()[:, self._column_is_kept].tocsr()
+        self._train_matrix = base_matrix.tocsc()[:, compact_column_is_kept].tocsr()
         self._train_matrix.eliminate_zeros()
         self.metric_ = distances.sparse_hellinger
 
