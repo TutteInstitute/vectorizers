@@ -121,27 +121,30 @@ def skip_grams_matrix_coo_data(
     data: array
         Value data for a COO format sparse matrix representation
     """
-    result_row = []
     result_col = []
     result_data = []
 
     n_unique_tokens = len(window_sizes) - 1
 
-    for row_idx in range(len(list_of_token_sequences)):
-        skip_gram_data = build_skip_grams(
-            list_of_token_sequences[row_idx],
-            window_sizes,
-            kernel_function,
-            kernel_args,
-        )
-        for i, skip_gram in enumerate(skip_gram_data):
-            result_row.append(row_idx)
-            result_col.append(
-                np.int32(skip_gram[0]) * n_unique_tokens + np.int32(skip_gram[1])
+    for token_sequence in list_of_token_sequences:
+        skip_gram_data = np.array(
+            build_skip_grams(
+                token_sequence,
+                window_sizes,
+                kernel_function,
+                kernel_args,
             )
-            result_data.append(skip_gram[2])
+        )
+        # int64 pair ids: in int32 they overflow beyond 46,340 unique tokens
+        head_tokens = skip_gram_data[:, 0].astype(np.int64)
+        tail_tokens = skip_gram_data[:, 1].astype(np.int64)
+        result_col.append(head_tokens * n_unique_tokens + tail_tokens)
+        result_data.append(skip_gram_data[:, 2].copy())
 
-    return np.asarray(result_row), np.asarray(result_col), np.asarray(result_data)
+    result_row = np.repeat(
+        np.arange(len(result_col)), [len(col) for col in result_col]
+    )
+    return result_row, np.concatenate(result_col), np.concatenate(result_data)
 
 
 @numba.njit(nogil=True)
