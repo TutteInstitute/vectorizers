@@ -27,6 +27,7 @@ from pynndescent.distances import cosine
 
 from vectorizers.ngram_vectorizer import ngrams_of, _row_ids
 from vectorizers._vectorizers import find_bin_boundaries
+from vectorizers.coo_utils import COO_QUICKSORT_LIMIT
 from vectorizers.tree_token_cooccurrence import build_tree_skip_grams
 from vectorizers.preprocessing import remove_node
 from vectorizers._window_kernels import (
@@ -584,6 +585,29 @@ def test_token_cooccurrence_vectorizer_window_args():
     assert (
         vectorizer_a.fit_transform(token_data) != vectorizer_b.fit_transform(token_data)
     ).nnz == 0
+
+
+def test_token_cooccurrence_vectorizer_coo_sizes_are_entry_counts():
+    # Below coo_initial_memory, a window needs at most tokens x (radius + 1) entries.
+    token_sequences = [
+        tuple(seq) for seq in np.random.RandomState(0).randint(50, size=(300, 50))
+    ]
+    vectorizer = TokenCooccurrenceVectorizer().fit(token_sequences)
+    n_tokens = sum(len(seq) for seq in token_sequences)
+    max_entries_per_window = n_tokens * (max(vectorizer.window_radii) + 1)
+    assert np.all(
+        vectorizer._coo_sizes <= max(max_entries_per_window, COO_QUICKSORT_LIMIT + 1)
+    )
+
+
+def test_token_cooccurrence_vectorizer_uneven_thread_chunks():
+    # With 2 threads one chunk gets the whole sequence and must grow its buffer.
+    token_sequences = [tuple(range(14000))]
+    single = TokenCooccurrenceVectorizer().fit_transform(token_sequences)
+    threaded_vectorizer = TokenCooccurrenceVectorizer(n_threads=2)
+    threaded = threaded_vectorizer.fit_transform(token_sequences)
+    assert np.all(threaded_vectorizer._coo_sizes >= COO_QUICKSORT_LIMIT + 1)
+    assert (single != threaded).nnz == 0
 
 
 def test_token_cooccurrence_vectorizer_kernel_args():
