@@ -473,7 +473,7 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
         approx_coo_size *= (max(self.window_radii) + 1) * (20 * self._n_wide)
         if approx_coo_size < self.coo_initial_bytes:
             self._coo_sizes = np.repeat(
-                approx_coo_size // self._n_wide, self._n_wide
+                (approx_coo_size // 20) // self._n_wide, self._n_wide
             ).astype(np.int64)
         else:
             offsets = np.array(
@@ -484,6 +484,8 @@ class BaseCooccurrenceVectorizer(BaseEstimator, TransformerMixin):
             self._coo_sizes = np.array(coo_sizes * average_window, dtype=np.int64)
 
         self._coo_sizes = np.divmod(self._coo_sizes, self.n_threads)[0]
+        # Thread chunks can be uneven: never go below coo_increase_mem's floor.
+        self._coo_sizes = np.maximum(self._coo_sizes, COO_QUICKSORT_LIMIT + 1)
 
     def _generate_chunk_boundaries(self, data, n_threads):
         token_list_sizes = np.array([len(x) for x in data])
