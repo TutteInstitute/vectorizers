@@ -97,15 +97,18 @@ def supervised_column_kl(
     return result
 
 
-# Not cached: numba keys the cache on the kernel passed in, whose type differs in
-# every process, so each process would only add another cache file.
-@numba.njit(nogil=True, parallel=True)
+EXACT_PRIOR_KL = 0
+APPROX_PRIOR_KL = 1
+SUPERVISED_KL = 2
+
+
+@numba.njit(nogil=True, parallel=True, cache=True)
 def column_weights(
     indptr,
     indices,
     data,
     baseline_probabilities,
-    column_kl_divergence_func,
+    kl_kind,
     prior_strength=0.1,
     target=MOCK_TARGET,
     column_groups=None,
@@ -116,13 +119,32 @@ def column_weights(
         group = 0
         if column_groups is not None:
             group = column_groups[i]
-        weights[i] = column_kl_divergence_func(
-            indices[indptr[i] : indptr[i + 1]],
-            data[indptr[i] : indptr[i + 1]],
-            baseline_probabilities[group, :],
-            prior_strength=prior_strength,
-            target=target,
-        )
+        column_indices = indices[indptr[i] : indptr[i + 1]]
+        column_data = data[indptr[i] : indptr[i + 1]]
+        if kl_kind == SUPERVISED_KL:
+            weights[i] = supervised_column_kl(
+                column_indices,
+                column_data,
+                baseline_probabilities[group, :],
+                prior_strength=prior_strength,
+                target=target,
+            )
+        elif kl_kind == APPROX_PRIOR_KL:
+            weights[i] = column_kl_divergence_approx_prior(
+                column_indices,
+                column_data,
+                baseline_probabilities[group, :],
+                prior_strength=prior_strength,
+                target=target,
+            )
+        else:
+            weights[i] = column_kl_divergence_exact_prior(
+                column_indices,
+                column_data,
+                baseline_probabilities[group, :],
+                prior_strength=prior_strength,
+                target=target,
+            )
     return weights
 
 
@@ -216,11 +238,11 @@ def information_weight(
         of information provided by the column.
     """
     if target is not None:
-        column_kl_divergence_func = supervised_column_kl
+        kl_kind = SUPERVISED_KL
     elif approximate_prior:
-        column_kl_divergence_func = column_kl_divergence_approx_prior
+        kl_kind = APPROX_PRIOR_KL
     else:
-        column_kl_divergence_func = column_kl_divergence_exact_prior
+        kl_kind = EXACT_PRIOR_KL
 
     csr_data = data.tocsr()
     baseline_probabilities = compute_baseline_probabilities(
@@ -238,9 +260,9 @@ def information_weight(
         csc_data.indices,
         csc_data.data,
         baseline_probabilities,
-        column_kl_divergence_func,
+        kl_kind,
         prior_strength=prior_strength,
-        target=target,
+        target=MOCK_TARGET if target is None else target,
         column_groups=column_groups,
     )
 
