@@ -8,7 +8,7 @@ COO_QUICKSORT_LIMIT = 1 << 16
 COO_MEM_MULTIPLIER = 1.5
 
 
-@numba.njit(nogil=True)
+@numba.njit(nogil=True, cache=True)
 def set_array_size(token_sequences, window_array):
     tot_len = np.zeros(window_array.shape[0]).astype(np.float64)
     window_array = window_array.astype(np.float64)
@@ -20,7 +20,7 @@ def set_array_size(token_sequences, window_array):
     return tot_len.astype(np.int64)
 
 
-@numba.njit(nogil=True)
+@numba.njit(nogil=True, cache=True)
 def merge_sum_duplicates(coo):
     new_depth = True
     for i in range(coo.depth[0]):
@@ -96,7 +96,7 @@ def merge_sum_duplicates(coo):
         coo.depth[0] += 1
 
 
-@numba.njit(nogil=True)
+@numba.njit(nogil=True, cache=True)
 def merge_all_sum_duplicates(coo):
     new_min = np.zeros(coo.depth[0])
     ptr = 0
@@ -108,7 +108,7 @@ def merge_all_sum_duplicates(coo):
     merge_sum_duplicates(coo)
 
 
-@numba.njit(nogil=True)
+@numba.njit(nogil=True, cache=True)
 def coo_sum_duplicates(coo):
     upper_lim = coo.ind[0]
     lower_lim = np.abs(coo.min[0])
@@ -151,7 +151,7 @@ def coo_sum_duplicates(coo):
     merge_sum_duplicates(coo)
 
 
-@numba.njit(nogil=True)
+@numba.njit(nogil=True, cache=True)
 def coo_increase_mem(coo):
 
     temp = coo.row
@@ -192,7 +192,7 @@ def coo_increase_mem(coo):
     return coo
 
 
-@numba.njit(nogil=True)
+@numba.njit(nogil=True, cache=True)
 def coo_append(coo, tup):
     coo.row[coo.ind[0]] = tup[0]
     coo.col[coo.ind[0]] = tup[1]
@@ -217,7 +217,7 @@ def coo_append(coo, tup):
     return coo
 
 
-@numba.njit(nogil=True)
+@numba.njit(nogil=True, cache=True)
 def sum_coo_entries(seq):
     seq.sort()
     this_coord = (seq[0][0], seq[0][1])
@@ -235,7 +235,7 @@ def sum_coo_entries(seq):
 
     return reduced_data
 
-@numba.njit(nogil=True)
+@numba.njit(nogil=True, cache=True)
 def em_update_matrix(
     posterior_data,
     prior_indices,

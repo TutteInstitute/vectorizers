@@ -16,7 +16,7 @@ from .utils import validate_homogeneous_token_types
 from .preprocessing import prune_token_dictionary, token_pruning_mask
 
 
-@numba.njit(nogil=True)
+@numba.njit(nogil=True, cache=True)
 def ngrams_of(sequence, ngram_size, ngram_behaviour="exact"):
     """Produce n-grams of a sequence of tokens. The n-gram behaviour can either
     be "exact", meaning that only n-grams of exactly size n are produced,
@@ -104,7 +104,7 @@ def _encode_tokens(token_codes, unique_tokens, offsets, token_dictionary, unknow
     return _compress(index, index >= 0, offsets)
 
 
-@numba.njit(nogil=True, parallel=True)
+@numba.njit(nogil=True, parallel=True, cache=True)
 def _ngram_index_rows(tokens, offsets, ngram_size, subgrams):
     """All n-grams of each segment as rows of token indices, padded with -1."""
     min_size = 1 if subgrams else ngram_size
@@ -126,7 +126,7 @@ def _ngram_index_rows(tokens, offsets, ngram_size, subgrams):
     return grams, gram_offsets
 
 
-@numba.njit(nogil=True, parallel=True)
+@numba.njit(nogil=True, parallel=True, cache=True)
 def _segment_count_arrays(columns, offsets):
     """CSR (indptr, indices, data) counting the non-negative values of each
     segment."""
