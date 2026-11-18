@@ -33,7 +33,7 @@ from types import GeneratorType
 _dummy_cost = np.zeros((2, 2), dtype=np.float64)
 
 
-@numba.njit(nogil=True, fastmath=True)
+@numba.njit(nogil=True, fastmath=True, cache=True)
 def project_to_sphere_tangent_space(euclidean_vectors, sphere_basepoints):
     """Given arrays of vectors in euclidean space and a corresponding array of
     basepoints on an n-sphere (one for each euclidean vector), map the euclidean
@@ -61,7 +61,7 @@ def project_to_sphere_tangent_space(euclidean_vectors, sphere_basepoints):
     return result
 
 
-@numba.njit(nogil=True, fastmath=True)
+@numba.njit(nogil=True, fastmath=True, cache=True)
 def tangent_vectors_scales(reference_vectors, image_vectors):
     """Derive scaling values as the cosine distance between reference
     vectors and associated image vectors.
@@ -118,7 +118,7 @@ def get_transport_plan(flow, graph):
     return result
 
 
-@numba.njit()
+@numba.njit(cache=True)
 def transport_plan(p, q, cost, max_iter=100000):
     """Given distributions ``p`` and ``q`` and a transport cost matrix ``cost``
     compute the optimal transport plan from p to q.
@@ -217,7 +217,7 @@ def chunked_pairwise_distance(data1, data2, dist=cosine, chunk_size=4):
 
 
 # !! In place modification for efficiency
-@numba.njit(nogil=True, fastmath=True)
+@numba.njit(nogil=True, fastmath=True, cache=True)
 def l2_normalize(vectors):
     """Normalize a set of vectors in place.
 
