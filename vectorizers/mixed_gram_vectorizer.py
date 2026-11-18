@@ -366,7 +366,7 @@ def pair_to_list(pair, code_list, max_char_code):
     return to_code_num(pair[0], code_list, max_char_code) + to_code_num(pair[1], code_list, max_char_code)
 
 
-@numba.njit()
+@numba.njit(cache=True)
 def bpe_train(char_list, vocab_size=10000, min_count=1, max_char_code=0):
     """Train a byte pair encoding on a given list of strings.
 
